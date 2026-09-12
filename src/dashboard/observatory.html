@@ -1,0 +1,2267 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Interactive neural-style observatory for Henry's associative memory system." />
+  <title>Henry / Memory Observatory</title>
+</head>
+<body style="margin:0; background:#030912;">
+<div id="henry-memory-network">
+  <style>
+    #henry-memory-network {
+      --baseline-font: 1px;
+      /* Constellation palette (constellation-spec.md) — deep ink grounds with a
+         restrained cyan/blue/violet accent family. Green survives only as the
+         Communication node type in the graph, never as a UI accent. */
+      --background: #07111f;
+      --background-deep: #030912;
+      --card: rgba(9, 20, 38, 0.72);
+      --card-soft: rgba(12, 28, 52, 0.62);
+      --card-strong: rgba(12, 28, 52, 0.86);
+      --foreground: #eef7ff;
+      --muted: #8aa4bf;
+      --faint: #5c7a99;
+      --border: rgba(155, 190, 255, 0.18);
+      --border-strong: rgba(38, 230, 255, 0.34);
+      --blue: #4e7dff;
+      --cyan: #26e6ff;
+      --purple: #8d5cff;
+      --gold: #ffc857;
+      --green: #35efc3;
+      --red: #ff6f8d;
+      --viz-series-1: #26e6ff;
+      --viz-series-2: #4e7dff;
+      --viz-series-3: #8d5cff;
+      --viz-series-4: #ffc857;
+      --viz-series-5: #35efc3;
+      --viz-series-6: #ff4fd8;
+      width: 100%;
+      color: var(--foreground);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: calc(14 * var(--baseline-font));
+      line-height: 1.45;
+    }
+
+    #henry-memory-network *,
+    #henry-memory-network *::before,
+    #henry-memory-network *::after {
+      box-sizing: border-box;
+    }
+
+    #henry-memory-network button,
+    #henry-memory-network input {
+      font: inherit;
+    }
+
+    #henry-memory-network button {
+      color: inherit;
+    }
+
+    #henry-memory-network .hmn-shell {
+      position: relative;
+      overflow: hidden;
+      min-height: 860px;
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      background:
+        radial-gradient(circle at 12% 0%, rgba(100, 164, 255, 0.15), transparent 30%),
+        radial-gradient(circle at 90% 18%, rgba(178, 140, 255, 0.11), transparent 28%),
+        linear-gradient(145deg, #0a0e16 0%, var(--background) 52%, var(--background-deep) 100%);
+    }
+
+    #henry-memory-network .hmn-shell::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.22;
+      background-image:
+        linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: linear-gradient(to bottom, black, transparent 80%);
+    }
+
+    #henry-memory-network .hmn-topbar,
+    #henry-memory-network .hmn-content {
+      position: relative;
+      z-index: 1;
+    }
+
+    #henry-memory-network .hmn-topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 20px;
+      padding: 22px 28px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #henry-memory-network .hmn-brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    #henry-memory-network .hmn-mark {
+      display: grid;
+      place-items: center;
+      width: 28px;
+      height: 28px;
+      border: 1px solid rgba(100, 164, 255, 0.55);
+      border-radius: 9px;
+      background: linear-gradient(135deg, rgba(100, 164, 255, 0.22), rgba(178, 140, 255, 0.12));
+      box-shadow: inset 0 0 18px rgba(100, 164, 255, 0.17);
+      color: var(--blue);
+      font-size: calc(14 * var(--baseline-font));
+      font-weight: 600;
+    }
+
+    #henry-memory-network .hmn-brand-name,
+    #henry-memory-network .hmn-eyebrow,
+    #henry-memory-network .hmn-mono,
+    #henry-memory-network .hmn-label,
+    #henry-memory-network .hmn-kicker {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-brand-name {
+      font-size: calc(11 * var(--baseline-font));
+      color: #d5dcea;
+    }
+
+    #henry-memory-network .hmn-brand-name span {
+      color: var(--blue);
+    }
+
+    #henry-memory-network .hmn-topbar-meta {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: calc(10 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-signal {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 12px rgba(111, 224, 167, 0.72);
+    }
+
+    #henry-memory-network .hmn-content {
+      padding: 34px 28px 38px;
+    }
+
+    #henry-memory-network .hmn-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.45fr) minmax(320px, 0.85fr);
+      gap: 28px;
+      align-items: end;
+      margin-bottom: 26px;
+    }
+
+    #henry-memory-network .hmn-eyebrow,
+    #henry-memory-network .hmn-kicker {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--blue);
+      font-size: calc(10 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-eyebrow::before {
+      content: "";
+      display: inline-block;
+      width: 22px;
+      height: 1px;
+      background: var(--blue);
+      box-shadow: 0 0 12px rgba(100, 164, 255, 0.8);
+    }
+
+    #henry-memory-network h1,
+    #henry-memory-network h2,
+    #henry-memory-network h3,
+    #henry-memory-network p {
+      margin: 0;
+    }
+
+    #henry-memory-network h1 {
+      max-width: 720px;
+      margin-top: 12px;
+      color: #fbfdff;
+      font-size: clamp(32px, 5vw, 64px);
+      font-weight: 500;
+      letter-spacing: -0.055em;
+      line-height: 0.98;
+    }
+
+    #henry-memory-network .hmn-hero-copy p {
+      max-width: 660px;
+      margin-top: 16px;
+      color: var(--muted);
+      font-size: calc(15 * var(--baseline-font));
+      line-height: 1.6;
+    }
+
+    #henry-memory-network .hmn-hero-copy p em {
+      color: #c9d5e9;
+      font-style: normal;
+    }
+
+    #henry-memory-network .hmn-hero-stats {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+
+    #henry-memory-network .hmn-stat {
+      min-height: 96px;
+      padding: 15px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(14, 19, 29, 0.7);
+      backdrop-filter: blur(14px);
+    }
+
+    #henry-memory-network .hmn-stat-label,
+    #henry-memory-network .hmn-stat-note {
+      display: block;
+      color: var(--muted);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-stat strong {
+      display: block;
+      margin: 8px 0 4px;
+      color: #f8fbff;
+      font-size: calc(24 * var(--baseline-font));
+      font-weight: 500;
+      letter-spacing: -0.055em;
+    }
+
+    #henry-memory-network .hmn-stat-note {
+      color: var(--faint);
+      font-size: calc(8 * var(--baseline-font));
+      letter-spacing: 0.04em;
+    }
+
+    #henry-memory-network .hmn-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 14px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: rgba(8, 11, 17, 0.78);
+      backdrop-filter: blur(18px);
+    }
+
+    #henry-memory-network .hmn-toolbar-group {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+    }
+
+    #henry-memory-network .hmn-toolbar-label {
+      margin: 0 8px 0 4px;
+      color: var(--faint);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-button,
+    #henry-memory-network .hmn-tab,
+    #henry-memory-network .hmn-icon-button {
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: border-color 180ms ease, background 180ms ease, color 180ms ease, transform 180ms ease;
+    }
+
+    #henry-memory-network .hmn-button:focus-visible,
+    #henry-memory-network .hmn-tab:focus-visible,
+    #henry-memory-network .hmn-icon-button:focus-visible,
+    #henry-memory-network input:focus-visible,
+    #henry-memory-network canvas:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    #henry-memory-network .hmn-tab {
+      padding: 8px 10px;
+      border-radius: 8px;
+      background: transparent;
+      color: var(--muted);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-tab:hover,
+    #henry-memory-network .hmn-tab[aria-pressed="true"] {
+      border-color: rgba(100, 164, 255, 0.34);
+      background: rgba(100, 164, 255, 0.13);
+      color: #dceaff;
+    }
+
+    #henry-memory-network .hmn-button {
+      padding: 8px 12px;
+      border-color: rgba(100, 164, 255, 0.4);
+      border-radius: 8px;
+      background: rgba(100, 164, 255, 0.16);
+      color: #e4efff;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-button:hover {
+      border-color: rgba(100, 164, 255, 0.76);
+      background: rgba(100, 164, 255, 0.25);
+      transform: translateY(-1px);
+    }
+
+    #henry-memory-network .hmn-button.subtle {
+      border-color: var(--border);
+      background: rgba(255, 255, 255, 0.035);
+      color: var(--muted);
+    }
+
+    #henry-memory-network .hmn-search {
+      display: flex;
+      align-items: center;
+      min-width: min(300px, 100%);
+      gap: 8px;
+      padding: 0 11px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.035);
+    }
+
+    #henry-memory-network .hmn-search span {
+      color: var(--faint);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(10 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-search input {
+      width: 100%;
+      min-width: 0;
+      padding: 8px 0;
+      border: 0;
+      outline: 0;
+      background: transparent;
+      color: var(--foreground);
+      font-size: calc(12 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-search input::placeholder {
+      color: var(--faint);
+    }
+
+    #henry-memory-network .hmn-select {
+      padding: 7px 8px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.035);
+      color: var(--foreground);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.04em;
+    }
+
+    #henry-memory-network .hmn-select:focus-visible {
+      outline: 2px solid var(--blue);
+      outline-offset: 2px;
+    }
+
+    #henry-memory-network .hmn-tab[data-recall-store="knowledge"][aria-pressed="true"] {
+      border-color: rgba(178, 140, 255, 0.4);
+      background: rgba(178, 140, 255, 0.16);
+      color: #ecdfff;
+    }
+
+    #henry-memory-network #hmn-recall-panel {
+      padding: 16px 18px 0 18px;
+    }
+
+    #henry-memory-network #hmn-recall-panel .hmn-section-label {
+      margin-bottom: 10px;
+    }
+
+    #henry-memory-network #hmn-trace-panel {
+      padding: 16px 18px 0;
+      border-top: 1px solid var(--border);
+    }
+
+    #henry-memory-network #hmn-trace-panel .hmn-section-label {
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    #henry-memory-network .hmn-trace-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 270px;
+      overflow-y: auto;
+    }
+
+    #henry-memory-network .hmn-trace-row {
+      padding: 9px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    #henry-memory-network .hmn-trace-row > summary {
+      list-style: none;
+      cursor: pointer;
+    }
+
+    #henry-memory-network .hmn-trace-row > summary::-webkit-details-marker {
+      display: none;
+    }
+
+    #henry-memory-network .hmn-trace-summary,
+    #henry-memory-network .hmn-trace-memory {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    #henry-memory-network .hmn-trace-summary {
+      color: var(--muted);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-trace-count {
+      color: var(--cyan);
+      white-space: nowrap;
+    }
+
+    #henry-memory-network .hmn-trace-memory-list {
+      display: flex;
+      flex-wrap: wrap;
+      flex-direction: column;
+      gap: 5px;
+      margin-top: 7px;
+    }
+
+    #henry-memory-network .hmn-trace-memory {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr);
+      justify-content: flex-start;
+      max-width: 100%;
+      padding: 3px 5px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--muted);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(8 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-trace-memory-main,
+    #henry-memory-network .hmn-trace-memory-detail {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    #henry-memory-network .hmn-trace-memory-main {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    #henry-memory-network .hmn-trace-memory-id {
+      color: var(--foreground);
+      font-weight: 500;
+    }
+
+    #henry-memory-network .hmn-trace-memory-score {
+      white-space: nowrap;
+    }
+
+    #henry-memory-network .hmn-trace-memory-detail {
+      margin-top: 3px;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    #henry-memory-network .hmn-trace-memory[data-outcome="used"] { color: var(--green); }
+    #henry-memory-network .hmn-trace-memory[data-outcome="below-threshold"] { color: var(--gold); }
+    #henry-memory-network .hmn-trace-memory[data-outcome="truncated"] { color: var(--red); }
+
+    #henry-memory-network .hmn-ring-note {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+
+    #henry-memory-network .hmn-ring-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      border: 1.5px solid var(--cyan);
+      background: transparent;
+    }
+
+    #henry-memory-network .hmn-ring-dot.dim {
+      opacity: 0.5;
+    }
+
+    #henry-memory-network .hmn-workspace {
+      display: grid;
+      grid-template-columns: minmax(0, 1.72fr) minmax(280px, 0.8fr);
+      gap: 14px;
+      align-items: stretch;
+    }
+
+    #henry-memory-network .hmn-panel {
+      border: 1px solid var(--border);
+      border-radius: 17px;
+      background: linear-gradient(145deg, rgba(19, 24, 36, 0.9), rgba(10, 14, 23, 0.88));
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+      backdrop-filter: blur(24px);
+    }
+
+    #henry-memory-network .hmn-panel-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 17px 18px 13px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #henry-memory-network .hmn-panel-title {
+      color: #eef4ff;
+      font-size: calc(14 * var(--baseline-font));
+      font-weight: 500;
+      letter-spacing: -0.02em;
+    }
+
+    #henry-memory-network .hmn-panel-subtitle {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: calc(11 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-panel-status {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      color: var(--green);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+
+    #henry-memory-network .hmn-graph-mount {
+      position: relative;
+      padding: 0 16px 16px;
+      --hmc-height: clamp(480px, 57vw, 650px);
+    }
+
+    #henry-memory-network .hmn-graph-footer {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 48px;
+      padding: 10px 16px;
+      border-top: 1px solid var(--border);
+      color: var(--muted);
+      font-size: calc(10 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-inspector {
+      display: flex;
+      min-height: 600px;
+      flex-direction: column;
+    }
+
+    #henry-memory-network .hmn-inspector-body {
+      display: flex;
+      flex: 1;
+      flex-direction: column;
+      gap: 18px;
+      padding: 18px;
+    }
+
+    #henry-memory-network .hmn-node-identity {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+    }
+
+    #henry-memory-network .hmn-node-orb {
+      flex: 0 0 auto;
+      width: 34px;
+      height: 34px;
+      border: 1px solid var(--node-color);
+      border-radius: 50%;
+      background: radial-gradient(circle, color-mix(in srgb, var(--node-color), white 16%), color-mix(in srgb, var(--node-color), transparent 80%) 44%, transparent 72%);
+      box-shadow: 0 0 22px color-mix(in srgb, var(--node-color), transparent 55%);
+    }
+
+    #henry-memory-network .hmn-node-title {
+      color: #f2f6fc;
+      font-size: calc(16 * var(--baseline-font));
+      font-weight: 500;
+      letter-spacing: -0.025em;
+      line-height: 1.25;
+    }
+
+    #henry-memory-network .hmn-node-id {
+      margin-top: 5px;
+      overflow-wrap: anywhere;
+      color: var(--muted);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-node-copy {
+      color: #b0bbcc;
+      font-size: calc(12 * var(--baseline-font));
+      line-height: 1.65;
+    }
+
+    #henry-memory-network .hmn-chip-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    #henry-memory-network .hmn-chip {
+      padding: 4px 7px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--muted);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(8 * var(--baseline-font));
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-chip.store-personal {
+      border-color: rgba(88, 225, 219, 0.32);
+      color: var(--cyan);
+    }
+
+    #henry-memory-network .hmn-chip.store-knowledge {
+      border-color: rgba(178, 140, 255, 0.32);
+      color: var(--purple);
+    }
+
+    #henry-memory-network .hmn-inspector-section {
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    #henry-memory-network .hmn-section-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+      color: var(--faint);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-section-label strong {
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    #henry-memory-network .hmn-score-row {
+      display: grid;
+      grid-template-columns: 92px 1fr 38px;
+      align-items: center;
+      gap: 8px;
+      margin-top: 9px;
+      color: var(--muted);
+      font-size: calc(10 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-score-row strong {
+      color: #dfe9f7;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      font-weight: 400;
+      text-align: right;
+    }
+
+    #henry-memory-network .hmn-score-bar {
+      height: 4px;
+      overflow: hidden;
+      border-radius: 100px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    #henry-memory-network .hmn-score-bar span {
+      display: block;
+      width: var(--score-width);
+      height: 100%;
+      border-radius: inherit;
+      background: var(--score-color);
+      box-shadow: 0 0 10px color-mix(in srgb, var(--score-color), transparent 42%);
+      transition: width 360ms ease;
+    }
+
+    #henry-memory-network .hmn-edge-list,
+    #henry-memory-network .hmn-result-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    #henry-memory-network .hmn-edge-item,
+    #henry-memory-network .hmn-result-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-width: 0;
+      padding: 8px 9px;
+      border: 1px solid rgba(156, 172, 198, 0.11);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    #henry-memory-network .hmn-edge-main,
+    #henry-memory-network .hmn-result-main {
+      min-width: 0;
+    }
+
+    #henry-memory-network .hmn-edge-name,
+    #henry-memory-network .hmn-result-title {
+      overflow: hidden;
+      color: #d7e0ef;
+      font-size: calc(10 * var(--baseline-font));
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    #henry-memory-network .hmn-edge-type,
+    #henry-memory-network .hmn-result-meta {
+      margin-top: 3px;
+      color: var(--faint);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(8 * var(--baseline-font));
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-edge-weight,
+    #henry-memory-network .hmn-result-score {
+      flex: 0 0 auto;
+      color: var(--blue);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-signal-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    #henry-memory-network .hmn-signal-panel {
+      padding: 17px 18px;
+    }
+
+    #henry-memory-network .hmn-signal-bars {
+      display: grid;
+      gap: 12px;
+      margin-top: 15px;
+    }
+
+    #henry-memory-network .hmn-signal-line {
+      display: grid;
+      grid-template-columns: 112px 1fr 36px;
+      align-items: center;
+      gap: 10px;
+      color: var(--muted);
+      font-size: calc(10 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-signal-line strong {
+      color: #d7e2f2;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      font-weight: 400;
+      text-align: right;
+    }
+
+    #henry-memory-network .hmn-signal-track {
+      height: 6px;
+      overflow: hidden;
+      border-radius: 100px;
+      background: rgba(255, 255, 255, 0.07);
+    }
+
+    #henry-memory-network .hmn-signal-track span {
+      display: block;
+      width: var(--signal-width);
+      height: 100%;
+      border-radius: inherit;
+      background: var(--signal-color);
+      box-shadow: 0 0 12px color-mix(in srgb, var(--signal-color), transparent 38%);
+      transition: width 500ms ease;
+    }
+
+    #henry-memory-network .hmn-route-copy {
+      margin-top: 11px;
+      color: var(--muted);
+      font-size: calc(11 * var(--baseline-font));
+      line-height: 1.65;
+    }
+
+    #henry-memory-network .hmn-route-copy strong {
+      color: #e4efff;
+      font-weight: 500;
+    }
+
+    #henry-memory-network .hmn-route-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 13px;
+      padding: 6px 8px;
+      border: 1px solid rgba(111, 224, 167, 0.3);
+      border-radius: 6px;
+      background: rgba(111, 224, 167, 0.07);
+      color: var(--green);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(8 * var(--baseline-font));
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-route-pill::before {
+      content: "";
+      width: 5px;
+      height: 5px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 8px currentColor;
+    }
+
+    #henry-memory-network .hmn-pipeline {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 7px;
+      margin-top: 15px;
+    }
+
+    #henry-memory-network .hmn-pipeline-step {
+      position: relative;
+      min-height: 68px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 9px;
+      background: rgba(255, 255, 255, 0.025);
+      transition: border-color 240ms ease, background 240ms ease, transform 240ms ease;
+    }
+
+    #henry-memory-network .hmn-pipeline-step::after {
+      content: "→";
+      position: absolute;
+      top: 23px;
+      right: -12px;
+      z-index: 2;
+      color: var(--faint);
+    }
+
+    #henry-memory-network .hmn-pipeline-step:last-child::after {
+      display: none;
+    }
+
+    #henry-memory-network .hmn-pipeline-step.is-active {
+      border-color: rgba(100, 164, 255, 0.6);
+      background: rgba(100, 164, 255, 0.13);
+      transform: translateY(-2px);
+    }
+
+    #henry-memory-network .hmn-pipeline-number {
+      color: var(--blue);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(8 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-pipeline-name {
+      margin-top: 8px;
+      color: #e4ebf8;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-pipeline-note {
+      margin-top: 3px;
+      color: var(--faint);
+      font-size: calc(9 * var(--baseline-font));
+    }
+
+    #henry-memory-network .hmn-bottom-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-top: 14px;
+    }
+
+    #henry-memory-network .hmn-architecture-card {
+      min-height: 166px;
+      padding: 17px 18px;
+    }
+
+    #henry-memory-network .hmn-architecture-card h3 {
+      margin-top: 7px;
+      color: #ecf2fb;
+      font-size: calc(14 * var(--baseline-font));
+      font-weight: 500;
+      letter-spacing: -0.02em;
+    }
+
+    #henry-memory-network .hmn-architecture-card p {
+      margin-top: 8px;
+      color: var(--muted);
+      font-size: calc(11 * var(--baseline-font));
+      line-height: 1.6;
+    }
+
+    #henry-memory-network .hmn-flow {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 6px;
+      margin-top: 14px;
+      color: #c8d5e7;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-flow span {
+      padding: 5px 6px;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.025);
+    }
+
+    #henry-memory-network .hmn-flow i {
+      color: var(--faint);
+      font-style: normal;
+    }
+
+    #henry-memory-network .hmn-handoff {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 13px;
+      padding: 7px 9px;
+      border: 1px solid rgba(240, 189, 110, 0.36);
+      border-radius: 7px;
+      background: rgba(240, 189, 110, 0.08);
+      color: var(--gold);
+      cursor: pointer;
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(9 * var(--baseline-font));
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    #henry-memory-network .hmn-handoff:hover {
+      border-color: rgba(240, 189, 110, 0.75);
+      background: rgba(240, 189, 110, 0.15);
+    }
+
+    #henry-memory-network .hmn-toast {
+      position: absolute;
+      right: 22px;
+      bottom: 20px;
+      z-index: 4;
+      max-width: min(330px, calc(100% - 44px));
+      padding: 10px 12px;
+      border: 1px solid rgba(111, 224, 167, 0.36);
+      border-radius: 9px;
+      background: rgba(8, 14, 15, 0.94);
+      color: var(--green);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      font-size: calc(10 * var(--baseline-font));
+      opacity: 0;
+      pointer-events: none;
+      transform: translateY(8px);
+      transition: opacity 180ms ease, transform 180ms ease;
+    }
+
+    #henry-memory-network .hmn-toast.is-visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 980px) {
+      #henry-memory-network .hmn-hero,
+      #henry-memory-network .hmn-workspace,
+      #henry-memory-network .hmn-signal-grid {
+        grid-template-columns: 1fr;
+      }
+
+      #henry-memory-network .hmn-inspector {
+        min-height: auto;
+      }
+
+      #henry-memory-network .hmn-inspector-body {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      #henry-memory-network .hmn-inspector-body > :first-child {
+        grid-column: 1 / -1;
+      }
+    }
+
+    @media (max-width: 680px) {
+      #henry-memory-network .hmn-topbar,
+      #henry-memory-network .hmn-content {
+        padding-right: 16px;
+        padding-left: 16px;
+      }
+
+      #henry-memory-network .hmn-topbar-meta {
+        display: none;
+      }
+
+      #henry-memory-network .hmn-hero-stats,
+      #henry-memory-network .hmn-bottom-grid,
+      #henry-memory-network .hmn-inspector-body {
+        grid-template-columns: 1fr;
+      }
+
+      #henry-memory-network .hmn-inspector-body > :first-child {
+        grid-column: auto;
+      }
+
+      #henry-memory-network .hmn-toolbar {
+        align-items: stretch;
+      }
+
+      #henry-memory-network .hmn-toolbar-group,
+      #henry-memory-network .hmn-search {
+        width: 100%;
+      }
+
+      #henry-memory-network .hmn-search {
+        min-width: 0;
+      }
+
+      #henry-memory-network .hmn-graph-mount {
+        --hmc-height: 510px;
+      }
+
+      #henry-memory-network .hmn-pipeline {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      #henry-memory-network .hmn-pipeline-step::after {
+        display: none;
+      }
+
+      #henry-memory-network .hmn-signal-line {
+        grid-template-columns: 94px 1fr 32px;
+      }
+    }
+
+    @media (max-width: 390px) {
+      #henry-memory-network h1 {
+        font-size: 34px;
+      }
+
+      #henry-memory-network .hmn-content {
+        padding-top: 25px;
+      }
+
+      #henry-memory-network .hmn-toolbar-group {
+        gap: 4px;
+      }
+
+      #henry-memory-network .hmn-tab {
+        padding-right: 8px;
+        padding-left: 8px;
+      }
+    }
+  </style>
+
+  <div class="hmn-shell">
+    <header class="hmn-topbar">
+      <div class="hmn-brand">
+        <div class="hmn-mark" aria-hidden="true">H</div>
+        <div class="hmn-brand-name"><span>HENRY</span> / MEMORY OBSERVATORY</div>
+      </div>
+      <div class="hmn-topbar-meta">
+        <span class="hmn-signal" aria-hidden="true"></span>
+        <span id="hmn-topbar-meta">GRAPH WORKER · LIVE ENGRAM DATA</span>
+      </div>
+    </header>
+
+    <main class="hmn-content">
+      <section class="hmn-hero" aria-labelledby="hmn-title">
+        <div class="hmn-hero-copy">
+          <div class="hmn-eyebrow">associative memory / live topology</div>
+          <h1 id="hmn-title">the graph remembers in layers.</h1>
+          <p>
+            A neural-style view of Henry’s two-store memory system:
+            <em>durable markdown, rebuildable indexes, hybrid retrieval, and activation that travels through association.</em>
+          </p>
+        </div>
+        <div class="hmn-hero-stats" aria-label="System metrics">
+          <div class="hmn-stat">
+            <span class="hmn-stat-label">memory nodes</span>
+            <strong id="hmn-node-count">—</strong>
+            <span class="hmn-stat-note">live engram graph</span>
+          </div>
+          <div class="hmn-stat">
+            <span class="hmn-stat-label">edge types</span>
+            <strong id="hmn-edge-count">—</strong>
+            <span class="hmn-stat-note">typed associations</span>
+          </div>
+          <div class="hmn-stat">
+            <span class="hmn-stat-label">embedding</span>
+            <strong>384d</strong>
+            <span class="hmn-stat-note" id="hmn-embedding-note">local / offline</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="hmn-toolbar" aria-label="Graph controls">
+        <div class="hmn-toolbar-group">
+          <span class="hmn-toolbar-label">scope</span>
+          <button class="hmn-tab" type="button" data-store-view="all" aria-pressed="true">all nodes</button>
+          <button class="hmn-tab" type="button" data-store-view="personal" aria-pressed="false">personal</button>
+          <button class="hmn-tab" type="button" data-store-view="knowledge" aria-pressed="false">knowledge</button>
+          <button class="hmn-tab" type="button" data-toggle="edges" aria-pressed="true">edges on</button>
+          <button class="hmn-tab" type="button" data-toggle="motion" aria-pressed="true">activation on</button>
+        </div>
+        <div class="hmn-toolbar-group">
+          <label class="hmn-search" for="hmn-search-input">
+            <span aria-hidden="true">⌕</span>
+            <input id="hmn-search-input" type="search" placeholder="query the associative graph" autocomplete="off" />
+          </label>
+          <button class="hmn-button" type="button" id="hmn-replay">replay retrieval</button>
+          <button class="hmn-button subtle" type="button" id="hmn-reset">reset view</button>
+        </div>
+      </section>
+
+      <section class="hmn-toolbar" aria-label="Recall lab" id="hmn-recall-toolbar">
+        <div class="hmn-toolbar-group">
+          <span class="hmn-toolbar-label">recall lab</span>
+          <label class="hmn-search" for="hmn-recall-input" style="min-width: min(320px, 100%);">
+            <span aria-hidden="true">⌕</span>
+            <input id="hmn-recall-input" type="search" placeholder="recall a memory…" autocomplete="off" />
+          </label>
+          <button class="hmn-tab" type="button" data-recall-store="personal" aria-pressed="true">personal</button>
+          <button class="hmn-tab" type="button" data-recall-store="knowledge" aria-pressed="false">knowledge</button>
+          <select class="hmn-select" id="hmn-recall-k" aria-label="Results to return">
+            <option value="5">k = 5</option>
+            <option value="8" selected>k = 8</option>
+            <option value="15">k = 15</option>
+            <option value="25">k = 25</option>
+          </select>
+          <button class="hmn-button" type="button" id="hmn-recall-submit">recall</button>
+          <button class="hmn-button subtle" type="button" id="hmn-recall-clear">clear</button>
+        </div>
+        <div class="hmn-toolbar-group" id="hmn-edge-type-filters" aria-label="Edge-type filters">
+          <span class="hmn-toolbar-label">edges</span>
+          <button class="hmn-tab" type="button" data-edge-filter="similar" aria-pressed="true">similar</button>
+          <button class="hmn-tab" type="button" data-edge-filter="temporal_next" aria-pressed="true">temporal</button>
+          <button class="hmn-tab" type="button" data-edge-filter="about" aria-pressed="true">about</button>
+          <button class="hmn-tab" type="button" data-edge-filter="caused" aria-pressed="true">caused</button>
+          <button class="hmn-tab" type="button" data-edge-filter="supersedes" aria-pressed="true">supersedes</button>
+          <button class="hmn-tab" type="button" data-edge-filter="lesson_from" aria-pressed="true">lesson</button>
+          <button class="hmn-tab" type="button" id="hmn-archived-toggle" aria-pressed="false">show archived</button>
+        </div>
+      </section>
+
+      <section class="hmn-workspace">
+        <div class="hmn-panel">
+          <div class="hmn-panel-head">
+            <div>
+              <div class="hmn-panel-title">Associative topology</div>
+              <div class="hmn-panel-subtitle">drag to orbit · scroll to zoom · click a star to inspect</div>
+            </div>
+            <div class="hmn-panel-status"><span class="hmn-signal" aria-hidden="true"></span><span id="hmn-graph-status">warm / indexed</span></div>
+          </div>
+          <!-- The graph is the shared constellation module (/constellation.js): it
+               builds its own canvas, HUD, legend and controls, so this immersive view
+               and the compact dashboard card cannot drift apart. -->
+          <div class="hmn-graph-mount" id="hmn-graph-shell"><div id="hmn-constellation"></div></div>
+          <div class="hmn-graph-footer">
+            <span class="hmn-mono"><strong id="hmn-visible-count">—</strong> visible stars</span>
+            <span class="hmn-mono">activation = relevance × spread × usefulness</span>
+          </div>
+        </div>
+
+        <aside class="hmn-panel hmn-inspector" aria-live="polite">
+          <div class="hmn-panel-head">
+            <div>
+              <div class="hmn-panel-title">Memory inspector</div>
+              <div class="hmn-panel-subtitle">selected node + associative neighborhood</div>
+            </div>
+            <div class="hmn-panel-status" id="hmn-inspector-status">selected</div>
+          </div>
+          <div id="hmn-recall-panel" class="hmn-inspector-section" hidden>
+            <div class="hmn-section-label"><span>recall lab results</span><strong id="hmn-recall-meta"></strong></div>
+            <div id="hmn-recall-results" class="hmn-result-list"></div>
+          </div>
+          <div id="hmn-trace-panel" class="hmn-inspector-section">
+            <div class="hmn-section-label">
+              <span>context traces</span>
+              <button class="hmn-tab" type="button" id="hmn-trace-refresh">refresh</button>
+            </div>
+            <div id="hmn-trace-meta" class="hmn-node-copy">loading…</div>
+            <div id="hmn-trace-list" class="hmn-trace-list" aria-live="polite"></div>
+          </div>
+          <div class="hmn-inspector-body" id="hmn-inspector-body"></div>
+        </aside>
+      </section>
+
+      <section class="hmn-signal-grid">
+        <div class="hmn-panel hmn-signal-panel">
+          <div class="hmn-kicker">retrieval signal composition · client-side preview</div>
+          <div class="hmn-panel-title" style="margin-top: 7px;">why this memory surfaced</div>
+          <div class="hmn-signal-bars">
+            <div class="hmn-signal-line">
+              <span>semantic cosine</span>
+              <div class="hmn-signal-track"><span id="hmn-semantic-bar" style="--signal-color: var(--blue); --signal-width: 78%"></span></div>
+              <strong id="hmn-semantic-value">0.78</strong>
+            </div>
+            <div class="hmn-signal-line">
+              <span>FTS5 lexical</span>
+              <div class="hmn-signal-track"><span id="hmn-lexical-bar" style="--signal-color: var(--cyan); --signal-width: 54%"></span></div>
+              <strong id="hmn-lexical-value">0.54</strong>
+            </div>
+            <div class="hmn-signal-line">
+              <span>RRF fusion</span>
+              <div class="hmn-signal-track"><span id="hmn-rrf-bar" style="--signal-color: var(--purple); --signal-width: 66%"></span></div>
+              <strong id="hmn-rrf-value">0.66</strong>
+            </div>
+            <div class="hmn-signal-line">
+              <span>spreading activation</span>
+              <div class="hmn-signal-track"><span id="hmn-spread-bar" style="--signal-color: var(--gold); --signal-width: 42%"></span></div>
+              <strong id="hmn-spread-value">0.42</strong>
+            </div>
+          </div>
+        </div>
+        <div class="hmn-panel hmn-signal-panel">
+          <div class="hmn-kicker">zero-LLM router</div>
+          <div class="hmn-panel-title" style="margin-top: 7px;">knowledge is conditional</div>
+          <p class="hmn-route-copy" id="hmn-route-copy">
+            Regex sees a <strong>GTM / product</strong> signal, so the versioned knowledge base is eligible for injection. Casual chat would leave this block out.
+          </p>
+          <div class="hmn-route-pill" id="hmn-route-pill">knowledge block eligible</div>
+        </div>
+      </section>
+
+      <section class="hmn-panel hmn-signal-panel" style="margin-top: 14px;">
+        <div class="hmn-kicker">query → context budget</div>
+        <div class="hmn-panel-title" style="margin-top: 7px;">the retrieval path stays observable</div>
+        <div class="hmn-pipeline" id="hmn-pipeline">
+          <div class="hmn-pipeline-step is-active" data-pipeline-step="0">
+            <div class="hmn-pipeline-number">01</div>
+            <div class="hmn-pipeline-name">embed</div>
+            <div class="hmn-pipeline-note">bge-small / local</div>
+          </div>
+          <div class="hmn-pipeline-step" data-pipeline-step="1">
+            <div class="hmn-pipeline-number">02</div>
+            <div class="hmn-pipeline-name">hybrid</div>
+            <div class="hmn-pipeline-note">cosine + FTS5</div>
+          </div>
+          <div class="hmn-pipeline-step" data-pipeline-step="2">
+            <div class="hmn-pipeline-number">03</div>
+            <div class="hmn-pipeline-name">fuse</div>
+            <div class="hmn-pipeline-note">RRF ranks</div>
+          </div>
+          <div class="hmn-pipeline-step" data-pipeline-step="3">
+            <div class="hmn-pipeline-number">04</div>
+            <div class="hmn-pipeline-name">spread</div>
+            <div class="hmn-pipeline-note">graph activation</div>
+          </div>
+          <div class="hmn-pipeline-step" data-pipeline-step="4">
+            <div class="hmn-pipeline-number">05</div>
+            <div class="hmn-pipeline-name">inject</div>
+            <div class="hmn-pipeline-note">token budget</div>
+          </div>
+        </div>
+      </section>
+
+      <section class="hmn-bottom-grid">
+        <article class="hmn-panel hmn-architecture-card">
+          <div class="hmn-kicker">store / durable truth</div>
+          <h3>Personal memory</h3>
+          <p>Life and work facts, conversations, decisions. Memories decay, get superseded, and become protected when dreaming proves their usefulness.</p>
+          <div class="hmn-flow">
+            <span>memory/*.md</span><i>→</i><span>engram.db</span><i>→</i><span>every turn</span>
+          </div>
+        </article>
+        <article class="hmn-panel hmn-architecture-card">
+          <div class="hmn-kicker">store / durable corpus</div>
+          <h3>Knowledge base</h3>
+          <p>Curated chunks plus atomic strategy cards. Versioned, attributed, and injected only when the regex domain router finds a match.</p>
+          <div class="hmn-flow">
+            <span>corpus</span><i>→</i><span>knowledge.db</span><i>→</i><span>on demand</span>
+          </div>
+        </article>
+        <article class="hmn-panel hmn-architecture-card">
+          <div class="hmn-kicker">handoff / implementation contract</div>
+          <h3>Make it buildable</h3>
+          <p>This view is a visual brief: use the graph to communicate hierarchy, decay, promotion, typed edges, retrieval activation, and conditional injection.</p>
+          <button class="hmn-handoff" type="button" id="hmn-copy-handoff">copy Claude handoff ↗</button>
+        </article>
+      </section>
+    </main>
+    <div class="hmn-toast" id="hmn-toast" role="status">handoff copied to clipboard</div>
+  </div>
+
+  <script src="/constellation.js"></script>
+  <script>
+    (function () {
+      "use strict";
+
+      var root = document.getElementById("henry-memory-network");
+      if (!root) return;
+
+      var mountHost = root.querySelector("#hmn-constellation");
+      var graphShell = root.querySelector("#hmn-graph-shell");
+      // Rendering lives in the shared module; this page owns data, the recall
+      // lab, traces and the pipeline panels — no drawing code of its own.
+      var constellation = null;
+      var searchInput = root.querySelector("#hmn-search-input");
+      var recallInput = root.querySelector("#hmn-recall-input");
+      var visibleCount = root.querySelector("#hmn-visible-count");
+      var nodeCount = root.querySelector("#hmn-node-count");
+      var edgeCount = root.querySelector("#hmn-edge-count");
+      var graphStatus = root.querySelector("#hmn-graph-status");
+      var inspectorBody = root.querySelector("#hmn-inspector-body");
+      var inspectorStatus = root.querySelector("#hmn-inspector-status");
+      var routeCopy = root.querySelector("#hmn-route-copy");
+      var routePill = root.querySelector("#hmn-route-pill");
+      var toast = root.querySelector("#hmn-toast");
+      var topbarMeta = root.querySelector("#hmn-topbar-meta");
+      var embeddingNote = root.querySelector("#hmn-embedding-note");
+      var traceMeta = root.querySelector("#hmn-trace-meta");
+      var traceList = root.querySelector("#hmn-trace-list");
+
+      // Cap on rendered personal-memory nodes; the relax pass is O(n^2)/step.
+      var PERSONAL_MAX_NODES = 400;
+
+      var palette = {
+        personal: "#58e1db",
+        knowledge: "#b28cff",
+        retrieval: "#64a4ff",
+        entity: "#f0bd6e",
+        episodic: "#8bbcff",
+        semantic: "#6fe0a7",
+        procedural: "#f0bd6e",
+        edge: "rgba(161, 178, 205, 0.2)",
+        supports: "rgba(111, 224, 167, 0.72)",
+        supersedes: "rgba(246, 132, 138, 0.86)",
+        mentions: "rgba(240, 189, 110, 0.7)",
+        related: "rgba(100, 164, 255, 0.68)",
+        derived: "rgba(178, 140, 255, 0.72)",
+        routes: "rgba(88, 225, 219, 0.84)",
+        contains: "rgba(178, 140, 255, 0.5)",
+        // Real engram edge types (EdgeType in engram-memory/dist/store/types.d.ts).
+        similar: "rgba(100, 164, 255, 0.68)",
+        temporal_next: "rgba(88, 225, 219, 0.6)",
+        about: "rgba(240, 189, 110, 0.7)",
+        caused: "rgba(178, 140, 255, 0.72)",
+        lesson_from: "rgba(111, 224, 167, 0.72)"
+      };
+
+      var state = {
+        storeView: "all",
+        showEdges: true,
+        showMotion: true,
+        search: "",
+        selectedId: null,
+        hoveredId: null,
+        pulseStart: performance.now(),
+        animationToken: 0,
+        routeDomain: "gtm / product",
+        // Recall lab (dashboard-design-v2.md §A1-A2): null when no lab query has run yet;
+        // otherwise {seeds:Set<id>, activated:Set<id>} is handed to the module as a highlight map.
+        recallLab: null,
+        recallStore: "personal",
+        edgeTypeFilter: new Set(["similar", "temporal_next", "about", "caused", "supersedes", "lesson_from"]),
+        showArchived: false
+      };
+
+      var nodes = [];
+      var edges = [];
+      var byId = {};
+      var randomSeed = 42;
+      var graphWidth = 0;
+      var graphHeight = 0;
+      var animationRunning = false;
+
+      function seededRandom() {
+        var x = Math.sin(randomSeed++) * 10000;
+        return x - Math.floor(x);
+      }
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function esc(value) {
+        return String(value)
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/"/g, "&quot;")
+          .replace(/'/g, "&#39;");
+      }
+
+      function addNode(config) {
+        var node = {
+          id: config.id,
+          store: config.store || "personal",
+          tier: config.tier || "episodic",
+          type: config.type || "memory",
+          group: config.group || "facts",
+          title: config.title || "untitled memory",
+          body: config.body || "Indexed markdown memory with associative neighbors.",
+          source: config.source || (config.store === "knowledge" ? "knowledge corpus" : "memory/*.md"),
+          importance: config.importance || 5,
+          usage: config.usage || 0,
+          keywords: config.keywords || [],
+          x: config.x,
+          y: config.y,
+          radius: config.radius || 3.4,
+          locked: Boolean(config.locked),
+          archived: Boolean(config.archived),
+          activation: 0,
+          score: 0
+        };
+        nodes.push(node);
+        byId[node.id] = node;
+        return node;
+      }
+
+      // `real` marks edges that came out of the engram graph export (as opposed
+      // to the pipeline/aggregate scaffolding), so the "edge types" counter only
+      // ever reports genuine associative relationship types.
+      function addEdge(from, to, kind, weight, real) {
+        if (!byId[from] || !byId[to] || from === to) return;
+        var exists = edges.some(function (edge) {
+          return (edge.from === from && edge.to === to) || (edge.from === to && edge.to === from);
+        });
+        if (!exists) {
+          edges.push({ from: from, to: to, kind: kind || "related", weight: weight || 0.5, real: Boolean(real) });
+        }
+      }
+
+      // ---------------------------------------------------------------------
+      // LIVE DATA ADAPTER
+      // The four retrieval nodes below describe Henry's actual recall pipeline
+      // (embed -> hybrid + RRF -> spreading activation -> labeled context
+      // block; see src/memory/engram.ts). Everything else in the graph is
+      // loaded at runtime: personal-memory nodes and typed edges come from
+      // GET /api/memory/graph (engram GraphExport), the knowledge column from
+      // GET /api/knowledge, and header counters from GET /api/status.
+      // ---------------------------------------------------------------------
+
+      var pipelineAnchors = [
+        { id: "r-query", store: "retrieval", tier: "procedural", type: "process", group: "retrieval", title: "agent query", body: "The current conversation becomes a local 384-d embedding plus a lexical search seed.", source: "agent turn", importance: 10, usage: 0, keywords: ["query", "agent", "conversation", "turn"], x: 0.52, y: 0.10, radius: 8, locked: true },
+        { id: "r-hybrid", store: "retrieval", tier: "procedural", type: "process", group: "retrieval", title: "hybrid + RRF", body: "Semantic cosine and FTS5 lexical candidates fuse into a ranked set.", source: "retrieval pipeline", importance: 10, usage: 0, keywords: ["hybrid", "cosine", "fts5", "rrf"], x: 0.55, y: 0.26, radius: 8, locked: true },
+        { id: "r-spread", store: "retrieval", tier: "procedural", type: "process", group: "retrieval", title: "spreading activation", body: "Seeded hits and query entities activate related memories through typed graph edges.", source: "graph worker", importance: 10, usage: 0, keywords: ["spread", "activation", "graph", "association"], x: 0.57, y: 0.67, radius: 8, locked: true },
+        { id: "r-inject", store: "retrieval", tier: "procedural", type: "process", group: "retrieval", title: "labeled context block", body: "Persona, recalled personal memory, and conditional knowledge are packed under a token budget.", source: "context builder", importance: 10, usage: 0, keywords: ["inject", "context", "token", "budget", "persona"], x: 0.52, y: 0.88, radius: 8, locked: true }
+      ];
+
+      var defaultSelectedId = "r-query";
+      var realNodeCount = 0;
+      var loadNotes = [];
+      // Set once by boot() when the live graph is empty or failed to load; the
+      // per-frame filter message in draw() layers on top of it.
+      var baseEmptyMessage = null;
+      var lastEmptyMessage = "\u0000";
+
+      function fmtCount(value) {
+        var n = Number(value) || 0;
+        return n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1).replace(/\.0$/, "") + "k" : String(n);
+      }
+
+      function toTen(value) {
+        var n = Number(value);
+        if (!isFinite(n) || n <= 0) return 5;
+        return clamp(Math.round(n <= 1 ? n * 10 : n), 1, 10);
+      }
+
+      function shorten(value, max) {
+        var text = String(value == null ? "" : value).replace(/\s+/g, " ").trim();
+        if (!text) return "";
+        return text.length > max ? text.slice(0, max - 1) + "…" : text;
+      }
+
+      function typeForTier(node) {
+        var source = String(node.source || "").toLowerCase();
+        if (source.indexOf("decision") > -1) return "decision";
+        if (node.topic) return "entity";
+        if (node.tier === "procedural") return "process";
+        if (node.tier === "semantic") return "fact";
+        return "memory";
+      }
+
+      // Deterministic brain layout. GraphExport carries no coordinates, so place
+      // memories into two readable hemispheres instead of allowing a force graph
+      // to collapse labels into one dense cloud. The hash keeps the same memory
+      // in the same place between refreshes while still leaving the associative
+      // edges visible over the silhouette.
+      function layoutForce(list, box) {
+        var n = list.length;
+        if (!n) return;
+        var hash = function (value) {
+          var h = 2166136261;
+          String(value).split("").forEach(function (ch) { h = Math.imul(h ^ ch.charCodeAt(0), 16777619); });
+          return (h >>> 0) / 4294967296;
+        };
+        list.forEach(function (node, i) {
+          var t = n === 1 ? 0.5 : i / (n - 1);
+          var y = 0.09 + t * 0.82;
+          var dy = (y - 0.5) / 0.43;
+          var lobeWidth = 0.22 * Math.sqrt(Math.max(0.08, 1 - dy * dy));
+          var side = hash(node.id) > 0.5 ? 1 : -1;
+          // Keep the corpus and pipeline visually central; personal memories
+          // occupy the two lobes with a deliberate central groove.
+          var jitter = (hash(node.id + ":j") - 0.5) * 0.045;
+          node.x = clamp(0.5 + side * (0.075 + lobeWidth * (0.35 + hash(node.id + ":w") * 0.65)) + jitter, box.x0, box.x1);
+          node.y = clamp(y + (hash(node.id + ":y") - 0.5) * 0.035, box.y0, box.y1);
+          node.depth = 0.78 + hash(node.id + ":d") * 0.44;
+        });
+      }
+
+      function buildPersonal(graph) {
+        var raw = graph && Array.isArray(graph.nodes) ? graph.nodes : [];
+        var rawEdges = graph && Array.isArray(graph.edges) ? graph.edges : [];
+        realNodeCount = raw.length;
+        if (!raw.length) return [];
+        var ranked = raw.slice().sort(function (a, b) {
+          return (Number(b.importance) || 0) - (Number(a.importance) || 0);
+        }).slice(0, PERSONAL_MAX_NODES);
+        var kept = {};
+        var created = ranked.map(function (item) {
+          var importance = toTen(item.importance);
+          var usage = Number(item.useCount) || 0;
+          var label = shorten(item.label, 210) || "(memory " + item.id + ")";
+          var keywords = [item.tier, item.topic, item.emotion, String(item.source || "")]
+            .filter(Boolean).map(function (value) { return String(value).toLowerCase(); });
+          kept[item.id] = true;
+          return addNode({
+            id: item.id,
+            store: "personal",
+            tier: item.tier || "episodic",
+            type: typeForTier(item),
+            group: item.topic || item.tier || "memory",
+            title: shorten(item.label, 56) || "(memory)",
+            body: label,
+            source: item.source || "memory/*.md",
+            importance: importance,
+            usage: usage,
+            keywords: keywords,
+            x: 0.25,
+            y: 0.5,
+            radius: clamp(1.8 + (importance / 10) * 2.5 + Math.log(usage + 1) * 0.45, 1.8, 5.4) * (item.archived ? 0.7 : 1),
+            archived: Boolean(item.archived)
+          });
+        });
+        rawEdges.forEach(function (edge) {
+          if (!edge || !kept[edge.src] || !kept[edge.dst]) return;
+          addEdge(edge.src, edge.dst, String(edge.type || "related"), clamp(Number(edge.weight) || 0.4, 0.05, 1), true);
+        });
+        layoutForce(created, { x0: 0.06, x1: 0.44, y0: 0.13, y1: 0.89 });
+        return created;
+      }
+
+      function buildKnowledge(payload) {
+        var stats = payload && payload.stats;
+        if (!stats) {
+          loadNotes.push(payload && payload.error
+            ? "knowledge base unavailable (" + payload.error + ")"
+            : "knowledge base stats did not load in time");
+          return;
+        }
+        var total = Number(stats.count) || 0;
+        addNode({
+          id: "k-root", store: "knowledge", tier: "semantic", type: "corpus", group: "corpus",
+          title: "knowledge.db · " + fmtCount(total) + " chunks",
+          body: "Versioned knowledge corpus: " + total + " indexed chunks across " + (Number(stats.sources) || 0) + " sources, " + (Number(stats.entities) || 0) + " glossary entities. Individual chunks are not exported by the dashboard API, so this column shows real aggregate counts only.",
+          source: String(stats.dbPath || "knowledge.db"),
+          importance: 9, usage: Number(stats.entities) || 0,
+          keywords: ["knowledge", "corpus", "chunks", "gtm", "product", "engineering"],
+          x: 0.78, y: 0.5, radius: 9, locked: true
+        });
+        // The dashboard API exposes aggregate StoreStats only — there is no
+        // per-chunk export for the knowledge base — so this column is a real
+        // count breakdown, not individual documents. A lone tier equal to the
+        // whole corpus is dropped: it would only restate the root node.
+        var tiers = stats.tiers && typeof stats.tiers === "object" ? stats.tiers : {};
+        var names = Object.keys(tiers).sort(function (a, b) {
+          return (Number(tiers[b]) || 0) - (Number(tiers[a]) || 0);
+        }).slice(0, 12);
+        if (names.length === 1 && (Number(tiers[names[0]]) || 0) === total) names = [];
+        addNode({
+          id: "k-sources", store: "knowledge", tier: "semantic", type: "corpus", group: "corpus",
+          title: fmtCount(stats.sources) + " sources",
+          body: (Number(stats.sources) || 0) + " distinct source documents back the indexed knowledge chunks.",
+          source: String(stats.dbPath || "knowledge.db"),
+          importance: 7, usage: Number(stats.sources) || 0,
+          keywords: ["sources", "corpus", "knowledge"],
+          x: 0.92, y: 0.3, radius: 6, locked: true
+        });
+        addEdge("k-sources", "k-root", "contains", 0.7);
+        names.forEach(function (name, i) {
+          var count = Number(tiers[name]) || 0;
+          var share = total ? count / total : 0;
+          var angle = -Math.PI / 2 + (i / Math.max(1, names.length)) * Math.PI * 2;
+          var id = "k-tier-" + i;
+          addNode({
+            id: id, store: "knowledge", tier: "semantic", type: "strategy", group: String(name),
+            title: name + " · " + fmtCount(count),
+            body: count + " indexed chunks tagged \"" + name + "\" in the knowledge corpus (" + Math.round(share * 100) + "% of the base).",
+            source: String(stats.dbPath || "knowledge.db"),
+            importance: clamp(4 + Math.round(share * 6), 1, 10), usage: count,
+            keywords: [String(name).toLowerCase(), "knowledge", "corpus"],
+            x: clamp(0.78 + Math.cos(angle) * 0.16, 0.6, 0.96),
+            y: clamp(0.5 + Math.sin(angle) * 0.31, 0.13, 0.89),
+            radius: clamp(3.4 + share * 6, 3, 8.6)
+          });
+          addEdge(id, "k-root", "contains", clamp(0.35 + share, 0.35, 0.95));
+        });
+        addEdge("r-hybrid", "k-root", "routes", 0.78);
+      }
+
+      function wirePipeline(personal) {
+        if (!personal.length) return;
+        var byImportance = personal.slice().sort(function (a, b) { return b.importance - a.importance; });
+        var byUsage = personal.slice().sort(function (a, b) { return b.usage - a.usage; });
+        byImportance.slice(0, 3).forEach(function (node, i) { addEdge("r-hybrid", node.id, "related", 0.7 - i * 0.1); });
+        byUsage.slice(0, 3).forEach(function (node, i) { addEdge("r-spread", node.id, "mentions", 0.72 - i * 0.1); });
+        byImportance.slice(0, 2).forEach(function (node, i) { addEdge("r-inject", node.id, "derived", 0.82 - i * 0.1); });
+        defaultSelectedId = byImportance[0].id;
+      }
+
+      function applyStatus(status) {
+        var stats = status && status.memory;
+        if (!stats) return;
+        if (!realNodeCount) realNodeCount = Number(stats.count) || 0;
+        var vectors = Number(stats.withEmbedding) || 0;
+        if (embeddingNote) embeddingNote.textContent = fmtCount(vectors) + " local vectors";
+        if (topbarMeta) {
+          topbarMeta.textContent = "GRAPH WORKER · LIVE ENGRAM DATA · "
+            + fmtCount(Number(stats.count) || 0) + " MEMORIES · "
+            + fmtCount(Number(stats.entities) || 0) + " ENTITIES";
+        }
+      }
+
+      function fetchJson(path) {
+        return fetch(path, { headers: { accept: "application/json" }, credentials: "same-origin" }).then(function (response) {
+          if (!response.ok) throw new Error(path + " → HTTP " + response.status);
+          return response.json();
+        });
+      }
+
+      // /api/knowledge answers {loading:true} while stats warm up in the
+      // background (see src/dashboard/server.ts); poll a few times, then give up.
+      function fetchKnowledge(attempt) {
+        var tries = attempt || 0;
+        return fetchJson("/api/knowledge").then(function (payload) {
+          if (payload && payload.loading && tries < 5) {
+            return new Promise(function (resolve) { window.setTimeout(resolve, 1100); })
+              .then(function () { return fetchKnowledge(tries + 1); });
+          }
+          return payload;
+        });
+      }
+
+      function showEmptyState(message) {
+        if (!constellation || message === lastEmptyMessage) return;
+        lastEmptyMessage = message;
+        constellation.setEmpty(message || "");
+      }
+
+      function boot() {
+        graphStatus.textContent = "loading / engram";
+        pipelineAnchors.forEach(addNode);
+        addEdge("r-query", "r-hybrid", "routes", 0.96);
+        addEdge("r-hybrid", "r-spread", "routes", 0.91);
+        addEdge("r-spread", "r-inject", "routes", 0.88);
+        return Promise.all([
+          fetchJson("/api/memory/graph").catch(function (error) { loadNotes.push("memory graph unavailable (" + error.message + ")"); return null; }),
+          fetchJson("/api/status").catch(function () { loadNotes.push("status unavailable"); return null; }),
+          fetchKnowledge(0).catch(function (error) { loadNotes.push("knowledge base unavailable (" + error.message + ")"); return null; }),
+          refreshRecallTraces()
+        ]).then(function (payloads) {
+          var personal = buildPersonal(payloads[0]);
+          buildKnowledge(payloads[2]);
+          wirePipeline(personal);
+          applyStatus(payloads[1]);
+          // Edge-type filter chips describe real associative-edge types; with no real
+          // personal nodes loaded there is nothing typed for them to filter (graceful hide).
+          var edgeFilterGroup = root.querySelector("#hmn-edge-type-filters");
+          if (edgeFilterGroup) edgeFilterGroup.style.display = personal.length ? "" : "none";
+          state.selectedId = defaultSelectedId;
+          baseEmptyMessage = personal.length ? null : (payloads[0]
+            ? "No memories indexed yet. Run `henry memory index` to populate the associative graph."
+            : "Memory graph could not be loaded" + (loadNotes.length ? " — " + loadNotes[0] : "") + ".");
+          mountConstellation();
+          syncGraph();
+          renderInspector(byId[state.selectedId]);
+          runRetrieval("");
+          if (loadNotes.length) graphStatus.textContent = shorten(loadNotes[0], 46);
+          resizeCanvas();
+          ensureAnimationLoop();
+        });
+      }
+
+      function nodeFilter(node) {
+        var query = state.search.trim().toLowerCase();
+        var storeOk = state.storeView === "all" || node.store === state.storeView || node.store === "retrieval";
+        var queryOk = !query || (node.title + " " + node.body + " " + node.keywords.join(" ")).toLowerCase().indexOf(query) > -1;
+        var archivedOk = state.showArchived || !node.archived;
+        return storeOk && queryOk && archivedOk;
+      }
+
+      function visibleNodes() {
+        return nodes.filter(nodeFilter);
+      }
+
+      // Scaffolding edges (pipeline routing, knowledge rollups) are none of the six
+      // typed associations the filter chips describe, so they stay exempt from those
+      // chips — the same rule the previous renderer applied.
+      var EXEMPT_EDGE_TYPES = ["routes", "contains", "derived", "related", "mentions", "supports"];
+
+      function applyEdgeFilter() {
+        if (!constellation) return;
+        if (!state.showEdges) { constellation.setEdgeTypes(new Set()); return; }
+        var allowed = new Set(EXEMPT_EDGE_TYPES);
+        state.edgeTypeFilter.forEach(function (type) { allowed.add(type); });
+        constellation.setEdgeTypes(allowed);
+      }
+
+      function mountConstellation() {
+        if (constellation || !window.HenryConstellation || !mountHost) return;
+        constellation = window.HenryConstellation.mount({
+          el: mountHost,
+          height: "var(--hmc-height, 560px)",
+          ariaLabel: "Memory constellation: Henry memories drawn as stars grouped by type, with typed "
+            + "associations as filaments. Drag to orbit, scroll to zoom, click a star to inspect it, "
+            + "or submerge the camera into the lattice.",
+          onSelect: function (node) {
+            state.selectedId = node ? node.id : null;
+            renderInspector(node || null);
+          },
+          onReset: resetView
+        });
+        constellation.setFilter(nodeFilter);
+        applyEdgeFilter();
+      }
+
+      function syncGraph() {
+        if (!constellation) return;
+        constellation.setData({ nodes: nodes, edges: edges });
+        applyEdgeFilter();
+        if (state.selectedId) constellation.select(state.selectedId);
+      }
+
+      function updateCounters() {
+        var visible = visibleNodes();
+        visibleCount.textContent = visible.length;
+        nodeCount.textContent = realNodeCount;
+        edgeCount.textContent = new Set(edges.filter(function (edge) { return edge.real; }).map(function (edge) { return edge.kind; })).size;
+        showEmptyState(baseEmptyMessage || (visible.length ? null : "Nothing matches this scope or query — clear the search or press reset view."));
+      }
+
+      function draw() {
+        updateCounters();
+        if (constellation) constellation.redraw();
+      }
+
+      function resizeCanvas() {
+        if (constellation) constellation.resize();
+      }
+
+      function ensureAnimationLoop() {
+        if (!constellation) return;
+        constellation.state.pulsesOn = state.showMotion && !constellation.reduceMotion;
+        constellation.redraw();
+      }
+
+      function edgeNeighbors(nodeId) {
+        var list = [];
+        edges.forEach(function (edge) {
+          if (edge.from === nodeId) list.push({ node: byId[edge.to], edge: edge });
+          if (edge.to === nodeId) list.push({ node: byId[edge.from], edge: edge });
+        });
+        return list.sort(function (a, b) { return b.edge.weight - a.edge.weight; });
+      }
+
+      function renderInspector(node) {
+        // One inspector implementation, shared with the dashboard card.
+        inspectorStatus.textContent = !node ? "waiting" : (node.store === "retrieval" ? "pipeline node" : "selected");
+        if (window.HenryConstellation) {
+          window.HenryConstellation.renderInspector(inspectorBody, node || null, constellation);
+        }
+      }
+
+      function renderResults(topHits) {
+        var target = root.querySelector("#hmn-inspector-body");
+        var first = topHits[0] || byId[state.selectedId];
+        if (first) {
+          state.selectedId = first.id;
+          renderInspector(first);
+        }
+      }
+
+      // Client-side mirror of Henry's real zero-LLM router
+      // (detectKnowledgeDomain in src/knowledge/router.ts). Kept byte-for-byte
+      // in step with the server rules so the panel shows the actual routing
+      // decision a turn would get; update both together.
+      function detectDomain(query) {
+        var text = query.toLowerCase();
+        if (/\bgtm|go[ -]?to[ -]?market|launch|distribution\b/.test(text)) return "gtm";
+        if (/growth|acquisition|retention|funnel|marketing/.test(text)) return "growth-strategy";
+        if (/product|\bpm\b|roadmap|\bprd\b|discovery/.test(text)) return "product-management";
+        if (/engineer|develop|\btech\b|coding|software|\bapi\b|bug|typescript|javascript/.test(text)) return "software-development";
+        if (/community|member/.test(text)) return "community";
+        if (/sales|pipeline|outbound|\bdeal\b/.test(text)) return "sales";
+        if (/career|talent|interview|resume|\bjob\b/.test(text)) return "careers";
+        return null;
+      }
+
+      function updateRoute(query) {
+        var domain = detectDomain(query);
+        state.routeDomain = domain || "general";
+        if (domain) {
+          routeCopy.innerHTML = "Regex sees a <strong>" + esc(domain) + "</strong> signal, so the versioned knowledge base is eligible for injection. Casual chat would leave this block out.";
+          routePill.textContent = "knowledge block eligible";
+          routePill.style.borderColor = "rgba(111, 224, 167, 0.3)";
+          routePill.style.background = "rgba(111, 224, 167, 0.07)";
+          routePill.style.color = "var(--green)";
+        } else {
+          routeCopy.innerHTML = "No domain phrase matched the zero-LLM router. Personal memory still participates, but the knowledge block stays out of context.";
+          routePill.textContent = "knowledge block skipped";
+          routePill.style.borderColor = "rgba(246, 132, 138, 0.34)";
+          routePill.style.background = "rgba(246, 132, 138, 0.07)";
+          routePill.style.color = "var(--red)";
+        }
+      }
+
+      function setSignal(id, value) {
+        var bar = root.querySelector("#hmn-" + id + "-bar");
+        var label = root.querySelector("#hmn-" + id + "-value");
+        if (bar) bar.style.setProperty("--signal-width", Math.round(value * 100) + "%");
+        if (label) label.textContent = value.toFixed(2);
+      }
+
+      function runRetrieval(query) {
+        var text = (query || "").trim().toLowerCase();
+        var tokens = text.split(/[^a-z0-9-]+/).filter(function (token) { return token.length > 2; });
+        updateRoute(text);
+        nodes.forEach(function (node) {
+          var hay = (node.title + " " + node.body + " " + node.keywords.join(" ")).toLowerCase();
+          var lexicalHits = tokens.reduce(function (sum, token) { return sum + (hay.indexOf(token) > -1 ? 1 : 0); }, 0);
+          var domainHit = state.routeDomain !== "general" && node.store === "knowledge" && hay.indexOf(state.routeDomain.toLowerCase()) > -1 ? 1 : 0;
+          var semanticHint = node.store === "retrieval" ? 0.22 : ((node.importance / 10) * 0.12);
+          var score = clamp(0.04 + lexicalHits * 0.17 + domainHit * 0.22 + semanticHint + (node.usage / 1200), 0, 1);
+          node.score = score;
+          node.activation = text ? clamp(score * (0.58 + (node.store === "personal" ? 0.12 : 0)), 0, 1) : 0;
+        });
+
+        if (text) {
+          var topHits = nodes.slice().sort(function (a, b) { return b.score - a.score; }).slice(0, 7);
+          var activationMap = {};
+          topHits.slice(0, 4).forEach(function (node, index) { activationMap[node.id] = 0.96 - index * 0.12; });
+          var frontier = topHits.slice(0, 4);
+          for (var depth = 0; depth < 3; depth++) {
+            var next = [];
+            frontier.forEach(function (seed) {
+              edgeNeighbors(seed.id).forEach(function (item) {
+                var nextValue = clamp((activationMap[seed.id] || 0.2) * item.edge.weight * (0.68 - depth * 0.13), 0, 1);
+                if (!activationMap[item.node.id] || nextValue > activationMap[item.node.id]) {
+                  activationMap[item.node.id] = nextValue;
+                  next.push(item.node);
+                }
+              });
+            });
+            frontier = next.slice(0, 28);
+          }
+          Object.keys(activationMap).forEach(function (id) {
+            byId[id].activation = Math.max(byId[id].activation, activationMap[id]);
+          });
+          setSignal("semantic", clamp(0.46 + (topHits[0] ? topHits[0].score * 0.42 : 0), 0, 0.98));
+          setSignal("lexical", clamp(0.24 + Math.min(0.62, tokens.length * 0.08), 0, 0.96));
+          setSignal("rrf", clamp(0.42 + (topHits[1] ? topHits[1].score * 0.36 : 0), 0, 0.94));
+          setSignal("spread", clamp(0.24 + Object.keys(activationMap).length / 90, 0, 0.9));
+          renderResults(topHits);
+          state.pulseStart = performance.now();
+          graphStatus.textContent = "query active / spreading";
+        } else {
+          nodes.forEach(function (node) { node.activation = node.id === defaultSelectedId ? 0.26 : 0; });
+          setSignal("semantic", 0.78);
+          setSignal("lexical", 0.54);
+          setSignal("rrf", 0.66);
+          setSignal("spread", 0.42);
+          renderInspector(byId[state.selectedId]);
+          graphStatus.textContent = "warm / indexed";
+        }
+        draw();
+      }
+
+      function replayPipeline() {
+        var token = ++state.animationToken;
+        var steps = root.querySelectorAll("[data-pipeline-step]");
+        steps.forEach(function (step) { step.classList.remove("is-active"); });
+        graphStatus.textContent = "replaying / local";
+        steps.forEach(function (step, index) {
+          window.setTimeout(function () {
+            if (token !== state.animationToken) return;
+            steps.forEach(function (item) { item.classList.remove("is-active"); });
+            step.classList.add("is-active");
+            if (index === steps.length - 1) {
+              window.setTimeout(function () {
+                if (token !== state.animationToken) return;
+                runRetrieval(searchInput.value || "graph worker stale GTM context");
+              }, 250);
+            }
+          }, index * 300);
+        });
+      }
+
+      var resetting = false;
+      function resetView() {
+        // Guarded: the module's own reset button calls back into here.
+        if (constellation && !resetting) {
+          resetting = true;
+          constellation.resetView();
+          resetting = false;
+        }
+        state.storeView = "all";
+        state.showEdges = true;
+        state.showMotion = true;
+        state.selectedId = defaultSelectedId;
+        state.hoveredId = null;
+        state.search = "";
+        searchInput.value = "";
+        root.querySelectorAll("[data-store-view]").forEach(function (button) {
+          button.setAttribute("aria-pressed", button.getAttribute("data-store-view") === "all" ? "true" : "false");
+        });
+        root.querySelector("[data-toggle='edges']").setAttribute("aria-pressed", "true");
+        root.querySelector("[data-toggle='edges']").textContent = "edges on";
+        root.querySelector("[data-toggle='motion']").setAttribute("aria-pressed", "true");
+        root.querySelector("[data-toggle='motion']").textContent = "activation on";
+        state.showArchived = false;
+        var archivedToggleBtn = root.querySelector("#hmn-archived-toggle");
+        if (archivedToggleBtn) { archivedToggleBtn.setAttribute("aria-pressed", "false"); archivedToggleBtn.textContent = "show archived"; }
+        state.edgeTypeFilter = new Set(["similar", "temporal_next", "about", "caused", "supersedes", "lesson_from"]);
+        root.querySelectorAll("[data-edge-filter]").forEach(function (button) { button.setAttribute("aria-pressed", "true"); });
+        applyEdgeFilter();
+        clearRecallLab();
+        runRetrieval("");
+      }
+
+      function setStoreView(value) {
+        state.storeView = value;
+        root.querySelectorAll("[data-store-view]").forEach(function (item) {
+          item.setAttribute("aria-pressed", item.getAttribute("data-store-view") === value ? "true" : "false");
+        });
+      }
+
+      function setRecallStore(value) {
+        state.recallStore = value;
+        root.querySelectorAll("[data-recall-store]").forEach(function (button) {
+          button.setAttribute("aria-pressed", button.getAttribute("data-recall-store") === value ? "true" : "false");
+        });
+      }
+
+      function clearRecallLab() {
+        state.recallLab = null;
+        var panel = root.querySelector("#hmn-recall-panel");
+        if (panel) panel.hidden = true;
+        if (recallInput) recallInput.value = "";
+        graphStatus.textContent = realNodeCount ? "warm / indexed" : "loading / engram";
+        if (constellation) constellation.setHighlight(null, null);
+        draw();
+      }
+
+      // Maps a real POST /api/engram/recall response onto the graph's node-id space.
+      // Personal-store result ids come straight from GraphExport, so they match `byId`
+      // directly. Knowledge-store ids never do — buildKnowledge only ever plots aggregate
+      // rollup nodes (k-root/k-sources/k-tier-N), never individual chunks — so as a
+      // graceful fallback the corpus root lights up as a stand-in and the results panel
+      // carries the real per-result detail instead.
+      function applyRecallLab(payload, store) {
+        var seeds = {};
+        var activated = {};
+        ((payload.activation && payload.activation.seeds) || []).forEach(function (id) { if (byId[id]) seeds[id] = true; });
+        ((payload.activation && payload.activation.activated) || [])
+          .concat((payload.results || []).map(function (result) { return result.id; }))
+          .forEach(function (id) { if (byId[id] && !seeds[id]) activated[id] = true; });
+        if (!Object.keys(seeds).length && !Object.keys(activated).length && store === "knowledge" && byId["k-root"]) {
+          seeds["k-root"] = true;
+        }
+        state.recallLab = { seeds: new Set(Object.keys(seeds)), activated: new Set(Object.keys(activated)) };
+        state.pulseStart = performance.now();
+        if (constellation) constellation.setHighlight(Object.keys(seeds), Object.keys(activated));
+        draw();
+      }
+
+      function renderRecallResults(payload, store) {
+        var panel = root.querySelector("#hmn-recall-panel");
+        var list = root.querySelector("#hmn-recall-results");
+        var meta = root.querySelector("#hmn-recall-meta");
+        if (!panel || !list || !meta) return;
+        panel.hidden = false;
+        if (payload.error) {
+          meta.textContent = "error";
+          list.innerHTML = "<div class='hmn-node-copy'>" + esc(payload.error) + "</div>";
+          return;
+        }
+        var results = payload.results || [];
+        meta.textContent = results.length + " hit" + (results.length === 1 ? "" : "s") + " · " + Math.round(payload.latencyMs || 0) + "ms"
+          + (store === "knowledge" ? " · graph shows corpus aggregate only" : "");
+        list.innerHTML = results.length
+          ? results.map(function (result) {
+              return "<div class='hmn-result-item' data-recall-result-id=\"" + esc(result.id) + "\">"
+                + "<div class='hmn-result-main'>"
+                + "<div class='hmn-result-title'>" + esc(shorten(result.content, 96)) + "</div>"
+                + "<div class='hmn-result-meta'>" + esc(result.tier || store) + (result.why ? " · " + esc(result.why) : "") + "</div>"
+                + "</div>"
+                + "<div class='hmn-result-score'>" + Number(result.score).toFixed(2) + "</div>"
+                + "</div>";
+            }).join("")
+          : "<div class='hmn-node-copy'>No results for this query.</div>";
+        list.querySelectorAll("[data-recall-result-id]").forEach(function (row) {
+          row.style.cursor = "pointer";
+          row.addEventListener("click", function () {
+            var node = byId[row.getAttribute("data-recall-result-id")];
+            if (node) { state.selectedId = node.id; renderInspector(node); draw(); }
+          });
+        });
+      }
+
+      function renderRecallTraces(payload) {
+        if (!traceMeta || !traceList) return;
+        if (!payload || payload.available === false) {
+          traceMeta.textContent = "unavailable — tracing is fail-open";
+          traceList.innerHTML = "";
+          return;
+        }
+        var traces = payload.traces || [];
+        traceMeta.textContent = traces.length + " recent injection" + (traces.length === 1 ? "" : "s") + " · no query or memory text stored";
+        traceList.innerHTML = traces.length
+          ? traces.map(function (trace) {
+              var memories = trace.memories || [];
+              var used = memories.filter(function (memory) { return memory.outcome === "used"; }).length;
+              var dropped = memories.length - used;
+              return "<details class='hmn-trace-row'>"
+                + "<summary class='hmn-trace-summary'><span>" + esc(new Date(trace.ts).toLocaleTimeString()) + " · " + esc(trace.store) + "</span>"
+                + "<span class='hmn-trace-count'>" + used + " used · " + dropped + " dropped</span>"
+                + "</summary>"
+                + "<div class='hmn-trace-memory-list' role='list'>"
+                + memories.map(function (memory) {
+                    var score = Number.isFinite(Number(memory.score)) ? Number(memory.score).toFixed(3) : "—";
+                    var why = memory.why || "—";
+                    var source = memory.source || "—";
+                    return "<div class='hmn-trace-memory' role='listitem' data-outcome='" + esc(memory.outcome) + "'>"
+                      + "<div class='hmn-trace-memory-main'><strong class='hmn-trace-memory-id'>" + esc(memory.id) + "</strong>"
+                      + "<span class='hmn-trace-memory-score'>score " + esc(score) + " · " + esc(memory.outcome) + "</span></div>"
+                      + "<div class='hmn-trace-memory-detail'>why: " + esc(why) + " · source: " + esc(source) + "</div></div>";
+                  }).join("")
+                + "</div></details>";
+            }).join("")
+          : "<div class='hmn-node-copy'>No context injections recorded yet.</div>";
+      }
+
+      function refreshRecallTraces() {
+        return fetchJson("/api/engram/traces?limit=12")
+          .then(renderRecallTraces)
+          .catch(function () { renderRecallTraces({ available: false }); });
+      }
+
+      function runRecallLabQuery(query) {
+        var trimmed = (query || "").trim();
+        if (!trimmed) return;
+        var store = state.recallStore;
+        setStoreView(store);
+        var kSelect = root.querySelector("#hmn-recall-k");
+        var k = kSelect ? Number(kSelect.value) || 8 : 8;
+        var submitBtn = root.querySelector("#hmn-recall-submit");
+        if (submitBtn) { submitBtn.disabled = true; submitBtn.textContent = "recalling…"; }
+        graphStatus.textContent = "recall lab / querying";
+        fetch("/api/engram/recall", {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ query: trimmed, k: k, store: store })
+        }).then(function (response) {
+          if (!response.ok) throw new Error("recall → HTTP " + response.status);
+          return response.json();
+        }).then(function (payload) {
+          applyRecallLab(payload, store);
+          renderRecallResults(payload, store);
+          graphStatus.textContent = payload.error ? "recall lab / engine error" : "recall lab / lit up";
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "recall"; }
+        }).catch(function (error) {
+          renderRecallResults({ error: error.message, results: [] }, store);
+          graphStatus.textContent = "recall lab / request failed";
+          if (submitBtn) { submitBtn.disabled = false; submitBtn.textContent = "recall"; }
+        });
+      }
+
+      root.querySelectorAll("[data-store-view]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          setStoreView(button.getAttribute("data-store-view"));
+          draw();
+        });
+      });
+
+      root.querySelectorAll("[data-recall-store]").forEach(function (button) {
+        button.addEventListener("click", function () { setRecallStore(button.getAttribute("data-recall-store")); });
+      });
+
+      root.querySelectorAll("[data-edge-filter]").forEach(function (button) {
+        button.addEventListener("click", function () {
+          var type = button.getAttribute("data-edge-filter");
+          if (state.edgeTypeFilter.has(type)) { state.edgeTypeFilter.delete(type); button.setAttribute("aria-pressed", "false"); }
+          else { state.edgeTypeFilter.add(type); button.setAttribute("aria-pressed", "true"); }
+          applyEdgeFilter();
+          draw();
+        });
+      });
+
+      var archivedToggle = root.querySelector("#hmn-archived-toggle");
+      if (archivedToggle) {
+        archivedToggle.addEventListener("click", function () {
+          state.showArchived = !state.showArchived;
+          archivedToggle.setAttribute("aria-pressed", String(state.showArchived));
+          archivedToggle.textContent = state.showArchived ? "hide archived" : "show archived";
+          draw();
+        });
+      }
+
+      var recallSubmitBtn = root.querySelector("#hmn-recall-submit");
+      var recallClearBtn = root.querySelector("#hmn-recall-clear");
+      if (recallSubmitBtn) recallSubmitBtn.addEventListener("click", function () { runRecallLabQuery(recallInput ? recallInput.value : ""); });
+      if (recallClearBtn) recallClearBtn.addEventListener("click", clearRecallLab);
+      if (recallInput) {
+        recallInput.addEventListener("keydown", function (event) {
+          if (event.key === "Enter") { event.preventDefault(); runRecallLabQuery(recallInput.value); }
+        });
+      }
+
+      root.querySelector("[data-toggle='edges']").addEventListener("click", function (button) {
+        state.showEdges = !state.showEdges;
+        button.currentTarget.setAttribute("aria-pressed", String(state.showEdges));
+        button.currentTarget.textContent = state.showEdges ? "edges on" : "edges off";
+        applyEdgeFilter();
+        draw();
+      });
+
+      root.querySelector("[data-toggle='motion']").addEventListener("click", function (event) {
+        state.showMotion = !state.showMotion;
+        event.currentTarget.setAttribute("aria-pressed", String(state.showMotion));
+        event.currentTarget.textContent = state.showMotion ? "activation on" : "activation off";
+        ensureAnimationLoop();
+        draw();
+      });
+
+      searchInput.addEventListener("input", function () {
+        state.search = searchInput.value;
+        runRetrieval(state.search);
+      });
+
+      root.querySelector("#hmn-replay").addEventListener("click", replayPipeline);
+      root.querySelector("#hmn-reset").addEventListener("click", resetView);
+      root.querySelector("#hmn-trace-refresh").addEventListener("click", refreshRecallTraces);
+
+      function showToast(message) {
+        toast.textContent = message;
+        toast.classList.add("is-visible");
+        window.clearTimeout(showToast.timer);
+        showToast.timer = window.setTimeout(function () {
+          toast.classList.remove("is-visible");
+        }, 2200);
+      }
+
+      root.querySelector("#hmn-copy-handoff").addEventListener("click", function () {
+        var handoff = [
+          "Henry memory module visual handoff",
+          "",
+          "Build a dark, interactive neural-style observatory for two separate stores:",
+          "1) Personal memory: markdown is durable source of truth; SQLite is a rebuildable search index; memories decay, get superseded, and get promoted; injected every agent turn.",
+          "2) Knowledge base: versioned corpus plus atomic strategy cards; never decays; injected on demand only when a zero-LLM regex router detects gtm/product/engineering context.",
+          "",
+          "Represent each memory with content, tier, importance, 384-d local embedding, usage stats, metadata, entity links, FTS5 index state, and typed associative edges.",
+          "Show retrieval as query → local embedding → semantic + FTS5 hybrid → RRF → spreading activation through entities and graph edges → score blend → labeled token-budgeted context.",
+          "Show dreaming as scheduled promotion, recoverable archive, and new edge construction. Include clear store, tier, edge-type, activation, and attribution legends.",
+          "The graph should support large-network pan/zoom, search, node inspection, query replay, and a concise implementation handoff."
+        ].join("\n");
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(handoff).then(function () {
+            showToast("Claude handoff copied to clipboard");
+          }).catch(function () {
+            showToast("Copy blocked — select the page text manually");
+          });
+        } else {
+          var area = document.createElement("textarea");
+          area.value = handoff;
+          area.style.position = "absolute";
+          area.style.left = "-9999px";
+          root.appendChild(area);
+          area.select();
+          document.execCommand("copy");
+          area.remove();
+          showToast("Claude handoff copied to clipboard");
+        }
+      });
+
+      window.addEventListener("resize", resizeCanvas);
+      mountConstellation();
+      renderInspector(null);
+      resizeCanvas();
+      boot().catch(function (error) {
+        graphStatus.textContent = "load failed";
+        baseEmptyMessage = "Memory observatory could not load its data — " + error.message;
+        draw();
+      });
+    }());
+  </script>
+</div>
+</body>
+</html>

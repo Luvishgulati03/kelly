@@ -1,0 +1,39 @@
+{
+  "name": "kelly-agent",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "description": "Kelly — a local-first electrical catalogue and quotation agent built on Henry's shared runtime.",
+  "type": "module",
+  "bin": {
+    "henry": "./bin/henry.mjs",
+    "kelly": "./bin/kelly.mjs"
+  },
+  "scripts": {
+    "dev": "tsx src/cli.ts repl",
+    "start": "tsx src/cli.ts repl",
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --import ./tests/isolate.mjs --test-concurrency=1 --test tests/**/*.test.ts",
+    "dashboard": "tsx src/cli.ts dashboard",
+    "schedule": "tsx src/cli.ts schedule daemon",
+    "build": "tsc --outDir dist --declaration --noEmit false",
+    "handbook:build": "node scripts/build-handbook.mjs"
+  },
+  "dependencies": {
+    "@huggingface/transformers": "^4.2.0",
+    "better-sqlite3": "12.11.1",
+    "croner": "^9.0.0",
+    "dotenv": "^16.4.7",
+    "engram-memory": "github:anmolmoses/engram-memory#8ce6ecdbd2aa5ba157a931105d9713ec9a2a2aaa",
+    "googleapis": "^144.0.0",
+    "mongodb": "^7.5.0",
+    "pdf-parse": "^1.1.1",
+    "playwright": "^1.62.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.3"
+  }
+}

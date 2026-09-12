@@ -1,0 +1,1071 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Henry — Chat</title>
+<style>
+  :root {
+    --bg: #1f1e1b;
+    --surface: #262522;
+    --surface-2: #2d2c28;
+    --composer: #30302a;
+    --border: #3d3c36;
+    --border-soft: #34332e;
+    --text: #eceae2;
+    --text-dim: #a8a69b;
+    --text-faint: #7d7b71;
+    --accent: #34d399;
+    --accent-dim: #1d5c44;
+    --danger: #f87171;
+    --code-bg: #191813;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    --serif: ui-serif, "New York", Georgia, "Times New Roman", serif;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+  }
+  #main { flex: 1 1 auto; display: flex; flex-direction: column; min-width: 0; height: 100%; }
+
+  /* ---------- sidebar ---------- */
+  #sidebar {
+    flex: 0 0 258px; width: 258px; height: 100%;
+    background: color-mix(in srgb, var(--bg) 92%, black);
+    border-right: 1px solid var(--border-soft);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #sidebar.collapsed { display: none; }
+  .side-head { padding: 12px 12px 8px; display: flex; align-items: center; gap: 8px; }
+  .side-head .btn { flex: 1 1 auto; text-align: left; }
+  .side-title { padding: 6px 14px; font-size: 11px; letter-spacing: .8px; text-transform: uppercase; color: var(--text-faint); }
+  #convlist { flex: 1 1 auto; overflow-y: auto; padding: 2px 8px 10px; display: flex; flex-direction: column; gap: 2px; }
+  .conv {
+    display: flex; align-items: center; gap: 6px; padding: 7px 9px; border-radius: 9px;
+    cursor: pointer; color: var(--text-dim); font-size: 13.5px; border: 1px solid transparent;
+  }
+  .conv:hover { background: var(--surface); color: var(--text); }
+  .conv.active { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+  .conv .name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conv .act { opacity: 0; border: none; background: none; color: var(--text-faint); cursor: pointer; font-size: 12px; padding: 2px 3px; }
+  .conv:hover .act, .conv.active .act { opacity: 1; }
+  .conv .act:hover { color: var(--text); }
+  .side-empty { padding: 10px 14px; color: var(--text-faint); font-size: 12.5px; }
+
+  /* ---------- agent activity strip (display only) ---------- */
+  #agents { border-top: 1px solid var(--border-soft); padding: 8px 8px 10px; max-height: 34%; overflow-y: auto; }
+  #agents[hidden] { display: none; }
+  .agent {
+    display: flex; flex-direction: column; gap: 2px; padding: 6px 9px; border-radius: 9px;
+    font-size: 12px; color: var(--text-dim); background: var(--surface); margin-bottom: 4px;
+    border-left: 2px solid var(--border);
+  }
+  .agent.running { border-left-color: var(--accent); }
+  .agent.failed { border-left-color: var(--danger); }
+  .agent .top { display: flex; justify-content: space-between; gap: 8px; }
+  .agent .role { color: var(--text); font-weight: 600; }
+  .agent .when { font-family: var(--mono); font-size: 10.5px; color: var(--text-faint); }
+  .agent .task { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); }
+
+  /* ---------- slash menu ---------- */
+  .composer { position: relative; }
+  #slash {
+    position: absolute; left: 8px; right: 8px; bottom: calc(100% + 8px);
+    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.45); overflow: hidden; max-height: 260px; overflow-y: auto; z-index: 20;
+  }
+  #slash[hidden] { display: none; }
+  .slash-item { padding: 8px 13px; display: flex; gap: 10px; align-items: baseline; cursor: pointer; font-size: 13.5px; }
+  .slash-item .cmd { font-family: var(--mono); color: var(--text); }
+  .slash-item .desc { color: var(--text-faint); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .slash-item.sel { background: var(--surface-2); }
+
+  /* ---------- skill + attachments in the composer ---------- */
+  .composer-top { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
+  .composer-top:empty { display: none; }
+  .skillchip {
+    display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-family: var(--mono);
+    color: var(--accent); border: 1px solid var(--accent-dim); background: rgba(52,211,153,.08);
+    padding: 3px 6px 3px 10px; border-radius: 999px;
+  }
+  .skillchip button { border: none; background: none; color: inherit; cursor: pointer; font-size: 13px; line-height: 1; }
+  .attachchip { position: relative; width: 54px; height: 54px; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+  .attachchip img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .attachchip button {
+    position: absolute; top: 2px; right: 2px; width: 17px; height: 17px; border-radius: 50%;
+    border: none; background: rgba(0,0,0,.7); color: #fff; font-size: 11px; line-height: 1; cursor: pointer;
+  }
+  .attachchip.pending { display: flex; align-items: center; justify-content: center; color: var(--text-faint); font-size: 11px; }
+  .composer-actions { display: flex; align-items: center; gap: 8px; }
+  #attach {
+    width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border); background: none;
+    color: var(--text-faint); cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  #attach:hover { color: var(--text); border-color: var(--text-faint); }
+  #attach svg { width: 15px; height: 15px; }
+  .composer.dragover { border-color: var(--accent); }
+  .notice { padding-left: 35px; font-size: 12.5px; color: var(--text-dim); }
+  .row.system .bubble {
+    background: var(--surface); border: 1px solid var(--border-soft); color: var(--text-dim);
+    padding: 9px 14px; border-radius: 12px; font-size: 13.5px; white-space: pre-wrap; font-family: var(--mono);
+  }
+  .msg-attachments { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .msg-attachments img { max-width: 190px; max-height: 190px; border-radius: 10px; border: 1px solid var(--border-soft); }
+
+  /* ---------- header ---------- */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px;
+    border-bottom: 1px solid var(--border-soft);
+    background: color-mix(in srgb, var(--bg) 88%, black);
+    flex: 0 0 auto;
+  }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: .2px; }
+  .brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .brand small { color: var(--text-faint); font-weight: 400; }
+  .header-right { display: flex; align-items: center; gap: 10px; }
+  .chip {
+    font-size: 11.5px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px;
+    padding: 3px 10px; background: var(--surface); font-family: var(--mono);
+  }
+  .btn {
+    appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
+    border-radius: 10px; padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: var(--sans);
+    transition: color .15s, border-color .15s, background .15s;
+  }
+  .btn:hover { color: var(--text); border-color: var(--text-faint); }
+  .btn:disabled { opacity: .45; cursor: default; }
+  a.btn { text-decoration: none; display: inline-block; }
+
+  /* ---------- transcript ---------- */
+  #scroller { flex: 1 1 auto; overflow-y: auto; scroll-behavior: smooth; }
+  #thread { max-width: 768px; margin: 0 auto; padding: 28px 20px 40px; display: flex; flex-direction: column; gap: 26px; }
+
+  .empty {
+    margin-top: 16vh; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px;
+    animation: rise .5s ease both;
+  }
+  .empty h1 { font-family: var(--serif); font-weight: 500; font-size: 34px; }
+  .empty p { color: var(--text-dim); font-size: 15px; }
+  .suggestions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 10px; max-width: 560px; }
+  .suggestion {
+    border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
+    padding: 9px 14px; border-radius: 14px; font-size: 13.5px; cursor: pointer; transition: all .15s;
+  }
+  .suggestion:hover { color: var(--text); border-color: var(--accent-dim); background: var(--surface-2); transform: translateY(-1px); }
+
+  .row { display: flex; flex-direction: column; gap: 6px; animation: rise .25s ease both; }
+  @keyframes rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  @media (prefers-reduced-motion: reduce) { .row, .empty { animation: none; } }
+
+  .row.user { align-items: flex-end; }
+  .row.user .bubble {
+    background: var(--composer); border: 1px solid var(--border-soft);
+    padding: 11px 16px; border-radius: 18px 18px 4px 18px; max-width: 82%;
+    font-size: 15px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word;
+  }
+
+  .row.henry { align-items: stretch; }
+  .henry-head { display: flex; align-items: center; gap: 9px; }
+  .avatar {
+    width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
+    background: radial-gradient(circle at 30% 30%, #4ade80, #15803d);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 13px; font-weight: 700; color: #052e16;
+  }
+  .henry-name { font-size: 12.5px; color: var(--text-faint); }
+  .prose {
+    font-family: var(--serif); font-size: 16.5px; line-height: 1.68; color: var(--text);
+    padding-left: 35px; word-wrap: break-word;
+  }
+  .prose > * + * { margin-top: .85em; }
+  .prose h1, .prose h2, .prose h3 { font-family: var(--sans); font-weight: 650; line-height: 1.3; }
+  .prose h1 { font-size: 20px; } .prose h2 { font-size: 18px; } .prose h3 { font-size: 16px; }
+  .prose ul, .prose ol { padding-left: 22px; display: flex; flex-direction: column; gap: .35em; }
+  .prose blockquote { border-left: 3px solid var(--accent-dim); padding: 2px 0 2px 14px; color: var(--text-dim); }
+  .prose hr { border: none; border-top: 1px solid var(--border-soft); }
+  .prose a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-dim); }
+  .prose code { font-family: var(--mono); font-size: .86em; background: var(--surface-2); border: 1px solid var(--border-soft); border-radius: 5px; padding: 1.5px 5.5px; }
+  .codeblock { border: 1px solid var(--border-soft); border-radius: 10px; overflow: hidden; background: var(--code-bg); font-family: var(--sans); }
+  .codeblock-bar { display: flex; justify-content: space-between; align-items: center; padding: 6px 12px; background: var(--surface-2); font-size: 11.5px; color: var(--text-faint); }
+  .codeblock-bar button { border: none; background: none; color: var(--text-faint); font-size: 11.5px; cursor: pointer; font-family: var(--sans); }
+  .codeblock-bar button:hover { color: var(--text); }
+  .codeblock pre { padding: 13px 14px; overflow-x: auto; }
+  .codeblock code { font-family: var(--mono); font-size: 13px; line-height: 1.55; background: none; border: none; padding: 0; color: #d5f5e3; }
+
+  .thinking { display: flex; align-items: center; gap: 10px; padding-left: 35px; color: var(--text-faint); font-size: 14px; }
+  .thinking .pulse { display: inline-flex; gap: 4px; }
+  .thinking .pulse i { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: blink 1.2s infinite; }
+  .thinking .pulse i:nth-child(2) { animation-delay: .2s; } .thinking .pulse i:nth-child(3) { animation-delay: .4s; }
+  @keyframes blink { 0%, 70%, 100% { opacity: .25; } 35% { opacity: 1; } }
+  .caret { display: inline-block; width: 7px; height: 17px; background: var(--accent); vertical-align: -3px; margin-left: 2px; animation: blink 1s infinite; border-radius: 1px; }
+
+  .sysline { padding-left: 35px; font-size: 13px; color: var(--danger); }
+  .meta { padding-left: 35px; font-size: 11.5px; color: var(--text-faint); font-family: var(--mono); }
+
+  /* ---------- composer ---------- */
+  .composer-zone { flex: 0 0 auto; padding: 0 20px 18px; background: linear-gradient(transparent, var(--bg) 38%); }
+  .composer {
+    max-width: 768px; margin: 0 auto; background: var(--composer);
+    border: 1px solid var(--border); border-radius: 22px; padding: 12px 14px 10px;
+    box-shadow: 0 8px 28px rgba(0,0,0,.35);
+    transition: border-color .2s;
+  }
+  .composer:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
+  .composer textarea {
+    width: 100%; resize: none; border: none; outline: none; background: none; color: var(--text);
+    font-family: var(--sans); font-size: 15px; line-height: 1.5; max-height: 200px;
+  }
+  .composer textarea::placeholder { color: var(--text-faint); }
+  .composer-row { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+  .hint { font-size: 11.5px; color: var(--text-faint); }
+  #send {
+    width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
+    background: var(--accent); color: #052e16; display: flex; align-items: center; justify-content: center;
+    transition: transform .12s, background .15s, opacity .15s;
+  }
+  #send:hover { transform: scale(1.06); }
+  #send:disabled { background: var(--surface-2); color: var(--text-faint); cursor: default; transform: none; }
+  #send.stop { background: var(--danger); color: #450a0a; }
+  #send svg { width: 17px; height: 17px; }
+
+  #jump {
+    position: fixed; bottom: 108px; left: 50%; transform: translateX(-50%);
+    border-radius: 999px; padding: 6px 14px; font-size: 12.5px;
+    background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+    cursor: pointer; display: none; z-index: 5;
+  }
+  #jump.show { display: block; }
+
+  #scroller::-webkit-scrollbar { width: 10px; }
+  #scroller::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; border: 2px solid var(--bg); }
+  @media (max-width: 760px) {
+    #sidebar { position: fixed; z-index: 30; box-shadow: 0 0 40px rgba(0,0,0,.6); }
+    #sidebar.collapsed { display: none; }
+  }
+  @media (max-width: 640px) {
+    #thread { padding: 20px 12px 30px; }
+    .prose { padding-left: 0; }
+    .thinking, .sysline, .meta { padding-left: 0; }
+    .empty h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+<aside id="sidebar">
+  <div class="side-head">
+    <button class="btn" id="newchat" title="Start a fresh conversation">＋ New chat</button>
+  </div>
+  <div class="side-title">Conversations</div>
+  <div id="convlist"></div>
+  <div id="agents" hidden>
+    <div class="side-title">Agent activity</div>
+    <div id="agentlist"></div>
+  </div>
+</aside>
+
+<div id="main">
+<header>
+  <div class="brand">
+    <button class="btn" id="toggleside" title="Show/hide conversations">☰</button>
+    <span class="dot"></span>Henry <small>· chat</small>
+  </div>
+  <div class="header-right">
+    <span class="chip" id="provider">…</span>
+    <a class="btn" href="/" title="Mission control">Dashboard</a>
+  </div>
+</header>
+
+<div id="scroller">
+  <div id="thread"></div>
+</div>
+<button id="jump">↓ Latest</button>
+
+<div class="composer-zone">
+  <div class="composer" id="composer">
+    <div id="slash" hidden></div>
+    <div class="composer-top" id="composertop"></div>
+    <textarea id="input" rows="1" placeholder="Message Henry…  (/ for commands)" autofocus></textarea>
+    <div class="composer-row">
+      <div class="composer-actions">
+        <button id="attach" title="Attach an image">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.4 11.05 12.25 20.2a5.5 5.5 0 0 1-7.78-7.78l9.2-9.19a3.67 3.67 0 0 1 5.18 5.18l-9.2 9.2a1.83 1.83 0 0 1-2.6-2.6l8.5-8.48"/></svg>
+        </button>
+        <span class="hint">Enter to send · / for commands · paste or drop an image</span>
+      </div>
+      <button id="send" title="Send" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+      </button>
+    </div>
+    <input type="file" id="filepicker" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+  </div>
+</div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var thread = document.getElementById("thread");
+  var scroller = document.getElementById("scroller");
+  var input = document.getElementById("input");
+  var send = document.getElementById("send");
+  var jump = document.getElementById("jump");
+  var newchat = document.getElementById("newchat");
+  var providerChip = document.getElementById("provider");
+  var sidebar = document.getElementById("sidebar");
+  var toggleSide = document.getElementById("toggleside");
+  var convList = document.getElementById("convlist");
+  var agentsPanel = document.getElementById("agents");
+  var agentList = document.getElementById("agentlist");
+  var slash = document.getElementById("slash");
+  var composer = document.getElementById("composer");
+  var composerTop = document.getElementById("composertop");
+  var attachBtn = document.getElementById("attach");
+  var filePicker = document.getElementById("filepicker");
+  var streaming = false;
+  var aborter = null;
+
+  /* chat v2 state — all of it lives in the page; the server owns the durable copy */
+  var conversations = [];
+  var activeId = null;
+  var commands = [];
+  var skills = [];
+  var activeSkill = null;
+  var attachments = [];   /* [{ id, name, mime, url }] */
+  var slashItems = [];
+  var slashIndex = 0;
+  var activeProvider = "";
+
+  var SEND_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19V5M5 12l7-7 7 7"/></svg>';
+  var STOP_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+
+  /* ---------- minimal, escape-first markdown ---------- */
+  function esc(s) {
+    return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+  function inline(s) {
+    return s
+      .replace(/`([^`\n]+)`/g, function (_m, c) { return "<code>" + c + "</code>"; })
+      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[\s(])\*([^*\n]+)\*(?=[\s).,!?:;]|$)/g, "$1<em>$2</em>")
+      .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  }
+  function renderMarkdown(src) {
+    var fences = [];
+    src = src.replace(/```([\w+-]*)\n?([\s\S]*?)(?:```|$)/g, function (_m, lang, code) {
+      fences.push({ lang: lang || "", code: code.replace(/\n$/, "") });
+      return "\u0000F" + (fences.length - 1) + "\u0000";
+    });
+    var lines = esc(src).split("\n");
+    var html = [], list = null, quote = false, para = [];
+    function flushPara() {
+      if (para.length) { html.push("<p>" + inline(para.join("<br>")) + "</p>"); para = []; }
+    }
+    function flushList() { if (list) { html.push("</" + list + ">"); list = null; } }
+    function flushQuote() { if (quote) { html.push("</blockquote>"); quote = false; } }
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var fence = line.match(/^\u0000F(\d+)\u0000\s*$/);
+      var h = line.match(/^(#{1,3})\s+(.*)$/);
+      var ul = line.match(/^\s*[-*]\s+(.*)$/);
+      var ol = line.match(/^\s*\d+[.)]\s+(.*)$/);
+      var bq = line.match(/^>\s?(.*)$/);
+      // Guard the placeholder lookup: a reply that literally contains " F<n> " on its
+      // own line (with no matching fence) must render as text, not crash the renderer.
+      if (fence && fences[Number(fence[1])]) {
+        flushPara(); flushList(); flushQuote();
+        var f = fences[Number(fence[1])];
+        html.push('<div class="codeblock"><div class="codeblock-bar"><span>' + (esc(f.lang) || "code") + '</span><button onclick="window.__copy(this)">Copy</button></div><pre><code>' + esc(f.code) + "</code></pre></div>");
+      } else if (h) {
+        flushPara(); flushList(); flushQuote();
+        var level = h[1].length;
+        html.push("<h" + level + ">" + inline(h[2]) + "</h" + level + ">");
+      } else if (ul || ol) {
+        flushPara(); flushQuote();
+        var want = ul ? "ul" : "ol";
+        if (list !== want) { flushList(); html.push("<" + want + ">"); list = want; }
+        html.push("<li>" + inline((ul || ol)[1]) + "</li>");
+      } else if (bq) {
+        flushPara(); flushList();
+        if (!quote) { html.push("<blockquote>"); quote = true; }
+        html.push("<p>" + inline(bq[1]) + "</p>");
+      } else if (/^\s*(---+|\*\*\*+)\s*$/.test(line)) {
+        flushPara(); flushList(); flushQuote(); html.push("<hr>");
+      } else if (line.trim() === "") {
+        flushPara(); flushList(); flushQuote();
+      } else {
+        flushList(); flushQuote(); para.push(line);
+      }
+    }
+    flushPara(); flushList(); flushQuote();
+    return html.join("");
+  }
+  window.__copy = function (btn) {
+    var code = btn.closest(".codeblock").querySelector("code").textContent;
+    navigator.clipboard.writeText(code).then(function () {
+      btn.textContent = "Copied";
+      setTimeout(function () { btn.textContent = "Copy"; }, 1400);
+    });
+  };
+
+  /* ---------- transcript rendering ---------- */
+  function nearBottom() { return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 90; }
+  function scrollBottom(force) {
+    if (force || nearBottom()) scroller.scrollTop = scroller.scrollHeight;
+    jump.classList.toggle("show", !nearBottom());
+  }
+  scroller.addEventListener("scroll", function () { jump.classList.toggle("show", !nearBottom()); });
+  jump.addEventListener("click", function () { scrollBottom(true); });
+
+  function addUser(text, atts, skillName) {
+    clearEmpty();
+    var row = document.createElement("div");
+    row.className = "row user";
+    var bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+    if (skillName) {
+      var tag = document.createElement("div");
+      tag.className = "meta";
+      tag.style.paddingLeft = "0";
+      tag.textContent = "skill: " + skillName;
+      bubble.appendChild(tag);
+    }
+    if (atts && atts.length) {
+      var strip = document.createElement("div");
+      strip.className = "msg-attachments";
+      atts.forEach(function (attachment) {
+        var img = document.createElement("img");
+        img.src = "/api/attachments/" + encodeURIComponent(attachment.id);
+        img.alt = attachment.name || "attachment";
+        strip.appendChild(img);
+      });
+      bubble.appendChild(strip);
+    }
+    row.appendChild(bubble);
+    thread.appendChild(row);
+    scrollBottom(true);
+  }
+  function addHenryShell() {
+    var row = document.createElement("div");
+    row.className = "row henry";
+    row.innerHTML = '<div class="henry-head"><div class="avatar">H</div><span class="henry-name">Henry</span></div>' +
+      '<div class="thinking"><span class="pulse"><i></i><i></i><i></i></span> Henry is thinking…</div>' +
+      '<div class="prose" style="display:none"></div>';
+    thread.appendChild(row);
+    scrollBottom(true);
+    return row;
+  }
+  function addError(row, message) {
+    var line = document.createElement("div");
+    line.className = "sysline";
+    line.textContent = message;
+    row.appendChild(line);
+  }
+  function addNotice(row, message) {
+    var line = document.createElement("div");
+    line.className = "notice";
+    line.textContent = "ⓘ " + message;
+    row.insertBefore(line, row.firstChild.nextSibling);
+  }
+  /* Inline surface message: command results, errors, refusals. Never a silent no-op. */
+  function addSystem(text) {
+    clearEmpty();
+    var row = document.createElement("div");
+    row.className = "row system";
+    var bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+    row.appendChild(bubble);
+    thread.appendChild(row);
+    scrollBottom(true);
+  }
+  function clearEmpty() {
+    var empty = thread.querySelector(".empty");
+    if (empty) empty.remove();
+  }
+  function showEmpty() {
+    thread.innerHTML = '<div class="empty">' +
+      '<h1>Hey Luvish 👋</h1>' +
+      "<p>Terminal, Telegram, and now here — what can I do for you?</p>" +
+      '<div class="suggestions">' +
+      '<button class="suggestion">Have I applied to any company twice?</button>' +
+      '<button class="suggestion">What did the team say in standup today?</button>' +
+      "<button class=\"suggestion\">What's pending my approval right now?</button>" +
+      "</div></div>";
+    Array.prototype.forEach.call(thread.querySelectorAll(".suggestion"), function (btn) {
+      btn.addEventListener("click", function () { input.value = btn.textContent; autoSize(); submit(); });
+    });
+  }
+  function finishHenry(row, fullText) {
+    var thinking = row.querySelector(".thinking");
+    if (thinking) thinking.remove();
+    var prose = row.querySelector(".prose");
+    prose.style.display = "";
+    prose.innerHTML = renderMarkdown(fullText);
+  }
+
+  /* ---------- conversations ---------- */
+  function renderConversations() {
+    convList.innerHTML = "";
+    if (!conversations.length) {
+      var blank = document.createElement("div");
+      blank.className = "side-empty";
+      blank.textContent = "No conversations yet.";
+      convList.appendChild(blank);
+      return;
+    }
+    conversations.forEach(function (conversation) {
+      var item = document.createElement("div");
+      item.className = "conv" + (conversation.id === activeId ? " active" : "");
+      var name = document.createElement("span");
+      name.className = "name";
+      name.textContent = conversation.title;
+      name.title = conversation.title;
+      item.appendChild(name);
+
+      var rename = document.createElement("button");
+      rename.className = "act"; rename.title = "Rename"; rename.textContent = "✎";
+      rename.addEventListener("click", function (event) {
+        event.stopPropagation();
+        var next = window.prompt("Rename conversation", conversation.title);
+        if (next === null) return;
+        renameConversation(conversation.id, next);
+      });
+      item.appendChild(rename);
+
+      var remove = document.createElement("button");
+      remove.className = "act"; remove.title = "Delete"; remove.textContent = "✕";
+      remove.addEventListener("click", function (event) {
+        event.stopPropagation();
+        if (!window.confirm("Delete “" + conversation.title + "”? This removes its transcript.")) return;
+        deleteConversation(conversation.id);
+      });
+      item.appendChild(remove);
+
+      item.addEventListener("click", function () { openConversation(conversation.id); });
+      convList.appendChild(item);
+    });
+  }
+
+  function loadConversations() {
+    return fetch("/api/conversations").then(function (r) { return r.json(); }).then(function (data) {
+      conversations = (data && data.conversations) || [];
+      renderConversations();
+      return conversations;
+    }).catch(function () { conversations = []; renderConversations(); return []; });
+  }
+
+  function renderHistory(data) {
+    thread.innerHTML = "";
+    activeId = (data && data.conversationId) || null;
+    var messages = (data && data.messages) || [];
+    if (!messages.length) { showEmpty(); renderConversations(); return; }
+    messages.forEach(function (message) {
+      if (message.role === "user") { addUser(message.text, message.attachments, message.skill); return; }
+      finishHenry(addHenryShell(), message.text);
+    });
+    renderConversations();
+    scrollBottom(true);
+  }
+
+  function openConversation(id) {
+    if (streaming) return;
+    var query = id ? "?conversationId=" + encodeURIComponent(id) : "";
+    fetch("/api/chat/history" + query).then(function (r) { return r.json(); }).then(renderHistory).catch(function () {
+      if (!thread.querySelector(".row")) showEmpty();
+    });
+  }
+
+  function createConversation() {
+    return fetch("/api/conversations", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data || !data.conversation) throw new Error("could not create a conversation");
+        activeId = data.conversation.id;
+        thread.innerHTML = ""; showEmpty();
+        return loadConversations();
+      })
+      .then(function () { input.focus(); })
+      .catch(function (error) { addSystem("⚠ " + (error.message || error)); });
+  }
+
+  function renameConversation(id, title) {
+    if (!title || !title.trim()) { addSystem("A conversation needs a title."); return; }
+    fetch("/api/conversations/" + encodeURIComponent(id), {
+      method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ title: title.trim() }),
+    }).then(function (r) { return r.json(); }).then(function (data) {
+      if (data && data.error) { addSystem("⚠ " + data.error); return; }
+      loadConversations();
+    }).catch(function (error) { addSystem("⚠ " + (error.message || error)); });
+  }
+
+  function deleteConversation(id) {
+    fetch("/api/conversations/" + encodeURIComponent(id), { method: "DELETE" })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data && data.error) { addSystem("⚠ " + data.error); return; }
+        return loadConversations().then(function (list) {
+          if (id !== activeId) return;
+          if (list.length) { openConversation(list[0].id); return; }
+          activeId = null; thread.innerHTML = ""; showEmpty();
+        });
+      })
+      .catch(function (error) { addSystem("⚠ " + (error.message || error)); });
+  }
+
+  function clearConversation() {
+    fetch("/api/chat/clear", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ conversationId: activeId }),
+    }).then(function () {
+      thread.innerHTML = ""; showEmpty(); loadConversations(); input.focus();
+    }).catch(function (error) { addSystem("⚠ " + (error.message || error)); });
+  }
+
+  /* ---------- skills ---------- */
+  function loadSkills() {
+    return fetch("/api/skills").then(function (r) { return r.json(); }).then(function (data) {
+      skills = (data && data.skills) || [];
+      return skills;
+    }).catch(function () { skills = []; return skills; });
+  }
+
+  function setSkill(name) {
+    if (!name) { activeSkill = null; renderComposerTop(); return; }
+    var match = null;
+    skills.forEach(function (skill) { if (skill.name === name) match = skill; });
+    if (!match) {
+      addSystem("Unknown skill: " + name + (skills.length ? ". Available: " + skills.map(function (s) { return s.name; }).join(", ") : ". No skills found in skills/."));
+      return;
+    }
+    activeSkill = match;
+    renderComposerTop();
+    addSystem("Skill loaded: " + match.name + " (" + match.path + "). It guides every message until you clear it.");
+  }
+
+  /* ---------- attachments ---------- */
+  function renderComposerTop() {
+    composerTop.innerHTML = "";
+    if (activeSkill) {
+      var chip = document.createElement("span");
+      chip.className = "skillchip";
+      chip.appendChild(document.createTextNode("skill: " + activeSkill.name));
+      var clear = document.createElement("button");
+      clear.title = "Clear the active skill"; clear.textContent = "✕";
+      clear.addEventListener("click", function () { activeSkill = null; renderComposerTop(); addSystem("Skill cleared."); });
+      chip.appendChild(clear);
+      composerTop.appendChild(chip);
+    }
+    attachments.forEach(function (attachment) {
+      var box = document.createElement("span");
+      box.className = "attachchip";
+      var img = document.createElement("img");
+      img.src = attachment.url; img.alt = attachment.name;
+      box.appendChild(img);
+      var remove = document.createElement("button");
+      remove.title = "Remove"; remove.textContent = "✕";
+      remove.addEventListener("click", function () {
+        attachments = attachments.filter(function (candidate) { return candidate.id !== attachment.id; });
+        renderComposerTop(); autoSize();
+      });
+      box.appendChild(remove);
+      composerTop.appendChild(box);
+    });
+    if (attachments.length && activeProvider && activeProvider !== "claude") {
+      var warn = document.createElement("span");
+      warn.className = "skillchip";
+      warn.style.color = "var(--text-dim)";
+      warn.style.borderColor = "var(--border)";
+      warn.style.background = "none";
+      warn.textContent = activeProvider + " can't read images — this turn goes to Claude";
+      composerTop.appendChild(warn);
+    }
+  }
+
+  function uploadFile(file) {
+    if (!file) return;
+    if (!/^image\//.test(file.type || "")) { addSystem("Only images can be attached (PNG, JPEG, WebP, GIF)."); return; }
+    if (attachments.length >= 6) { addSystem("Up to 6 images per message."); return; }
+    fetch("/api/attachments", {
+      method: "POST",
+      headers: { "content-type": file.type, "x-filename": encodeURIComponent(file.name || "image") },
+      body: file,
+    }).then(function (response) {
+      return response.json().then(function (data) { return { ok: response.ok, data: data }; });
+    }).then(function (result) {
+      if (!result.ok || !result.data.attachment) { addSystem("⚠ " + ((result.data && result.data.error) || "That attachment was rejected.")); return; }
+      var attachment = result.data.attachment;
+      attachment.url = "/api/attachments/" + encodeURIComponent(attachment.id);
+      attachments.push(attachment);
+      renderComposerTop();
+    }).catch(function (error) { addSystem("⚠ Upload failed: " + (error.message || error)); });
+  }
+
+  attachBtn.addEventListener("click", function () { filePicker.click(); });
+  filePicker.addEventListener("change", function () {
+    Array.prototype.forEach.call(filePicker.files || [], uploadFile);
+    filePicker.value = "";
+  });
+  input.addEventListener("paste", function (event) {
+    var items = (event.clipboardData && event.clipboardData.items) || [];
+    var handled = false;
+    Array.prototype.forEach.call(items, function (item) {
+      if (item.kind !== "file") return;
+      var file = item.getAsFile();
+      if (file && /^image\//.test(file.type || "")) { uploadFile(file); handled = true; }
+    });
+    if (handled) event.preventDefault();
+  });
+  ["dragenter", "dragover"].forEach(function (name) {
+    composer.addEventListener(name, function (event) { event.preventDefault(); composer.classList.add("dragover"); });
+  });
+  ["dragleave", "drop"].forEach(function (name) {
+    composer.addEventListener(name, function () { composer.classList.remove("dragover"); });
+  });
+  composer.addEventListener("drop", function (event) {
+    event.preventDefault();
+    var files = (event.dataTransfer && event.dataTransfer.files) || [];
+    Array.prototype.forEach.call(files, uploadFile);
+  });
+
+  /* ---------- slash commands ---------- */
+  function parseCommand(text) {
+    var trimmed = text.replace(/^\s+/, "");
+    if (trimmed.charAt(0) !== "/" || trimmed.slice(0, 2) === "//") return null;
+    var match = /^\/([A-Za-z][A-Za-z0-9_-]*)\s*([\s\S]*)$/.exec(trimmed);
+    if (!match) return null;
+    return { name: match[1].toLowerCase(), arg: match[2].trim() };
+  }
+  function knownCommand(name) {
+    var found = false;
+    commands.forEach(function (command) { if (command.name === name) found = true; });
+    return found;
+  }
+
+  function closeSlash() { slash.hidden = true; slashItems = []; slashIndex = 0; }
+
+  function renderSlash() {
+    var text = input.value.replace(/^\s+/, "");
+    if (text.charAt(0) !== "/" || text.slice(0, 2) === "//") { closeSlash(); return; }
+    var head = /^\/([A-Za-z0-9_-]*)(\s?)([\s\S]*)$/.exec(text);
+    if (!head) { closeSlash(); return; }
+    var typed = head[1].toLowerCase();
+    var items = [];
+    if ((typed === "skill") && head[2]) {
+      /* second level: complete the skill name */
+      var q = head[3].trim().toLowerCase();
+      skills.filter(function (skill) { return skill.name.toLowerCase().indexOf(q) === 0 || !q; })
+        .forEach(function (skill) { items.push({ label: "/skill " + skill.name, desc: skill.description, insert: "/skill " + skill.name, run: true }); });
+    } else if (!head[2]) {
+      commands.filter(function (command) { return command.name.indexOf(typed) === 0; })
+        .forEach(function (command) {
+          items.push({
+            label: "/" + command.name + (command.args ? " " + command.args : ""),
+            desc: command.summary,
+            insert: "/" + command.name + (command.args ? " " : ""),
+            run: !command.args,
+          });
+        });
+    }
+    if (!items.length) { closeSlash(); return; }
+    slashItems = items;
+    if (slashIndex >= items.length) slashIndex = 0;
+    slash.innerHTML = "";
+    items.forEach(function (item, index) {
+      var node = document.createElement("div");
+      node.className = "slash-item" + (index === slashIndex ? " sel" : "");
+      node.innerHTML = '<span class="cmd"></span><span class="desc"></span>';
+      node.querySelector(".cmd").textContent = item.label;
+      node.querySelector(".desc").textContent = item.desc || "";
+      node.addEventListener("mousedown", function (event) { event.preventDefault(); chooseSlash(index); });
+      slash.appendChild(node);
+    });
+    slash.hidden = false;
+  }
+
+  function chooseSlash(index) {
+    var item = slashItems[index];
+    if (!item) return;
+    input.value = item.insert;
+    closeSlash();
+    autoSize();
+    if (item.run) { submit(); return; }
+    input.focus();
+  }
+
+  /* Executes a surface command. Returns true when the input was a command (known or not). */
+  function runCommand(text) {
+    var parsed = parseCommand(text);
+    if (!parsed) return false;
+    if (!knownCommand(parsed.name)) {
+      addSystem("Unknown command: /" + parsed.name + ". Type /help to see what I understand.");
+      return true;
+    }
+    if (parsed.name === "help") {
+      addSystem("Commands:\n" + commands.map(function (command) {
+        return "/" + command.name + (command.args ? " " + command.args : "") + " — " + command.summary;
+      }).join("\n") + "\nStart a message with // to send text that begins with a slash.");
+      return true;
+    }
+    if (parsed.name === "new") { createConversation(); return true; }
+    if (parsed.name === "clear") { clearConversation(); return true; }
+    if (parsed.name === "rename") {
+      if (!activeId) { addSystem("There is no conversation to rename yet — send a message first."); return true; }
+      var title = parsed.arg || window.prompt("Rename conversation", "") || "";
+      if (!title.trim()) { addSystem("Usage: /rename <title>"); return true; }
+      renameConversation(activeId, title);
+      addSystem("Renamed to “" + title.trim() + "”.");
+      return true;
+    }
+    if (parsed.name === "skill") {
+      if (!parsed.arg) {
+        addSystem(skills.length
+          ? "Usage: /skill <name>. Available: " + skills.map(function (skill) { return skill.name; }).join(", ")
+          : "No skills found in skills/.");
+        return true;
+      }
+      if (parsed.arg === "off" || parsed.arg === "none") { activeSkill = null; renderComposerTop(); addSystem("Skill cleared."); return true; }
+      setSkill(parsed.arg);
+      return true;
+    }
+    if (parsed.name === "provider" || parsed.name === "model") {
+      var target = parsed.arg.toLowerCase();
+      if (target !== "claude" && target !== "codex") { addSystem("Usage: /" + parsed.name + " claude|codex"); return true; }
+      fetch("/api/settings/provider", {
+        method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ provider: target }),
+      }).then(function (r) { return r.json(); }).then(function (data) {
+        activeProvider = (data && data.provider) || target;
+        providerChip.textContent = activeProvider;
+        renderComposerTop();
+        addSystem("Provider is now " + activeProvider + ".");
+      }).catch(function (error) { addSystem("⚠ " + (error.message || error)); });
+      return true;
+    }
+    addSystem("/" + parsed.name + " is not wired up here yet.");
+    return true;
+  }
+
+  /* ---------- send flow (SSE over fetch) ---------- */
+  function setStreaming(on) {
+    streaming = on;
+    send.classList.toggle("stop", on);
+    send.innerHTML = on ? STOP_SVG : SEND_SVG;
+    send.title = on ? "Stop" : "Send";
+    send.disabled = !on && input.value.trim() === "" && attachments.length === 0;
+    input.disabled = false;
+  }
+
+  function submit() {
+    if (streaming) { if (aborter) aborter.abort(); return; }
+    var raw = input.value.trim();
+    closeSlash();
+    if (runCommand(raw)) { input.value = ""; autoSize(); return; }
+    var text = raw.indexOf("//") === 0 ? raw.slice(1) : raw;
+    if (!text && !attachments.length) return;
+    var sentAttachments = attachments.slice();
+    var skillName = activeSkill ? activeSkill.name : null;
+    input.value = ""; attachments = []; renderComposerTop(); autoSize();
+    addUser(text, sentAttachments, skillName);
+    var row = addHenryShell();
+    var prose = row.querySelector(".prose");
+    var streamed = "";
+    var gotDone = false;
+    setStreaming(true);
+    aborter = new AbortController();
+
+    fetch("/api/chat/send", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        prompt: raw,
+        conversationId: activeId,
+        skill: skillName,
+        attachments: sentAttachments.map(function (attachment) { return { id: attachment.id, name: attachment.name }; }),
+      }),
+      signal: aborter.signal,
+    }).then(function (response) {
+      if (!response.ok) {
+        return response.json().catch(function () { return {}; }).then(function (data) {
+          throw new Error((data && data.error) || ("HTTP " + response.status));
+        });
+      }
+      if (!response.body) throw new Error("no response stream");
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder();
+      var buffer = "";
+      function pump() {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) return;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          var frames = buffer.split("\n\n");
+          buffer = frames.pop() || "";
+          frames.forEach(function (frame) {
+            var event = "message", data = "";
+            frame.split("\n").forEach(function (line) {
+              if (line.indexOf("event: ") === 0) event = line.slice(7);
+              else if (line.indexOf("data: ") === 0) data += line.slice(6);
+            });
+            if (!data) return;
+            var payload;
+            try { payload = JSON.parse(data); } catch (e) { return; }
+            if (event === "token" && payload.text) {
+              streamed += payload.text;
+              var thinking = row.querySelector(".thinking");
+              if (thinking) thinking.remove();
+              prose.style.display = "";
+              prose.innerHTML = renderMarkdown(streamed) + '<span class="caret"></span>';
+              scrollBottom(false);
+            } else if (event === "notice") {
+              addNotice(row, payload.text || "");
+            } else if (event === "done") {
+              gotDone = true;
+              if (payload.conversationId) activeId = payload.conversationId;
+              finishHenry(row, payload.response || streamed || "(no reply)");
+              if (payload.provider && payload.durationMs) {
+                var meta = document.createElement("div");
+                meta.className = "meta";
+                meta.textContent = payload.provider + " · " + (payload.durationMs / 1000).toFixed(1) + "s";
+                row.appendChild(meta);
+              }
+              scrollBottom(false);
+              loadConversations();
+            } else if (event === "error") {
+              gotDone = true;
+              finishHenry(row, streamed || "");
+              addError(row, "⚠ " + (payload.error || "Henry hit an error."));
+            }
+          });
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function (error) {
+      if (error && error.name === "AbortError") {
+        finishHenry(row, streamed || "");
+        addError(row, "Stopped — Henry finishes the thought server-side; it'll be in the transcript on reload.");
+      } else if (!gotDone) {
+        finishHenry(row, streamed || "");
+        addError(row, "⚠ " + (error && error.message ? error.message : error));
+      }
+    }).finally(function () {
+      setStreaming(false);
+      aborter = null;
+      input.focus();
+    });
+  }
+
+  /* ---------- composer behaviors ---------- */
+  function autoSize() {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 200) + "px";
+    if (!streaming) send.disabled = input.value.trim() === "" && attachments.length === 0;
+  }
+  input.addEventListener("input", function () { autoSize(); renderSlash(); });
+  input.addEventListener("keydown", function (event) {
+    if (!slash.hidden) {
+      if (event.key === "ArrowDown") { event.preventDefault(); slashIndex = (slashIndex + 1) % slashItems.length; renderSlash(); return; }
+      if (event.key === "ArrowUp") { event.preventDefault(); slashIndex = (slashIndex - 1 + slashItems.length) % slashItems.length; renderSlash(); return; }
+      if (event.key === "Enter" || event.key === "Tab") { event.preventDefault(); chooseSlash(slashIndex); return; }
+      if (event.key === "Escape") { event.preventDefault(); closeSlash(); return; }
+    }
+    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
+  });
+  input.addEventListener("blur", closeSlash);
+  send.addEventListener("click", submit);
+  autoSize();
+
+  newchat.addEventListener("click", function () { if (!streaming) createConversation(); });
+  toggleSide.addEventListener("click", function () { sidebar.classList.toggle("collapsed"); });
+
+  /* ---------- agent activity strip (display only — no dispatch control) ---------- */
+  var agentsById = {};
+  function elapsed(from, to) {
+    var start = new Date(from).getTime();
+    var end = to ? new Date(to).getTime() : Date.now();
+    if (!isFinite(start) || !isFinite(end)) return "";
+    var seconds = Math.max(0, Math.round((end - start) / 1000));
+    if (seconds < 60) return seconds + "s";
+    if (seconds < 3600) return Math.floor(seconds / 60) + "m " + (seconds % 60) + "s";
+    return Math.floor(seconds / 3600) + "h " + Math.floor((seconds % 3600) / 60) + "m";
+  }
+  function renderAgents() {
+    var all = Object.keys(agentsById).map(function (key) { return agentsById[key]; });
+    var running = all.filter(function (agent) { return agent.status === "running"; });
+    var recent = all.filter(function (agent) { return agent.status !== "running"; })
+      .sort(function (a, b) { return (b.finishedAt || "") < (a.finishedAt || "") ? -1 : 1; }).slice(0, 4);
+    var shown = running.concat(recent);
+    /* Honest empty state: no endpoint, no agents — the panel simply is not there. */
+    if (!shown.length) { agentsPanel.hidden = true; agentList.innerHTML = ""; return; }
+    agentsPanel.hidden = false;
+    agentList.innerHTML = "";
+    shown.forEach(function (agent) {
+      var node = document.createElement("div");
+      node.className = "agent " + (agent.status || "done");
+      node.innerHTML = '<div class="top"><span class="role"></span><span class="when"></span></div><div class="task"></div>';
+      node.querySelector(".role").textContent = (agent.role || "agent") + (agent.provider ? " · " + agent.provider : "");
+      node.querySelector(".when").textContent = agent.status === "running"
+        ? elapsed(agent.startedAt)
+        : (agent.status === "failed" ? "failed" : "done") + (agent.finishedAt ? " · " + elapsed(agent.startedAt, agent.finishedAt) : "");
+      var task = agent.task || agent.summary || "";
+      node.querySelector(".task").textContent = task;
+      node.title = task + (agent.summary ? "\n" + agent.summary : "");
+      agentList.appendChild(node);
+    });
+  }
+  function noteAgent(agent) {
+    if (!agent || typeof agent.id !== "string") return;
+    agentsById[agent.id] = agent;
+    renderAgents();
+  }
+  function loadAgents() {
+    fetch("/api/agents").then(function (response) {
+      if (!response.ok) return null;          /* 404 until the backend lands — stay hidden */
+      return response.json();
+    }).then(function (data) {
+      if (!data) return;
+      agentsById = {};
+      (data.running || []).concat(data.recent || []).forEach(function (agent) {
+        if (agent && typeof agent.id === "string") agentsById[agent.id] = agent;
+      });
+      renderAgents();
+    }).catch(function () { /* endpoint absent or offline: panel stays hidden */ });
+  }
+  /* The existing /api/events stream carries `agent` events with the same shape. */
+  try {
+    var events = new EventSource("/api/events");
+    events.addEventListener("agent", function (event) {
+      try { noteAgent(JSON.parse(event.data)); } catch (e) { /* ignore a malformed frame */ }
+    });
+  } catch (e) { /* no SSE: the strip just never updates live */ }
+  loadAgents();
+  setInterval(loadAgents, 15000);
+  setInterval(function () { if (!agentsPanel.hidden) renderAgents(); }, 1000);
+
+  /* ---------- boot ---------- */
+  fetch("/api/status").then(function (r) { return r.json(); }).then(function (status) {
+    activeProvider = status.provider || "";
+    providerChip.textContent = activeProvider || "?";
+    renderComposerTop();
+  }).catch(function () { providerChip.textContent = "offline"; });
+
+  fetch("/api/chat/commands").then(function (r) { return r.json(); }).then(function (data) {
+    commands = (data && data.commands) || [];
+  }).catch(function () { commands = []; });
+
+  loadSkills();
+  loadConversations().then(function (list) {
+    if (list.length) { openConversation(list[0].id); return; }
+    showEmpty();
+  });
+})();
+</script>
+</body>
+</html>
