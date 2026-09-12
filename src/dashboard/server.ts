@@ -727,6 +727,19 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       if (request.method === "GET" && url.pathname === "/api/agents") { json(response, 200, sharedAgentRegistry().snapshot()); return; }
       if (request.method === "GET" && url.pathname === "/api/approvals") { json(response, 200, await runtime.approvals.list()); return; }
       if (request.method === "GET" && url.pathname === "/api/workflows") { json(response, 200, await runtime.scheduler.definitions()); return; }
+      if (request.method === "GET" && url.pathname === "/api/catalogue/documents") {
+        if (!runtime.commerce) { json(response, 503, { error: "catalogue service not available in this profile" }); return; }
+        json(response, 200, runtime.commerce.documents()); return;
+      }
+      if (request.method === "GET" && url.pathname === "/api/catalogue/search") {
+        if (!runtime.commerce) { json(response, 503, { error: "catalogue service not available in this profile" }); return; }
+        json(response, 200, await runtime.commerce.search(url.searchParams.get("q") || "", url.searchParams.get("brand") || undefined, url.searchParams.get("pending") === "true")); return;
+      }
+      const quoteRoute = url.pathname.match(/^\/api\/quotes\/([^/]+)$/);
+      if (request.method === "GET" && quoteRoute) {
+        if (!runtime.commerce) { json(response, 503, { error: "quotation service not available in this profile" }); return; }
+        json(response, 200, runtime.commerce.quote(decodeURIComponent(quoteRoute[1]))); return;
+      }
       if (request.method === "GET" && url.pathname === "/api/jobs") {
         if (!runtime.jobs) { json(response, 503, { error: "jobs service not available in this profile" }); return; }
         json(response, 200, { summary: await runtime.jobs.store.summary(), applications: await runtime.jobs.store.list() }); return;
@@ -808,6 +821,35 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       if (request.method === "POST" && url.pathname === "/api/settings/provider") {
         const input = await body(request);
         json(response, 200, { provider: await runtime.setProvider(String(input.provider) as "codex" | "claude") }); return;
+      }
+      if (request.method === "POST" && url.pathname === "/api/catalogue/import") {
+        if (!runtime.commerce) { json(response, 503, { error: "catalogue service not available in this profile" }); return; }
+        const input = await body(request);
+        const filePath = String(input.filePath || "").trim();
+        if (!filePath) { json(response, 400, { error: "filePath is required" }); return; }
+        json(response, 200, await runtime.commerce.importCatalogue(filePath, { sheet: typeof input.sheet === "string" ? input.sheet : undefined })); return;
+      }
+      const publishRoute = url.pathname.match(/^\/api\/catalogue\/([^/]+)\/publish$/);
+      if (request.method === "POST" && publishRoute) {
+        if (!runtime.commerce) { json(response, 503, { error: "catalogue service not available in this profile" }); return; }
+        json(response, 200, await runtime.commerce.publish(decodeURIComponent(publishRoute[1]))); return;
+      }
+      if (request.method === "POST" && url.pathname === "/api/quotes") {
+        if (!runtime.commerce) { json(response, 503, { error: "quotation service not available in this profile" }); return; }
+        json(response, 200, runtime.commerce.createQuote(await body(request) as unknown as import("../commerce/types.ts").QuoteRequest)); return;
+      }
+      if (request.method === "POST" && url.pathname === "/api/quotes/compare") {
+        if (!runtime.commerce) { json(response, 503, { error: "quotation service not available in this profile" }); return; }
+        const input = await body(request);
+        const brands = Array.isArray(input.brands) ? input.brands.map(String) : [];
+        const requirements = (input.requirements || {}) as unknown as Omit<import("../commerce/types.ts").QuoteRequest, "brand">;
+        json(response, 200, runtime.commerce.compare(requirements, brands)); return;
+      }
+      const exportQuoteRoute = url.pathname.match(/^\/api\/quotes\/([^/]+)\/export$/);
+      if (request.method === "POST" && exportQuoteRoute) {
+        if (!runtime.commerce) { json(response, 503, { error: "quotation service not available in this profile" }); return; }
+        const input = await body(request);
+        json(response, 200, { outputPath: await runtime.commerce.exportQuote(decodeURIComponent(exportQuoteRoute[1]), typeof input.outputPath === "string" ? input.outputPath : undefined) }); return;
       }
       if (request.method === "POST" && url.pathname === "/api/ask") {
         const input = await body(request); const prompt = String(input.prompt || "");

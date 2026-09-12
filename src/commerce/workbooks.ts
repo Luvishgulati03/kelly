@@ -1,4 +1,4 @@
-import ExcelJS from "exceljs";
+import type ExcelJS from "exceljs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { createHash } from "node:crypto";
@@ -13,6 +13,7 @@ function assertWorkbookPath(filePath: string): "xlsx" | "csv" {
 
 async function loadWorkbook(filePath: string): Promise<ExcelJS.Workbook> {
   const kind = assertWorkbookPath(filePath);
+  const { default: ExcelJS } = await import("exceljs");
   const workbook = new ExcelJS.Workbook();
   // ExcelJS otherwise coerces number-looking identifiers such as 0007 to 7.
   // Supplier SKUs are identifiers, so preserve every CSV field as source text.
@@ -111,6 +112,7 @@ export async function extractCatalogueRows(filePath: string, sheetName?: string)
 }
 
 export async function exportQuoteWorkbook(quote: { id: string; customerName?: string; brand: string; lines: Array<{ sku: string; name: string; quantityMilli: number; unit: string; unitPricePaise: number; taxablePaise: number; taxPaise: number; totalPaise: number }>; totalPaise: number }, outputPath: string): Promise<string> {
+  const { default: ExcelJS } = await import("exceljs");
   const workbook = new ExcelJS.Workbook(); const sheet = workbook.addWorksheet("Quotation");
   sheet.addRow(["KELLY QUOTATION"]); sheet.mergeCells("A1:H1"); sheet.getCell("A1").font = { bold: true, size: 16 };
   sheet.addRow(["Quote ID", quote.id]); sheet.addRow(["Customer", quote.customerName || "Walk-in customer"]); sheet.addRow(["Brand", quote.brand]); sheet.addRow([]);

@@ -7,7 +7,7 @@ import ExcelJS from "exceljs";
 import { loadConfig } from "../src/config.ts";
 import { setActiveProfile } from "../src/profile.ts";
 import { ActivityLog } from "../src/activity.ts";
-import { CommerceService } from "../src/commerce/service.ts";
+import { CommerceService, type CatalogueRagPort } from "../src/commerce/service.ts";
 import type { CatalogueProduct } from "../src/commerce/types.ts";
 
 async function fixture(): Promise<{ root: string; service: CommerceService; csv: string }> {
@@ -15,12 +15,12 @@ async function fixture(): Promise<{ root: string; service: CommerceService; csv:
   setActiveProfile("kelly"); const config = loadConfig(root); const activity = new ActivityLog(config.activityPath); await activity.init();
   const csv = path.join(root, "catalogue.csv");
   await fs.writeFile(csv, "SKU,Brand,Name,Category,Unit,Price,GST\n0007,Acme,MCB 16A,MCB,piece,100,18\n0008,Beta,MCB 16A,MCB,piece,120,18\n");
-  const rag = {
+  const rag: CatalogueRagPort = {
     index: async (products: CatalogueProduct[]) => products.length,
     search: async () => [],
     close: () => undefined,
   };
-  return { root, service: new CommerceService(config, activity, rag as never), csv };
+  return { root, service: new CommerceService(config, activity, rag), csv };
 }
 
 test("catalogue requires review before products can be quoted", async () => {

@@ -6,7 +6,6 @@
   "description": "Kelly — a local-first electrical catalogue and quotation agent built on Henry's shared runtime.",
   "type": "module",
   "bin": {
-    "henry": "./bin/henry.mjs",
     "kelly": "./bin/kelly.mjs",
     "kelly-excel-mcp": "./bin/kelly-excel-mcp.mjs"
   },

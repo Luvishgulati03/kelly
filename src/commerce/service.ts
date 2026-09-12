@@ -7,7 +7,6 @@ import type { ActivityLog } from "../activity.ts";
 import { runCommand } from "../util/command.ts";
 import { calculateLine } from "./money.ts";
 import { CommerceStore } from "./store.ts";
-import { CatalogueRag } from "./rag.ts";
 import type { CalculatedQuote, CatalogueProductInput, QuoteRequest, SourceKind } from "./types.ts";
 import { editWorkbook, exportQuoteWorkbook, extractCatalogueRows, inspectWorkbook, readRange, searchWorkbook, type WorkbookEdit } from "./workbooks.ts";
 
@@ -15,10 +14,18 @@ function addDays(date: Date, days: number): string { const result = new Date(dat
 
 export class CommerceService {
   readonly store: CommerceStore;
-  readonly rag: CatalogueRag;
-  constructor(private readonly config: HenryConfig, private readonly activity: ActivityLog, rag?: CatalogueRag) {
+  private rag?: CatalogueRagPort;
+  constructor(private readonly config: HenryConfig, private readonly activity: ActivityLog, rag?: CatalogueRagPort) {
     this.store = new CommerceStore(path.join(config.dataDir, "commerce.db"));
-    this.rag = rag ?? new CatalogueRag(config);
+    this.rag = rag;
+  }
+
+  private async catalogueRag(): Promise<CatalogueRagPort> {
+    if (!this.rag) {
+      const { CatalogueRag } = await import("./rag.ts");
+      this.rag = new CatalogueRag(this.config);
+    }
+    return this.rag;
   }
 
   async importCatalogue(filePath: string, options: { sheet?: string } = {}): Promise<unknown> {
@@ -52,12 +59,12 @@ export class CommerceService {
 
   async publish(documentId: string): Promise<unknown> {
     const publishedProducts = this.store.publish(documentId);
-    const indexed = await this.rag.index(this.store.productsForDocument(documentId).filter((item) => item.status === "published"));
+    const indexed = await (await this.catalogueRag()).index(this.store.productsForDocument(documentId).filter((item) => item.status === "published"));
     return { documentId, publishedProducts, indexed };
   }
   async search(query: string, brand?: string, includePending = false): Promise<unknown> {
     const exact = this.store.search(query, brand, includePending);
-    return { products: exact, semanticEvidence: query.trim() ? await this.rag.search(query, brand) : [] };
+    return { products: exact, semanticEvidence: query.trim() ? await (await this.catalogueRag()).search(query, brand) : [] };
   }
   documents(): unknown { return this.store.listDocuments(); }
 
@@ -98,5 +105,11 @@ export class CommerceService {
     const quote = this.quote(id); if (!quote.complete) throw new Error("An incomplete quotation cannot be exported as final");
     const selected = outputPath || path.join(this.config.dataDir, "quotes", `${id}.xlsx`); return exportQuoteWorkbook(quote, selected);
   }
-  close(): void { this.store.close(); this.rag.close(); }
+  close(): void { this.store.close(); this.rag?.close(); }
+}
+
+export interface CatalogueRagPort {
+  index(products: import("./types.ts").CatalogueProduct[]): Promise<number>;
+  search(query: string, brand?: string, k?: number): Promise<unknown[]>;
+  close(): void;
 }
