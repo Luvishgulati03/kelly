@@ -1,0 +1,10 @@
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+
+[agents]
+enabled = true
+max_threads = 6
+
+[mcp_servers.kelly_excel]
+command = "node"
+args = ["bin/kelly-excel-mcp.mjs"]

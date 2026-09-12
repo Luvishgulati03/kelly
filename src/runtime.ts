@@ -40,6 +40,7 @@ import type { RunOptions } from "./providers/runner.ts";
 import { isLongResearchAsk, type DispatchReportHandle } from "./orchestration/luna.ts";
 import type { ReflexSnapshot } from "./reflex.ts";
 import { isServiceExcluded, getActiveProfile } from "./profile.ts";
+import { CommerceService } from "./commerce/service.ts";
 
 export type InteractiveTurn =
   | { delegated: false; completion: Promise<RunResult> }
@@ -67,6 +68,7 @@ export class HenryRuntime {
   readonly xBrowser?: XBrowserPostService;
   readonly mailwatch?: MailWatchService;
   readonly draftReplies?: DraftRepliesService;
+  readonly commerce?: CommerceService;
   private _knowledge?: KnowledgeBase;
   private _workflowEngine?: WorkflowEngine;
   private _standupStore?: StandupStore;
@@ -95,6 +97,7 @@ export class HenryRuntime {
     this.activity = new ActivityLog(config.activityPath);
     this.approvals = new ApprovalStore(config.approvalsPath);
     this.memory = new HenryMemory(config, this.activity);
+    if (config.commerceEnabled) this.commerce = new CommerceService(config, this.activity);
 
     // Conditionally initialize excluded services
     if (!isServiceExcluded("gmail")) {
@@ -374,6 +377,7 @@ export class HenryRuntime {
   }
 
   async setProvider(provider: ProviderName): Promise<ProviderName> {
+    if (this.config.profileId === "kelly" && provider !== "codex") throw new Error("Kelly is Codex-only; Claude fallback is disabled");
     if (provider !== "codex" && provider !== "claude") throw new Error(`Unknown provider: ${String(provider)}`);
     this.config.provider = provider;
     // Read-merge-write (audit 2026-08-09 M2): a bare {provider} write was wiping
@@ -462,6 +466,7 @@ export class HenryRuntime {
     this.closing ||= this.agent.flushMemoryCaptures().finally(() => {
       this.memory.close();
       this._knowledge?.close();
+      this.commerce?.close();
     });
   }
 }

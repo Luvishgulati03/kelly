@@ -24,6 +24,7 @@ import {
 } from "./tui/panel.ts";
 import { isLongResearchAsk } from "./orchestration/luna.ts";
 import { getActiveProfile, isServiceExcluded } from "./profile.ts";
+import { runCommerceCommand } from "./commerce/commands.ts";
 
 const args = process.argv.slice(2);
 
@@ -579,6 +580,9 @@ async function main(): Promise<void> {
       else if (sub === "sort") { if (!args[2]) throw new Error("Usage: henry screenshots sort <image-path>"); print(await runtime.screenshots.sortOne(args[2])); }
       else if (sub === "watch") { const close = await runtime.screenshots.watch(); keepAlive = true; console.log("Watching for screenshots. Ctrl+C to stop."); process.once("SIGINT", () => { close(); process.exit(0); }); }
       else throw new Error("Usage: henry screenshots backlog|sort <path>|watch");
+    } else if (command === "catalogue" || command === "quote" || command === "sheets") {
+      if (!runtime.commerce) throw new Error(`${command} is not enabled. Set HENRY_COMMERCE_ENABLED=true or use Kelly.`);
+      print(await runCommerceCommand(runtime.commerce, command, args.slice(1)));
     } else if (command === "knowledge") {
       const { KnowledgeBase } = await import("./knowledge/store.ts");
       const kb = new KnowledgeBase(runtime.config);

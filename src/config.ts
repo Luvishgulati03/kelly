@@ -32,6 +32,8 @@ const DEFAULT_JOB_SCOUT_TITLES: string[] = [];
 
 export interface HenryConfig {
   profileId: "henry" | "kelly";
+  /** Commerce is always active for Kelly and opt-in for Henry. */
+  commerceEnabled: boolean;
   rootDir: string;
   dataDir: string;
   memoryDir: string;
@@ -213,6 +215,7 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
   const portfolioDir = env("PORTFOLIO_DIR");
   return {
     profileId: profile.id,
+    commerceEnabled: profile.id === "kelly" || bool(env("COMMERCE_ENABLED"), false),
     rootDir,
     dataDir,
     memoryDir,
@@ -227,7 +230,7 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
     port: Number(env("PORT") || 7337),
     dashboardToken: env("DASHBOARD_TOKEN") || undefined,
     allowRemoteDashboard: bool(env("ALLOW_REMOTE_DASHBOARD"), false),
-    provider: env("PROVIDER") === "claude" ? "claude" : "codex",
+    provider: profile.id === "kelly" ? "codex" : env("PROVIDER") === "claude" ? "claude" : "codex",
     // Keep the model policy inside Henry instead of inheriting an operator's global
     // Codex setting. Luvish's orchestration contract: Sol coordinates ordinary
     // work, a cheaper 5.5 worker handles t0 tasks, and Luna gets the hard t2 work.
@@ -243,9 +246,9 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
     // The same tiering on the Claude seat, so switching provider is a config change and
     // never a code change. Defaults reproduce the long-standing hardcoded behaviour
     // (t0 → haiku, t2 → opus); t1 stays blank so the CLI's own default wins.
-    claudeModel: env("CLAUDE_MODEL") || undefined,
-    claudeT0Model: env("CLAUDE_T0_MODEL") || "haiku",
-    claudeT2Model: env("CLAUDE_T2_MODEL") || "opus",
+    claudeModel: profile.id === "kelly" ? undefined : env("CLAUDE_MODEL") || undefined,
+    claudeT0Model: profile.id === "kelly" ? undefined : env("CLAUDE_T0_MODEL") || "haiku",
+    claudeT2Model: profile.id === "kelly" ? undefined : env("CLAUDE_T2_MODEL") || "opus",
     requireOutboundApproval: bool(env("REQUIRE_OUTBOUND_APPROVAL"), true),
     ownerEmail: env("OWNER_EMAIL") || process.env.DAD_EMAIL || undefined,
     gmailCredentialsPath: resolveFromRoot(rootDir, process.env.GMAIL_CREDENTIALS_PATH, "data/gmail-credentials.json"),

@@ -1,14 +1,18 @@
 # Kelly — Electrical Shop Quotation Assistant
 
-Kelly is a local-first personal quotation assistant for electrical shops, built on Henry's shared architecture.
+Kelly is a local-first catalogue and quotation agent for electrical shops. It turns supplier files into reviewed product records, finds matching items, and creates brand-specific quotations with deterministic pricing.
 
 ## What Kelly Does
 
 Kelly helps you generate, organize, and manage electrical shop quotations with:
 
-- **Quotation generation** from customer requirements
-- **Provider integration** support (Claude/Codex)
-- **Memory system** to learn from past quotations
+- **Catalogue ingestion** from PDF, XLSX, and CSV files with a review gate before products become searchable
+- **Quotation generation** from published catalogue prices, including discounts and GST
+- **Brand comparison** for the same customer requirements without rebuilding every quotation by hand
+- **Excel navigation and safe editing** through a local Codex MCP server that always writes a new copy
+- **Separate catalogue RAG** for product evidence; Engram memory is reserved for durable preferences and corrections
+- **Codex orchestration** with no alternate-model fallback
+- **Engram memory** for operator preferences and durable shop context
 - **Activity logging** and approval workflows
 - **Terminal interface** with REPL mode
 - **Dashboard** for monitoring
@@ -35,12 +39,11 @@ These services are available in Henry if you need a full personal engineering ag
 
 ```bash
 npm install
-cp .env.example .env
+cp KELLY.env.example .env
 cp soul.example.md soul.md
 cp personality.example.md personality.md
-claude auth login
-npx tsx src/cli.ts provider claude
-npx tsx src/cli.ts repl
+codex login
+node bin/kelly.mjs repl
 ```
 
 Or with npm link:
@@ -56,11 +59,12 @@ Kelly uses `KELLY_` prefixed environment variables and maintains its own isolate
 
 ```bash
 # .env
-KELLY_DATA_DIR=data/kelly
-KELLY_MEMORY_DIR=memory/kelly
+# Defaults are isolated under ~/.kelly; override only when needed.
+KELLY_DATA_DIR=/absolute/path/to/kelly-data
+KELLY_MEMORY_DIR=/absolute/path/to/kelly-memory
 KELLY_HOST=127.0.0.1
 KELLY_PORT=7338
-KELLY_PROVIDER=claude
+KELLY_PROVIDER=codex
 KELLY_TELEGRAM_BOT_TOKEN=your_token
 KELLY_TELEGRAM_CHAT_ID=your_chat_id
 ```
@@ -78,7 +82,7 @@ The dashboard is available at `http://127.0.0.1:7338` by default.
 ### Single Query
 
 ```bash
-kelly ask "Generate a quotation for 100 LED bulbs at ₹50 each"
+kelly ask "Find published Havells LED bulb options and prepare a quote for 100 units"
 ```
 
 ### Dashboard Only
@@ -96,7 +100,7 @@ kelly memory remember "standard markup is 30%"
 
 ### Approvals
 
-Kelly stages outbound actions (if enabled) for approval:
+Kelly keeps the inherited approval queue for any future outbound integration. Approval and execution remain separate actions:
 
 ```bash
 kelly approve list
@@ -107,9 +111,42 @@ kelly approve send <approval-id>
 ### Reminders and Scheduling
 
 ```bash
-kelly remind "check quotation queue" in 2h
-kelly reminder list
+kelly remind "check quotation queue" --in 2h
+kelly remind list
 kelly schedule status
+```
+
+## Catalogue and quotation workflow
+
+Importing never publishes products immediately. Review the detected records first, then explicitly publish the document.
+
+```bash
+kelly catalogue import ./supplier-price-list.xlsx --sheet Products
+kelly catalogue review
+kelly catalogue publish <document-id>
+kelly catalogue search "20W LED batten" --brand Havells
+```
+
+Create a quote from a JSON request so quantities, discounts, GST, and source products remain reproducible:
+
+```bash
+kelly quote create --from ./quote-request.json
+kelly quote show <quote-id>
+kelly quote compare --from ./requirements.json --brands Havells,Philips
+kelly quote export <quote-id> --out ./customer-quote.xlsx
+```
+
+Prices are stored as integer paise and totals are calculated in code, not guessed by a language model. Incomplete or ambiguous matches stay unresolved and cannot be exported as a final quotation.
+
+## Excel MCP connector
+
+The project-local `.codex/config.toml` registers `kelly-excel-mcp`. It exposes four bounded tools: inspect a workbook, read a range, search cells, and save explicit edits to a new XLSX copy. The source workbook is never overwritten. XLSX and CSV are supported; legacy XLS and macro-enabled XLSM files are rejected.
+
+```bash
+kelly sheets inspect ./catalogue.xlsx
+kelly sheets read ./catalogue.xlsx --sheet Products --range A1:F20
+kelly sheets search ./catalogue.xlsx --query "ceiling fan"
+kelly sheets edit ./catalogue.xlsx --edits ./edits.json --out ./catalogue-v2.xlsx
 ```
 
 ## Project Structure
@@ -125,17 +162,15 @@ kelly/
 │   ├── memory/             # Memory system (Engram)
 │   ├── approval/           # Approval workflows
 │   ├── reminders/          # Reminders and scheduling
-│   ├── telegram/           # Telegram integration
+│   ├── telegram/           # Telegram interface
 │   ├── dashboard/          # Web dashboard
+│   ├── commerce/           # Catalogue, pricing, quote, and workbook services
+│   ├── mcp/                # Local Excel MCP server
 │   └── ...
 ├── bin/
-│   ├── henry.mjs           # Henry launcher
-│   └── kelly.mjs           # Kelly launcher (sets profile)
-├── data/
-│   ├── kelly.db            # Memory database
-│   ├── activity.jsonl      # Activity log
-│   ├── approvals.json      # Pending approvals
-│   └── ...
+│   ├── kelly.mjs           # Kelly launcher
+│   └── kelly-excel-mcp.mjs # Excel MCP launcher
+├── .codex/config.toml      # Project-local MCP registration
 └── soul.md                 # Kelly's personality (ignored by git)
 ```
 
@@ -163,10 +198,10 @@ Use Indian rupees for every price and quotation.
 ## Support
 
 For issues or questions:
-- Check `.env.example` for configuration options
-- Review `CLAUDE.md` for Henry's documentation (Kelly shares most architecture)
+- Check `KELLY.env.example` for configuration options
+- Review this file and the command help before changing inherited runtime modules
 - Run `kelly :help` in the REPL for available commands
-- Check `data/kelly/activity.jsonl` for detailed logs
+- Check Kelly's configured data directory for local activity logs
 
 ## License
 

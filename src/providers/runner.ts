@@ -557,7 +557,9 @@ export class ProviderRunner {
     // contract we use here. Never turn a read-only review into a write-capable
     // FALLBACK; an EXPLICIT caller choice of claude (e.g. vision classification)
     // is honored as a single-provider run with no fallback either way.
-    const sequence: ProviderName[] = options.readOnly
+    const sequence: ProviderName[] = this.config.profileId === "kelly"
+      ? ["codex"]
+      : options.readOnly
       ? [options.provider === "claude" ? "claude" as const : "codex" as const]
       : isPinned
         ? (policy.fallback && policy.fallbackPinned ? [preferred, alternate] : [preferred])

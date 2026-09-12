@@ -38,6 +38,8 @@ test("runtime draftreplies adapter stages thread identity and never sends", asyn
     };
 
     assert.ok(runtime.draftReplies, "draftReplies service should be available");
+    // A regression test must never leak into the operator's macOS notifications.
+    (runtime.draftReplies as unknown as { notify?: (message: string, title?: string) => Promise<void> }).notify = async () => undefined;
     const result = await runtime.draftReplies.draftReplies(1);
     assert.equal(result.staged.length, 1);
     assert.deepEqual(result.staged, [{
