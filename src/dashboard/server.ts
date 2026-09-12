@@ -149,9 +149,9 @@ async function logsHtml(): Promise<string> {
 const CHAT_HTML_PATH = fileURLToPath(new URL("./chat.html", import.meta.url));
 let chatHtmlCache: string | null = null;
 
-async function chatHtml(): Promise<string> {
+async function chatHtml(profileId: "henry" | "kelly" = "henry"): Promise<string> {
   chatHtmlCache ??= await fs.readFile(CHAT_HTML_PATH, "utf8");
-  return chatHtmlCache;
+  return profileId === "kelly" ? chatHtmlCache.replaceAll("Henry", "Kelly") : chatHtmlCache;
 }
 
 const KNOWLEDGE_ADMIN_HTML_PATH = fileURLToPath(new URL("./knowledge-admin.html", import.meta.url));
@@ -579,7 +579,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       }
       if (request.method === "GET" && (url.pathname === "/chat" || url.pathname === "/chat/")) {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-        response.end(await chatHtml());
+        response.end(await chatHtml(runtime.config.profileId));
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/chat/history") {
