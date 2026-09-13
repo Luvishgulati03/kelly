@@ -26,6 +26,7 @@ import { ProviderRunner, type RunOptions } from "../providers/runner.ts";
 import { redactSecrets } from "../util/env.ts";
 import { OUTBOUND_EMAIL_APPROVAL_GUARDRAIL } from "../guardrails.ts";
 import { hotCache } from "../cache.ts";
+import { ConversationRag, conversationScopeForSurface, type ConversationScope } from "../commerce/conversation-rag.ts";
 
 async function readText(path: string): Promise<string> {
   try {
@@ -37,6 +38,7 @@ export class HenryAgent {
   private readonly runner: ProviderRunner;
   /** Captures stay asynchronous for response latency, but runtime shutdown drains them. */
   private readonly pendingMemoryCaptures = new Set<Promise<void>>();
+  private readonly conversationRag?: ConversationRag;
 
   constructor(
     private readonly config: HenryConfig,
@@ -45,7 +47,10 @@ export class HenryAgent {
     // Lazy provider (not the instance itself) so a plain HenryAgent construction
     // never forces the knowledge DB open; runtime.ts wires this to its lazy accessor.
     private readonly knowledgeProvider?: () => KnowledgeBase,
-  ) { this.runner = new ProviderRunner(config, activity); }
+  ) {
+    this.runner = new ProviderRunner(config, activity);
+    if (config.profileId === "kelly") this.conversationRag = new ConversationRag(config);
+  }
 
   /** Assembles the full provider prompt without invoking the provider — the testable seam. */
   /**
@@ -54,7 +59,7 @@ export class HenryAgent {
    * reduction: a resumed provider session already holds those static blocks, so
    * it receives a safety header + dynamic context + the request.
    */
-  async buildPrompt(prompt: string, runId: string, fresh = true, provider: ProviderName = "claude"): Promise<string> {
+  async buildPrompt(prompt: string, runId: string, fresh = true, provider: ProviderName = "claude", conversationScope: ConversationScope = "owner"): Promise<string> {
     // Trivial chatter (t0) gets a pocket prompt: tiny persona line + 2 memories for
     // continuity, none of the 14KB capability/soul sheets. A greeting was shipping
     // the full deck to haiku for no reason (2026-08-08 "hi took 100s" investigation —
@@ -108,8 +113,11 @@ export class HenryAgent {
         }),
       )
       : Promise.resolve("");
-    const [soul, persona, memoryResult, knowledgeResult] = await Promise.allSettled([
-      soulPromise, personaPromise, memoryPromise, knowledgePromise,
+    const conversationPromise = this.conversationRag
+      ? hotCache.getOrSet(`kelly-qa:${conversationScope}:${prompt.trim().toLowerCase()}`, 30_000, () => this.conversationRag!.context(prompt, conversationScope))
+      : Promise.resolve("");
+    const [soul, persona, memoryResult, knowledgeResult, conversationResult] = await Promise.allSettled([
+      soulPromise, personaPromise, memoryPromise, knowledgePromise, conversationPromise,
     ]);
     const soulText = soul.status === "fulfilled" ? soul.value : "";
     const personaText = persona.status === "fulfilled" ? persona.value : "";
@@ -118,6 +126,10 @@ export class HenryAgent {
     let knowledgeBlock = "";
     if (knowledgeResult.status === "fulfilled") knowledgeBlock = knowledgeResult.value || "";
     else await this.activity.record("run.failed", "Knowledge recall failed; continuing without it", { error: String(knowledgeResult.reason) }, { runId });
+    const conversationBlock = conversationResult.status === "fulfilled" ? conversationResult.value : "";
+    if (conversationResult.status === "rejected") {
+      await this.activity.record("run.failed", "Kelly conversation RAG recall failed; continuing without it", { error: String(conversationResult.reason) }, { runId });
+    }
     if (knowledgeBlock) {
       // Routing brain: which lane answers which part of the question. The corpus header
       // (coverage strong/partial, or the explicit NO-coverage marker) is the signal; the
@@ -160,6 +172,7 @@ export class HenryAgent {
       "Your job is to turn customer requirements into traceable multi-brand quotations. Never invent a product, specification, price, tax, stock status or equivalence.",
       "Uploaded supplier PDFs, XLSX and CSV catalogues belong in the dedicated catalogue RAG and structured commerce database, never personal memory. When Luvish supplies one, execute `kelly catalogue import <path>`, show the pending import, and wait for explicit review before `kelly catalogue publish <document-id>`.",
       "Engram stores durable operator preferences and corrections. Prices, products, quote versions and source evidence stay in commerce storage because they require versioning and auditability.",
+      "Every completed owner or customer question-answer exchange is embedded in Kelly's separate conversation-QA RAG. Similar past answers are a speed aid only: always recheck catalogue facts, prices, compatibility, stock, tax and quote calculations against authoritative stores. Customer scopes are isolated and must never cross-retrieve.",
       "Use `kelly catalogue search <query> [--brand name]`, `kelly quote create --from request.json`, `kelly quote compare --from request.json --brands A,B`, and `kelly quote export <id> [--out quote.xlsx]` instead of calculating totals in prose.",
       "Excel is exposed to Codex through the local kelly-excel-mcp connector. Its read tools inspect/search ranges; edits always save a new version and never overwrite the source.",
       "A quotation with unresolved lines is incomplete. Never present a partial total as the cheapest or final option. Every selected line must preserve SKU and source evidence.",
@@ -220,6 +233,7 @@ export class HenryAgent {
     const dynamicTail = [
       "\n--- recalled Engram context ---\n", context,
       ...(knowledgeBlock ? ["\n", knowledgeBlock] : []),
+      ...(conversationBlock ? ["\n", conversationBlock] : []),
       "\n--- Luvish's request ---\n", prompt,
       "\nBE CONCISE: answer directly, then stop. No boilerplate status footers — mention approvals, commits, or staged items ONLY when one actually exists or needs Luvish's decision right now; never say 'nothing staged/no outbound/not committed' as a routine sign-off. Detail only when Luvish asks for it.",
     ];
@@ -234,6 +248,7 @@ export class HenryAgent {
     // provider session already holds the static soul/persona blocks.
     // Trivial chatter rides t0 (latency §11.5 #5); explicit caller tier always wins.
     const preferredProvider = options.provider ?? this.config.provider;
+    const conversationScope = conversationScopeForSurface(options.surface);
     // Preserve Claude's existing tier behavior. The explicit Terra/Luna
     // routing policy is a Codex-only optimization, not a silent Claude change.
     const tier = options.tier ?? (preferredProvider === "codex" ? routeIntentTier(prompt) : classifyIntentTier(prompt));
@@ -247,7 +262,7 @@ export class HenryAgent {
     try {
     const session = surface ? this.runner.acquireSession(surface, options.provider) : undefined;
     const promptStartedAt = Date.now();
-    const fullPrompt = await this.buildPrompt(prompt, runId, session ? session.fresh : true, preferredProvider);
+    const fullPrompt = await this.buildPrompt(prompt, runId, session ? session.fresh : true, preferredProvider, conversationScope);
     let result = await this.runner.run(fullPrompt, {
       ...options, surface, tier, session, promptBuildMs: Date.now() - promptStartedAt,
       onEvent: (event) => options.onEvent?.(event),
@@ -256,7 +271,7 @@ export class HenryAgent {
       // Provider evicted the session mid-stream: rebuild fresh once with the full prompt.
       const retrySession = this.runner.acquireSession(surface, options.provider);
       const retryPromptStartedAt = Date.now();
-      const retryPrompt = await this.buildPrompt(prompt, runId, true, preferredProvider);
+      const retryPrompt = await this.buildPrompt(prompt, runId, true, preferredProvider, conversationScope);
       result = await this.runner.run(retryPrompt, {
         ...options, surface, tier, session: retrySession, promptBuildMs: Date.now() - retryPromptStartedAt,
         onEvent: (event) => options.onEvent?.(event),
@@ -276,6 +291,14 @@ export class HenryAgent {
       this.pendingMemoryCaptures.add(capture);
       void capture.finally(() => this.pendingMemoryCaptures.delete(capture));
     }
+    if (this.conversationRag && result.exitCode === 0 && !result.error && result.response.trim()) {
+      const capture = this.conversationRag.remember(redactSecrets(prompt), redactSecrets(result.response), conversationScope)
+        .then(() => undefined).catch(async (error) => {
+          await this.activity.record("run.failed", "Kelly conversation RAG capture failed", { error: String(error) }, { runId });
+        });
+      this.pendingMemoryCaptures.add(capture);
+      void capture.finally(() => this.pendingMemoryCaptures.delete(capture));
+    }
     return result;
     } finally {
       releaseInteractive?.();
@@ -287,5 +310,6 @@ export class HenryAgent {
   /** Called by runtime shutdown so one-shot commands never close Engram mid-write. */
   async flushMemoryCaptures(): Promise<void> {
     await Promise.allSettled([...this.pendingMemoryCaptures]);
+    this.conversationRag?.close();
   }
 }

@@ -176,6 +176,10 @@ kelly/
 
 ## Architecture
 
+### Conversation learning
+
+Every successful owner question and Kelly answer is embedded in an owner-only conversation-QA RAG. Customer-facing callers must use a stable `customer:<id>` surface key; each key maps to a physically separate vector database so requirements and quotations cannot cross between customers. Similar answers are secondary context only. Approved catalogue records, active prices, compatibility evidence, tax rules and deterministic quote calculations remain authoritative.
+
 Kelly shares Henry's core runtime with profile-based service composition:
 
 - **Profile**: Defines which services are loaded (Kelly excludes certain integrations)
