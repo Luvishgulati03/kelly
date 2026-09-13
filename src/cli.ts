@@ -4,7 +4,6 @@ import { stdin as input, stdout as output } from "node:process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { HenryRuntime } from "./runtime.ts";
-import { formatGmailDoctorReport } from "./integrations/gmail.ts";
 import { startDashboard } from "./dashboard/server.ts";
 import {
   writeCronFile, writeLaunchdPlist, installCron, installLaunchd,
@@ -50,13 +49,11 @@ function print(value: unknown): void {
  * common mail-drafting workflows a short, discoverable `{profile} draft …` alias. Both
  * paths deliberately land on guarded implementations: automatic replies write a local
  * copy and stage threaded approval items; manual mail is staged in the same queue.
- * Neither path sends, and `draftreplies` does not create Gmail drafts through MCP.
+ * Neither path sends without an explicit approval; Gmail operations use Codex's connector.
  */
 async function runGmailCommand(runtime: HenryRuntime, sub: string): Promise<void> {
   if (!runtime.gmail) throw new Error("Gmail is not available in this profile");
-  if (sub === "auth") { await runtime.gmail.authorize(); console.log("Gmail connected."); }
-  else if (sub === "doctor") console.log(formatGmailDoctorReport(await runtime.gmail.doctor()));
-  else if (sub === "inbox") print(await runtime.gmail.inbox(Number(option("--limit") || 10)));
+  if (sub === "inbox") print(await runtime.gmail.inbox(Number(option("--limit") || 10)));
   else if (sub === "send" || sub === "draft" || sub === "reply") {
     const to = option("--to");
     const subject = option("--subject");
@@ -84,7 +81,7 @@ async function runGmailCommand(runtime: HenryRuntime, sub: string): Promise<void
           ? `Wrote ${result.drafted.length} local reply draft(s); no Gmail draft or message was created`
           : "No replies needed",
     });
-  } else throw new Error("Usage: henry gmail auth|doctor|inbox|draft|reply|draftreplies");
+  } else throw new Error("Usage: henry gmail inbox|draft|reply|draftreplies");
 }
 
 /**

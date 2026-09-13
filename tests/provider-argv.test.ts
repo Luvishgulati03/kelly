@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  ProviderRunner, buildProviderArgs, claudeArgs, codexArgs,
+  ProviderRunner, buildProviderArgs, claudeArgs, codexArgs, finalCodexAgentMessage,
 } from "../src/providers/runner.ts";
 import { ActivityLog } from "../src/activity.ts";
 import { AdmissionController } from "../src/orchestration/admission.ts";
@@ -131,6 +131,21 @@ test("codex argv keeps its tier and session behaviour", () => {
   assert.equal(resumed.at(-2), "thread-1", "resume options must precede the session id");
   assert.equal(resumed.at(-1), "p");
   assert.ok(!resumed.includes("--ephemeral"), "a session implies persistence");
+});
+
+test("codex argv forwards a structured output schema", () => {
+  const args = codexArgs("p", { readOnly: true, outputSchemaPath: "/tmp/result.schema.json" });
+  assert.deepEqual(args.slice(args.indexOf("--output-schema"), args.indexOf("--output-schema") + 2), [
+    "--output-schema", "/tmp/result.schema.json",
+  ]);
+});
+
+test("structured Codex runs select the final agent message instead of commentary", () => {
+  const event = (text: string) => ({
+    timestamp: new Date().toISOString(), stream: "stdout" as const, text,
+    parsed: { type: "item.completed", item: { type: "agent_message", text } },
+  });
+  assert.equal(finalCodexAgentMessage([event("Searching Gmail..."), event('{"matches":[]}')]), '{"matches":[]}');
 });
 
 test("every claude argv carries --dangerously-skip-permissions and no tool disallow", () => {

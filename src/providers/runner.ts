@@ -40,6 +40,8 @@ export interface RunOptions {
   promptBuildMs?: number;
   /** Wall-clock envelope per provider attempt (§7). */
   timeoutMs?: number;
+  /** Codex structured-output schema. Unsupported providers ignore this option. */
+  outputSchemaPath?: string;
   onEvent?: (event: ProviderEvent) => void;
 }
 
@@ -80,6 +82,17 @@ function collectText(value: unknown, output: string[]): void {
   }
 }
 
+/** Codex JSONL can contain several commentary messages before its final schema-bound answer. */
+export function finalCodexAgentMessage(events: ProviderEvent[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const parsed = events[index]?.parsed as Record<string, unknown> | undefined;
+    if (parsed?.type !== "item.completed") continue;
+    const item = parsed.item as Record<string, unknown> | undefined;
+    if (item?.type === "agent_message" && typeof item.text === "string" && item.text.trim()) return item.text.trim();
+  }
+  return undefined;
+}
+
 /**
  * Codex argv for one dispatch. Exported as the testable seam for tier flags.
  * t0 pins a cheap model, t1 (and no tier) keeps the configured/default model,
@@ -93,7 +106,7 @@ function collectText(value: unknown, output: string[]): void {
  */
 export function codexArgs(
   prompt: string,
-  options: { readOnly?: boolean; tier?: DispatchTier; model?: string; t0Model?: string; session?: { id: string; fresh: boolean } } = { readOnly: false },
+  options: { readOnly?: boolean; tier?: DispatchTier; model?: string; t0Model?: string; session?: { id: string; fresh: boolean }; outputSchemaPath?: string } = { readOnly: false },
 ): string[] {
   // `model` is the normal/t1/t2 model. Keep the t0 worker separate so a
   // caller's heavyweight configured model can never accidentally reach a
@@ -125,6 +138,7 @@ export function codexArgs(
     "exec",
     ...(model ? ["-m", model] : []),
     "--json", ...(options.session ? [] : ["--ephemeral"]),
+    ...(options.outputSchemaPath ? ["--output-schema", options.outputSchemaPath] : []),
     "--sandbox", options.readOnly ? "read-only" : "danger-full-access",
     ...config,
     "--skip-git-repo-check", prompt,
@@ -169,11 +183,12 @@ export function buildProviderArgs(
     codexModel?: string; codexT0Model?: string; codexT2Model?: string;
     codexResumeTailorModel?: string; codexApplicationReviewModel?: string; codexApplicationManagerModel?: string;
     claudeModel?: string; claudeT0Model?: string; claudeT2Model?: string; session?: { id: string; fresh: boolean };
+    outputSchemaPath?: string;
   },
 ): string[] {
   const route = resolveProviderRoute(provider, options);
   return provider === "codex"
-    ? codexArgs(prompt, { readOnly: options.readOnly, tier: route.tier, model: route.model, t0Model: options.codexT0Model, session: options.session })
+    ? codexArgs(prompt, { readOnly: options.readOnly, tier: route.tier, model: route.model, t0Model: options.codexT0Model, session: options.session, outputSchemaPath: options.outputSchemaPath })
     : claudeArgs(prompt, {
       readOnly: options.readOnly, tier: route.tier, model: route.model,
       t0Model: options.claudeT0Model, t2Model: options.claudeT2Model, session: options.session,
@@ -324,7 +339,9 @@ export async function execute(
       const extracted: string[] = [];
       for (const event of events) if (event.parsed) collectText(event.parsed, extracted);
       const raw = stdoutText.join("").trim();
-      const response = [...new Set(extracted.map((text) => text.trim()).filter(Boolean))].join("\n\n") || raw;
+      const combined = [...new Set(extracted.map((text) => text.trim()).filter(Boolean))].join("\n\n");
+      const response = (provider === "codex" && options.outputSchemaPath ? finalCodexAgentMessage(events) : undefined)
+        ?? (combined || raw);
       if (timedOut) {
         resolve({
           runId, provider, response, exitCode: null, durationMs: Date.now() - started,
@@ -631,6 +648,7 @@ export class ProviderRunner {
         claudeT0Model: this.config.claudeT0Model,
         claudeT2Model: this.config.claudeT2Model,
         session,
+        outputSchemaPath: options.outputSchemaPath,
       });
       const route = resolveProviderRoute(provider, {
         tier: options.tier,

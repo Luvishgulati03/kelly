@@ -71,9 +71,6 @@ export interface HenryConfig {
   requireOutboundApproval: boolean;
   /** The owner's own email address (HENRY_OWNER_EMAIL; legacy DAD_EMAIL still honoured). */
   ownerEmail?: string;
-  gmailCredentialsPath: string;
-  gmailTokenPath: string;
-  gmailRedirectUri: string;
   knowledgeDir: string;
   knowledgeDbPath: string;
   /** Recall-event JSONL sink for src/metrics/recall-metrics.ts (docs/dashboard-design-v2.md §C). */
@@ -251,9 +248,6 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
     claudeT2Model: profile.id === "kelly" ? undefined : env("CLAUDE_T2_MODEL") || "opus",
     requireOutboundApproval: bool(env("REQUIRE_OUTBOUND_APPROVAL"), true),
     ownerEmail: env("OWNER_EMAIL") || process.env.DAD_EMAIL || undefined,
-    gmailCredentialsPath: resolveFromRoot(rootDir, process.env.GMAIL_CREDENTIALS_PATH, "data/gmail-credentials.json"),
-    gmailTokenPath: resolveFromRoot(rootDir, process.env.GMAIL_TOKEN_PATH, "data/gmail-token.json"),
-    gmailRedirectUri: process.env.GMAIL_REDIRECT_URI || "http://127.0.0.1:43821/oauth2callback",
     knowledgeDir: resolveFromRoot(rootDir, env("KNOWLEDGE_DIR"), "knowledge"),
     knowledgeDbPath: path.join(dataDir, "knowledge.db"),
     metricsDir: path.join(dataDir, "metrics"),

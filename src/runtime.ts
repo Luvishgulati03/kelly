@@ -99,12 +99,13 @@ export class HenryRuntime {
     this.memory = new HenryMemory(config, this.activity);
     if (config.commerceEnabled) this.commerce = new CommerceService(config, this.activity);
 
-    // Conditionally initialize excluded services
-    if (!isServiceExcluded("gmail")) {
-      this.gmail = new GmailService(config, this.activity, this.approvals);
-    }
-
     this.agent = new HenryAgent(config, this.activity, this.memory, () => this.knowledge);
+
+    // Conditionally initialize excluded services. Gmail runs through the provider's
+    // connector, so it is built once the agent's provider runner exists.
+    if (!isServiceExcluded("gmail")) {
+      this.gmail = new GmailService(this.activity, this.approvals, this.agent.providerRunner);
+    }
     this.luna = new LunaOrchestrator(config, this.activity, this.memory);
     this.reminders = new ReminderService(config, this.activity);
     this.scheduler = new WorkflowScheduler(

@@ -99,7 +99,9 @@
   var ANCHORS = (function () {
     var out = [], n = TYPES.length, ga = Math.PI * (3 - Math.sqrt(5));
     for (var i = 0; i < n; i++) {
-      var y = 1 - (i / (n - 1)) * 2;
+      // Half-step avoids pinning the first and last families to the poles,
+      // where projection collapses a whole cluster into a vertical stack.
+      var y = 1 - ((i + 0.5) / n) * 2;
       var r = Math.sqrt(Math.max(0, 1 - y * y));
       var th = i * ga;
       out.push([Math.cos(th) * r, y * 0.72, Math.sin(th) * r]);
@@ -358,9 +360,9 @@
       return api;
     }
 
-    /* Deterministic 3D layout: each node type owns a direction on the sphere,
-     * important memories sit closer to the core. Same id -> same star between
-     * refreshes, so the sky stays recognisable. */
+    /* Deterministic 3D layout. Type anchors keep related memories recognisable,
+     * while a per-node global direction prevents dense families collapsing into
+     * one unreadable knot as the graph grows. Same id -> same stable star. */
     function layout(list) {
       for (var i = 0; i < list.length; i++) {
         var n = list[i];
@@ -369,11 +371,16 @@
         var u = rnd(n.id, 'u'), v = rnd(n.id, 'v'), w = rnd(n.id, 'w');
         var spread = 0.5 + (1 - n.cimp) * 0.42;
         var th = u * Math.PI * 2, rr = Math.sqrt(v) * spread;
-        var dx = a[0] + bs[0][0] * Math.cos(th) * rr + bs[1][0] * Math.sin(th) * rr;
-        var dy = a[1] + bs[0][1] * Math.cos(th) * rr + bs[1][1] * Math.sin(th) * rr;
-        var dz = a[2] + bs[0][2] * Math.cos(th) * rr + bs[1][2] * Math.sin(th) * rr;
+        var gy = 1 - 2 * rnd(n.id, 'gy');
+        var gr = Math.sqrt(Math.max(0, 1 - gy * gy));
+        var gth = rnd(n.id, 'gth') * Math.PI * 2;
+        var gx = Math.cos(gth) * gr, gz = Math.sin(gth) * gr;
+        var cluster = 0.62, globalSpread = 0.78;
+        var dx = a[0] * cluster + bs[0][0] * Math.cos(th) * rr + bs[1][0] * Math.sin(th) * rr + gx * globalSpread;
+        var dy = a[1] * cluster + bs[0][1] * Math.cos(th) * rr + bs[1][1] * Math.sin(th) * rr + gy * globalSpread;
+        var dz = a[2] * cluster + bs[0][2] * Math.cos(th) * rr + bs[1][2] * Math.sin(th) * rr + gz * globalSpread;
         var len = Math.hypot(dx, dy, dz) || 1;
-        var shell = 0.40 + (1 - n.cimp) * 0.46 + w * 0.2;
+        var shell = 0.64 + (1 - n.cimp) * 0.34 + w * 0.26;
         n.wx = (dx / len) * shell;
         n.wy = (dy / len) * shell * 0.86;
         n.wz = (dz / len) * shell;
@@ -404,7 +411,10 @@
       var zc = cam - rz2;
       if (zc < 0.22) zc = 0.22;
       var s = FOCAL * S.zoom / zc;
-      n.sx = S.w / 2 + rx * s;
+      // Wide canvases should use their width. A spherical projection otherwise
+      // occupies only a central square and makes dense labels fight for pixels.
+      var aspectStretch = clamp((S.w / Math.max(1, S.h)) * 0.72, 1, 1.9);
+      n.sx = S.w / 2 + rx * s * aspectStretch;
       n.sy = S.h / 2 - ry * s;
       n.zc = zc;
       n.pscale = zc > 0 ? (cam / zc) : 1;
@@ -563,19 +573,41 @@
         drawStar(n, n === sel, n === hov, now);
       }
 
-      // 5. labels — hubs and the selection only
+      // 5. labels — hubs and the selection only, with screen-space collision
+      // avoidance. Label boxes also participate in hit-testing, so readable text
+      // remains clickable even when the star itself is tiny.
       ctx.font = '10px ui-monospace,SFMono-Regular,Menlo,monospace';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      var labelled = 0;
+      var labelled = 0, boxes = [];
+      for (i = 0; i < nodes.length; i++) nodes[i].labelBox = null;
       for (i = S.order.length - 1; i >= 0; i--) {
         n = nodes[S.order[i]];
         if (!n || !visible(n)) continue;
         var must = n === sel || n === hov;
         if (!must && (!n.hub || labelled >= 12 || n.depth < 0.35)) continue;
+        var label = shorten(n.ctitle, LABEL_MAX);
+        var width = ctx.measureText(label).width;
+        var radius = radiusFor(n), gap = radius + 7;
+        var candidates = [[n.sx + gap, n.sy], [n.sx - gap - width, n.sy], [n.sx + gap, n.sy - 14], [n.sx - gap - width, n.sy + 14]];
+        var box = null;
+        for (var ci = 0; ci < candidates.length; ci++) {
+          var candidate = { x: candidates[ci][0] - 3, y: candidates[ci][1] - 8, w: width + 6, h: 16 };
+          if (candidate.x < 4 || candidate.y < 4 || candidate.x + candidate.w > S.w - 4 || candidate.y + candidate.h > S.h - 4) continue;
+          var overlaps = false;
+          for (var bi = 0; bi < boxes.length; bi++) {
+            var other = boxes[bi];
+            if (candidate.x < other.x + other.w + 5 && candidate.x + candidate.w + 5 > other.x && candidate.y < other.y + other.h + 4 && candidate.y + candidate.h + 4 > other.y) { overlaps = true; break; }
+          }
+          if (!overlaps || must) { box = candidate; break; }
+        }
+        if (!box) continue;
+        boxes.push(box); n.labelBox = box;
         if (!must) labelled++;
+        ctx.fillStyle = 'rgba(3,9,18,' + (must ? '0.82' : '0.52') + ')';
+        ctx.fillRect(box.x, box.y, box.w, box.h);
         ctx.fillStyle = rgba(must ? [238, 247, 255] : [180, 205, 235], must ? 0.96 : 0.30 + n.depth * 0.28);
-        ctx.fillText(shorten(n.ctitle, LABEL_MAX), n.sx + radiusFor(n) + 6, n.sy);
+        ctx.fillText(label, box.x + 3, box.y + box.h / 2);
       }
 
       // 6. fog / vignette — deepens as the camera submerges
@@ -709,6 +741,8 @@
       for (var i = 0; i < S.nodes.length; i++) {
         var n = S.nodes[i];
         if (n.sx == null || !visible(n)) continue;
+        var lb = n.labelBox;
+        if (lb && pt.x >= lb.x && pt.x <= lb.x + lb.w && pt.y >= lb.y && pt.y <= lb.y + lb.h) return n;
         var dx = n.sx - pt.x, dy = n.sy - pt.y;
         var d = Math.sqrt(dx * dx + dy * dy);
         var reach = Math.max(9, radiusFor(n) * 2.2);

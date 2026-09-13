@@ -3,82 +3,61 @@ import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { gmail_v1 } from "googleapis";
 import { loadConfig } from "../src/config.ts";
 import { ActivityLog } from "../src/activity.ts";
 import { ApprovalStore } from "../src/approval/store.ts";
 import { GmailService } from "../src/integrations/gmail.ts";
+import type { ProviderRunner } from "../src/providers/runner.ts";
+import type { RunResult } from "../src/types.ts";
 
-async function setup(): Promise<{
-  config: ReturnType<typeof loadConfig>;
-  activity: ActivityLog;
-  approvals: ApprovalStore;
-}> {
+function result(response: string): RunResult {
+  return { provider: "codex", response, exitCode: 0, runId: "test", durationMs: 1, limited: false, events: [] };
+}
+
+async function setup(responses: string[]) {
   const rootDir = await fs.mkdtemp(path.join(os.tmpdir(), "henry-gmail-service-"));
   const config = loadConfig(rootDir);
   const activity = new ActivityLog(config.activityPath);
   await activity.init();
   const approvals = new ApprovalStore(config.approvalsPath);
   await approvals.init();
-  return { config, activity, approvals };
+  const calls: Array<{ prompt: string; options: unknown }> = [];
+  const runner = { run: async (prompt: string, options: unknown) => {
+    calls.push({ prompt, options });
+    return result(responses.shift() || "");
+  } } as unknown as ProviderRunner;
+  return { activity, approvals, calls, service: new GmailService(activity, approvals, runner) };
 }
 
-test("inbox exposes Gmail thread id and RFC message headers", async () => {
-  const { config, activity, approvals } = await setup();
-  const fakeClient = {
-    users: { messages: {
-      list: async () => ({ data: { messages: [{ id: "gmail-id" }] } }),
-      get: async () => ({ data: { id: "gmail-id", threadId: "thread-id", snippet: "Snippet", payload: {
-        headers: [
-          { name: "From", value: "Jane <jane@example.com>" },
-          { name: "To", value: "me@example.com" },
-          { name: "Subject", value: "Contract review" },
-          { name: "Date", value: "Mon, 1 Sep 2026 10:00:00 +0000" },
-          { name: "Message-ID", value: "<message@example.com>" },
-          { name: "References", value: "<root@example.com>" },
-        ],
-        mimeType: "text/plain",
-        body: { data: Buffer.from("Hello").toString("base64url") },
-      } } }),
-    } },
-  } as unknown as gmail_v1.Gmail;
-  const service = new GmailService(config, activity, approvals, async () => fakeClient);
-  const messages = await service.inbox(1);
-  assert.deepEqual(messages[0], {
+test("inbox uses the Codex Gmail connector read-only", async () => {
+  const payload = { messages: [{
     id: "gmail-id", threadId: "thread-id", messageId: "<message@example.com>", references: "<root@example.com>",
     from: "Jane <jane@example.com>", to: "me@example.com", subject: "Contract review",
     date: "Mon, 1 Sep 2026 10:00:00 +0000", snippet: "Snippet", body: "Hello",
-  });
+  }] };
+  const { service, calls } = await setup([JSON.stringify(payload)]);
+  assert.deepEqual(await service.inbox(1), payload.messages);
+  assert.match(calls[0]!.prompt, /configured Gmail connector directly/);
+  assert.equal((calls[0]!.options as { provider: string }).provider, "codex");
+  assert.equal((calls[0]!.options as { readOnly: boolean }).readOnly, true);
+  assert.equal((calls[0]!.options as { role: string }).role, "gmail-inbox");
 });
 
-test("queueEmail stores thread identity, while sendApproved still requires an explicit claim", async () => {
-  const { config, activity, approvals } = await setup();
-  let sendCalls = 0;
-  let sentRequest: unknown;
-  const fakeClient = {
-    users: { messages: {
-      send: async (request: unknown) => { sendCalls += 1; sentRequest = request; return { data: { id: "sent-id" } }; },
-    } },
-  } as unknown as gmail_v1.Gmail;
-  const service = new GmailService(config, activity, approvals, async () => fakeClient);
+test("connector send receives exact content only after an explicit claim", async () => {
+  const { service, approvals, calls } = await setup([JSON.stringify({ sent: true, messageId: "sent-id", error: null })]);
   const item = await service.queueEmail({
     to: "jane@example.com", subject: "Contract review", body: "Thanks",
     threadId: "thread-id", inReplyTo: "parent@example.com", references: "<root@example.com>",
   });
-
-  assert.equal(item.status, "pending");
-  assert.deepEqual(item.payload, {
-    to: "jane@example.com", subject: "Contract review", body: "Thanks", threadId: "thread-id",
-    inReplyTo: "parent@example.com", references: "<root@example.com>",
-  });
   await assert.rejects(() => service.sendApproved(item), /requires Luvish's explicit approval/);
-  assert.equal(sendCalls, 0);
-
+  assert.equal(calls.length, 0);
   await approvals.setStatus(item.id, "approved");
   const executing = await approvals.claimForExecution(item.id);
   assert.equal(await service.sendApproved(executing), "sent-id");
-  assert.equal(sendCalls, 1);
-  const raw = Buffer.from((sentRequest as { requestBody: { raw: string } }).requestBody.raw, "base64url").toString("utf8");
-  assert.match(raw, /^In-Reply-To: <parent@example\.com>\r\n/m);
-  assert.match(raw, /^References: <root@example\.com> <parent@example\.com>\r\n/m);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0]!.prompt, /SEND exactly one email/);
+  assert.match(calls[0]!.prompt, /jane@example\.com/);
+  assert.equal((calls[0]!.options as { provider: string }).provider, "codex");
+  assert.equal((calls[0]!.options as { readOnly: boolean }).readOnly, false);
+  assert.equal((calls[0]!.options as { role: string }).role, "gmail-approved-send");
 });

@@ -14,7 +14,7 @@ function config(rootDir: string): HenryConfig {
     ...loadConfig(rootDir),
     rootDir, dataDir: path.join(rootDir, "data"), memoryDir: path.join(rootDir, "memory"), capturedMemoryDir: path.join(rootDir, "memory/captured"),
     dbPath: path.join(rootDir, "data/engram.db"), activityPath: path.join(rootDir, "data/activity.jsonl"), approvalsPath: path.join(rootDir, "data/approvals.json"), workflowsPath: path.join(rootDir, "workflows.json"),
-    host: "127.0.0.1", port: 0, dashboardToken: undefined, allowRemoteDashboard: false, provider: "codex", requireOutboundApproval: true, gmailCredentialsPath: path.join(rootDir, "credentials.json"), gmailTokenPath: path.join(rootDir, "token.json"), gmailRedirectUri: "http://127.0.0.1:43821/oauth2callback",
+    host: "127.0.0.1", port: 0, dashboardToken: undefined, allowRemoteDashboard: false, provider: "codex", requireOutboundApproval: true,
   };
 }
 
