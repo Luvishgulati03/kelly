@@ -1,0 +1,1572 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#080b08">
+    <meta name="description" content="The public, user-neutral Henry handbook: a verified path from laptop setup to safe extension.">
+    <title>Henry Handbook — A field guide for building safely</title>
+    <link rel="stylesheet" href="styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">Skip to content</a>
+    <div class="app-shell">
+      <header class="mobile-header">
+        <a class="brand brand--mobile" href="#overview" aria-label="Henry Handbook home"><span class="brand__mark">H</span><span>HENRY / HANDBOOK</span></a>
+        <button class="icon-button" id="menu-toggle" type="button" aria-controls="site-nav" aria-expanded="false" aria-label="Open handbook navigation">
+          <span></span><span></span><span></span>
+        </button>
+      </header>
+
+      <div class="drawer-backdrop" id="drawer-backdrop" hidden></div>
+      <aside class="site-nav" id="site-nav" aria-label="Handbook navigation">
+        <div class="site-nav__inner">
+          <div class="site-nav__topline">
+            <a class="brand" href="#overview" aria-label="Henry Handbook home"><span class="brand__mark">H</span><span>HENRY / HANDBOOK</span></a>
+            <button class="icon-button icon-button--close" id="menu-close" type="button" aria-label="Close handbook navigation">×</button>
+          </div>
+          <p class="site-nav__intro">A field guide for turning a local checkout into a careful, capable agent.</p>
+          <div class="nav-progress" aria-label="Reading progress">
+            <div class="nav-progress__row"><span>READING PATH</span><span id="progress-label">01 / 12</span></div>
+            <div class="nav-progress__track"><span id="progress-fill"></span></div>
+          </div>
+          <nav class="site-nav__links" aria-label="Handbook sections">
+            <ul>
+    <li>
+      <a class="nav-link is-active" href="#overview" data-nav-link="overview" aria-current="page">
+        <span class="nav-link__number">00</span>
+        <span class="nav-link__label">Overview</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#stage-1" data-nav-link="stage-1">
+        <span class="nav-link__number">01</span>
+        <span class="nav-link__label">Welcome &amp; setup</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#stage-2" data-nav-link="stage-2">
+        <span class="nav-link__number">02</span>
+        <span class="nav-link__label">IDEATION</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#stage-3" data-nav-link="stage-3">
+        <span class="nav-link__number">03</span>
+        <span class="nav-link__label">Soul &amp; personality</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#stage-4" data-nav-link="stage-4">
+        <span class="nav-link__number">04</span>
+        <span class="nav-link__label">BUILDING</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#stage-5" data-nav-link="stage-5">
+        <span class="nav-link__number">05</span>
+        <span class="nav-link__label">Memory vs knowledge</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#stage-6" data-nav-link="stage-6">
+        <span class="nav-link__number">06</span>
+        <span class="nav-link__label">Surfaces &amp; approval</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#stage-7" data-nav-link="stage-7">
+        <span class="nav-link__number">07</span>
+        <span class="nav-link__label">Daily demo path</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#stage-8" data-nav-link="stage-8">
+        <span class="nav-link__number">08</span>
+        <span class="nav-link__label">Troubleshooting</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#stage-9" data-nav-link="stage-9">
+        <span class="nav-link__number">09</span>
+        <span class="nav-link__label">Extend safely</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#ideation-template" data-nav-link="ideation-template">
+        <span class="nav-link__number">I</span>
+        <span class="nav-link__label">IDEATION template</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li>
+    <li>
+      <a class="nav-link" href="#building-template" data-nav-link="building-template">
+        <span class="nav-link__number">B</span>
+        <span class="nav-link__label">BUILDING template</span>
+        <span class="nav-link__marker" aria-hidden="true"></span>
+      </a>
+    </li></ul>
+          </nav>
+          <div class="site-nav__footer"><span class="status-dot" aria-hidden="true"></span><span>LOCAL-FIRST / VERIFIED</span></div>
+        </div>
+      </aside>
+
+      <main class="content-main" id="main-content">
+        <div class="content-toolbar">
+          <div class="content-toolbar__crumb"><span class="status-dot" aria-hidden="true"></span><span>HENRY OPERATING HANDBOOK</span></div>
+          <form class="search-form" role="search">
+            <label class="sr-only" for="handbook-search">Search handbook</label>
+            <svg aria-hidden="true" viewBox="0 0 24 24" width="16" height="16"><path d="m20 20-4.5-4.5m2-5.25a7.25 7.25 0 1 1-14.5 0 7.25 7.25 0 0 1 14.5 0Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <input id="handbook-search" type="search" placeholder="Search the handbook" autocomplete="off" spellcheck="false">
+            <kbd>/</kbd>
+          </form>
+        </div>
+        <div class="search-results" id="search-results" hidden>
+          <p class="search-results__summary" id="search-results-summary" aria-live="polite"></p>
+          <div class="search-results__list" id="search-results-list"></div>
+        </div>
+        <div class="reading-column">
+          
+    <section class="handbook-section" id="overview" data-section="overview" data-title="Henry Handbook" data-index="0" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>START HERE</span><span>01 / 12</span></div>
+        <h1>Henry Handbook</h1>
+      </div>
+      <div class="section-body"><blockquote><p><a href="index.html">Open the visual HTML handbook</a> · Markdown remains available below for readers and coding agents.</p></blockquote>
+<p>Welcome. This handbook is a public, user-neutral path for learning Henry by doing small verified steps on a laptop.</p>
+<p>Want another coding agent to perform the setup with you? Use the provider-neutral <a href="../../SETUP-PROMPT.md">SETUP-PROMPT.md</a> with Codex, Claude Code, Gemini CLI, or another terminal agent.</p>
+<p>Henry is a terminal-first personal agent kernel. It runs through local provider CLIs, keeps memory and knowledge local by default, exposes terminal and dashboard surfaces, and stages outbound actions behind an approval boundary.</p>
+<p>The checked-in example instructions and sample persona name the original operator of this repository. Treat those as example content when forking Henry; the handbook itself uses neutral language.</p>
+<h2 id="overview-laptop-setup-first-1">Laptop Setup First</h2>
+<p>Use a local checkout, not a cloud-synced path. On macOS, avoid <code>~/Desktop</code>, <code>~/Documents</code>, Dropbox, OneDrive, and anything under <code>Library/Mobile Documents</code> unless sync is disabled. The setup guide documents a real failure mode where cloud eviction of <code>node_modules</code> files makes <code>tsc</code>, <code>node</code>, or <code>npm</code> hang.</p>
+<p>Minimum path:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>node -v
+npm -v
+git --version
+npm install
+npm link
+npx tsc --noEmit
+npm test
+henry provider codex
+henry ask &quot;Reply with: Henry is ready&quot;</code></pre>
+        </div>
+<p>Choose one provider CLI and authenticate from the real user's terminal:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>codex login status
+codex login
+claude auth status
+claude auth login</code></pre>
+        </div>
+<p>The auth command syntax above was checked against the installed CLI help: <code>codex login --help</code> exposes <code>login status</code>; <code>claude auth --help</code> exposes <code>auth login</code> and <code>auth status</code>.</p>
+<p>Choose the provider after authenticating it:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry provider codex       # primary recommended setup
+# or: henry provider claude
+henry provider             # verify the persisted choice</code></pre>
+        </div>
+<p>Henry stores that choice in local settings. Model routing may choose a faster or deeper tier inside the selected provider, but it does not remove persona, memory, knowledge, safety, or task context. The public runner allows provider fallback by default when another configured CLI is available. If you have only one provider—or require strict provider pinning—set <code>providers.fallback</code> to <code>false</code> in <code>data/settings.json</code>. Test both CLI seats before enabling fallback.</p>
+<h2 id="overview-handbook-path-2">Handbook Path</h2>
+<ol><li><a href="#stage-1">Welcome And Laptop Setup</a></li><li><a href="#stage-2">IDEATION Stage</a></li><li><a href="#stage-3">Soul And Personality</a></li><li><a href="#stage-4">BUILDING Stage: Reminder Module Walkthrough</a></li><li><a href="#stage-5">Memory Vs Knowledge</a></li><li><a href="#stage-6">Grow Through Surfaces, Schedules, And Approval</a></li><li><a href="#stage-7">Daily Demo Path</a></li><li><a href="#stage-8">Troubleshooting</a></li><li><a href="#stage-9">Extend And Review Safely</a></li></ol>
+<p>Templates:</p>
+<ul><li><a href="#ideation-template">IDEATION.md</a></li><li><a href="#building-template">BUILDING.md</a></li></ul>
+<p>By the end, you will have a private agent persona, one verified provider, a working terminal and dashboard, an optional Telegram connection, your own memory/knowledge data, and a completed plan for your first custom module.</p>
+<h2 id="overview-source-checks-3">Source Checks</h2>
+<p>This handbook was grounded in:</p>
+<ul><li><code>package.json</code></li><li><code>src/cli.ts</code></li><li><code>SETUP.md</code></li><li><code>docs/architecture.md</code></li><li><code>docs/design-your-soul.md</code></li><li><code>docs/module-doctrine.md</code></li><li><code>docs/modules/knowledge-base.md</code></li><li><code>docs/modules/reminders.md</code></li><li><code>docs/modules/workflows.md</code></li><li><code>docs/modules/gmail.md</code></li><li><code>docs/modules/telegram.md</code></li><li><code>docs/modules/pr-review.md</code></li></ul>
+<p>If a command or behavior changes in source, update the handbook after checking the new implementation.</p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <span class="section-nav__empty" aria-hidden="true"></span>
+        <a class="section-nav__link section-nav__link--next" href="#stage-1"><span class="section-nav__direction">Next</span><span>Welcome &amp; setup</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="stage-1" data-section="stage-1" data-title="Stage 1: Welcome And Laptop Setup" data-index="1" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>STAGE 01</span><span>02 / 12</span></div>
+        <h1>Stage 1: Welcome And Laptop Setup</h1>
+      </div>
+      <div class="section-body"><p>Goal: get Henry running from a safe local checkout and understand what the repo contains before changing it.</p>
+<h2 id="stage-1-do-1">Do</h2>
+<p>Confirm the repo and local instructions:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>pwd
+git status --short
+sed -n '1,180p' AGENTS.md
+sed -n '1,220p' README.md
+sed -n '1,220p' SETUP.md</code></pre>
+        </div>
+<p>Confirm the laptop prerequisites:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>node -v
+npm -v
+git --version</code></pre>
+        </div>
+<p>Install and verify:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>npm install
+npm link
+npx tsc --noEmit
+npm test
+henry provider codex
+henry ask &quot;Reply with: Henry is ready&quot;</code></pre>
+        </div>
+<h2 id="stage-1-check-2">Check</h2>
+<p>The repo should be outside cloud-synced folders. <code>SETUP.md</code> specifically warns against iCloud, Dropbox, and OneDrive paths because evicted dependency files can make TypeScript or Node hang instead of fail.</p>
+<p><code>package.json</code> currently defines:</p>
+
+        <div class="code-frame" data-language="text">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">text</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy text code">Copy</button>
+          </div>
+          <pre><code>npm run dev        # tsx src/cli.ts repl
+npm run start      # tsx src/cli.ts repl
+npm run dashboard  # tsx src/cli.ts dashboard
+npm run schedule   # tsx src/cli.ts schedule daemon
+npm run typecheck  # tsc --noEmit
+npm test           # tsx --import ./tests/isolate.mjs --test-concurrency=1 --test tests/**/*.test.ts
+npm run build      # compile TypeScript into dist/</code></pre>
+        </div>
+<p><code>npm link</code> installs the global <code>henry</code> command from <code>bin/henry.mjs</code>. If you do not want a global link, replace <code>henry</code> in this handbook with <code>node bin/henry.mjs</code>.</p>
+<p>Authenticate one provider before the first real question, then select it:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>codex login status
+codex login
+henry provider codex
+henry provider</code></pre>
+        </div>
+<p>For Claude, use <code>claude auth status</code>, <code>claude auth login</code>, and <code>henry provider claude</code> instead. You only need one working provider.</p>
+<h2 id="stage-1-learn-3">Learn</h2>
+<p>Henry's kernel wires the CLI, dashboard, provider runner, memory, approval store, scheduler, and optional modules. Local state belongs outside Git: <code>.env</code>, <code>soul.md</code>, <code>personality.md</code>, <code>data/</code>, <code>memory/</code>, and <code>knowledge/</code>.</p>
+<h2 id="stage-1-record-4">Record</h2>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Repo path:
+Current branch:
+Synced folder risk:
+Node version:
+npm install result:
+Typecheck result:
+Test result:
+Global command or local entrypoint:
+Selected provider:
+First answer received:</code></pre>
+        </div>
+<hr>
+<p>Previous: <a href="#overview">Handbook README</a> | Next: <a href="#stage-2">Stage 2: IDEATION</a></p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#overview"><span class="section-nav__direction">Previous</span><span>Overview</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#stage-2"><span class="section-nav__direction">Next</span><span>IDEATION</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="stage-2" data-section="stage-2" data-title="Stage 2: IDEATION" data-index="2" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>STAGE 02</span><span>03 / 12</span></div>
+        <h1>Stage 2: IDEATION</h1>
+      </div>
+      <div class="section-body"><p>Goal: decide what Henry should do before deciding what to build.</p>
+<h2 id="stage-2-do-1">Do</h2>
+<p>Open the fill-in template:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>sed -n '1,240p' docs/handbook/IDEATION.md</code></pre>
+        </div>
+<p>Read the module contract:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>sed -n '1,180p' docs/architecture.md
+sed -n '1,220p' docs/module-doctrine.md</code></pre>
+        </div>
+<p>Create a local planning note outside the public docs when working on a real change, then answer the template prompts there. Do not put private user facts or credentials into the handbook.</p>
+<h2 id="stage-2-check-2">Check</h2>
+<p>A good ideation pass answers:</p>
+<ul><li>What problem is being solved?</li><li>Which existing command, module, or doc is closest?</li><li>What is in scope and out of scope?</li><li>Whether the feature can send, post, message, pay, delete, or change external</li></ul>
+<p>state.</p>
+<ul><li>What concrete artifact proves success.</li></ul>
+<h2 id="stage-2-learn-3">Learn</h2>
+<p>Henry changes should start from the existing kernel and module surface. A feature that needs only configuration should not become new code. A feature that writes outside the laptop needs an approval item and executor, not just prompt text.</p>
+<h2 id="stage-2-record-4">Record</h2>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Template completed:
+Closest existing module:
+Outbound risk:
+Verification artifact:
+Decision:</code></pre>
+        </div>
+<hr>
+<p>Previous: <a href="#stage-1">Stage 1: Welcome And Laptop Setup</a> | Next: <a href="#stage-3">Stage 3: Soul And Personality</a></p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#stage-1"><span class="section-nav__direction">Previous</span><span>Welcome &amp; setup</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#stage-3"><span class="section-nav__direction">Next</span><span>Soul &amp; personality</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="stage-3" data-section="stage-3" data-title="Stage 3: Soul And Personality" data-index="3" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>STAGE 03</span><span>04 / 12</span></div>
+        <h1>Stage 3: Soul And Personality</h1>
+      </div>
+      <div class="section-body"><p>Goal: separate hard operating rules from voice and preferences.</p>
+<h2 id="stage-3-do-1">Do</h2>
+<p>Read the persona guide and examples:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>sed -n '1,220p' docs/design-your-soul.md
+sed -n '1,260p' docs/persona-design-guide.md
+sed -n '1,180p' soul.example.md
+sed -n '1,180p' personality.example.md</code></pre>
+        </div>
+<p>If this is a published fork, also read the explicit rename guide:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>sed -n '1,260p' docs/rename-your-agent.md</code></pre>
+        </div>
+<p>It distinguishes a private persona rename from a complete product rebrand of the CLI, dashboard, environment prefix, package, documentation, and code symbols.</p>
+<p>For a private setup, create local persona files:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>cp soul.example.md soul.md
+cp personality.example.md personality.md</code></pre>
+        </div>
+<p>Verify they exist locally:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>test -f soul.md &amp;&amp; test -f personality.md &amp;&amp; echo ok</code></pre>
+        </div>
+<h2 id="stage-3-check-2">Check</h2>
+<p>Use <code>soul.md</code> for non-negotiables: identity, approval boundaries, and channel rules. Use <code>personality.md</code> for style, judgment preferences, and memory habits.</p>
+<p>The shipped examples name this repository's original operator. A fork should replace those local persona files with the new user's own terms, while keeping the outbound approval rule intact.</p>
+<p>Before the first personal conversation, replace every example value for:</p>
+<ul><li>agent name and how it addresses you;</li><li>your preferred tone, decision style, and interruption policy;</li><li>what deserves durable memory and what must never be retained;</li><li>which local folders and accounts are in scope;</li><li>channel rules for terminal, dashboard, Telegram, email, and social actions;</li><li>the non-negotiable rule that drafting, approval, and execution are separate.</li></ul>
+<p>Use the public question bank in <code>docs/persona-design-guide.md</code>. Ask a relevant 12–20 questions in short conversational rounds; do not dump all 63 questions on the user or infer a psychological profile.</p>
+<p>Confirm the private files cannot be committed:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>git check-ignore soul.md personality.md .env data memory knowledge
+git status --short</code></pre>
+        </div>
+<p>Do not copy secrets, tokens, resume data, private memories, or a proprietary knowledge corpus into a public fork.</p>
+<h2 id="stage-3-learn-3">Learn</h2>
+<p>Persona files are injected into provider calls, so they should be short and specific. Do not soften a hard rule into &quot;use judgment.&quot; If a new channel can send outward, extend the hard rule to name that channel.</p>
+<h2 id="stage-3-record-4">Record</h2>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Agent name:
+User term of address:
+Hard outbound rule:
+Voice preferences:
+Memory preferences:</code></pre>
+        </div>
+<hr>
+<p>Previous: <a href="#stage-2">Stage 2: IDEATION</a> | Next: <a href="#stage-4">Stage 4: BUILDING</a></p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#stage-2"><span class="section-nav__direction">Previous</span><span>IDEATION</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#stage-4"><span class="section-nav__direction">Next</span><span>BUILDING</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="stage-4" data-section="stage-4" data-title="Stage 4: BUILDING - Reminder Module Walkthrough" data-index="4" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>STAGE 04</span><span>05 / 12</span></div>
+        <h1>Stage 4: BUILDING - Reminder Module Walkthrough</h1>
+      </div>
+      <div class="section-body"><p>Goal: learn how a real Henry module is documented, wired, and verified without inventing a second implementation path.</p>
+<h2 id="stage-4-do-1">Do</h2>
+<p>Open the BUILDING template:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>sed -n '1,260p' docs/handbook/BUILDING.md</code></pre>
+        </div>
+<p>Walk the reminders module:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>sed -n '1,220p' docs/modules/reminders.md
+sed -n '1,240p' src/reminders/service.ts
+sed -n '1,180p' src/reminders/ticker.ts
+rg -n &quot;command === \&quot;remind\&quot;|remind list|remind cancel|execute-approval&quot; src/cli.ts tests/reminders.test.ts</code></pre>
+        </div>
+<p>Try the CLI in a private setup:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry remind &quot;check the handbook&quot; --in &quot;10m&quot;
+henry remind list
+henry remind cancel &lt;id&gt;</code></pre>
+        </div>
+<p>Run the focused tests for this module:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>npx tsx --import ./tests/isolate.mjs --test-concurrency=1 --test tests/reminders.test.ts</code></pre>
+        </div>
+<h2 id="stage-4-check-2">Check</h2>
+<p>The real command surface is:</p>
+
+        <div class="code-frame" data-language="text">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">text</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy text code">Copy</button>
+          </div>
+          <pre><code>henry remind &quot;&lt;text&gt;&quot; --at &quot;YYYY-MM-DD HH:mm&quot;
+henry remind &quot;&lt;text&gt;&quot; --in &quot;2h&quot;
+henry remind &quot;&lt;text&gt;&quot; --every &quot;&lt;cron&gt;&quot;
+henry remind --prompt &quot;&lt;instruction&gt;&quot; --at|--in|--every|--random-daily ...
+henry remind --execute-approval &lt;approvalId&gt; --at &quot;YYYY-MM-DD HH:mm&quot;
+henry remind list
+henry remind cancel &lt;id&gt;</code></pre>
+        </div>
+<p>The implementation stores reminders under <code>data/reminders.json</code>, starts a ticker inside long-lived processes, and executes scheduled outbound sends only through an already-approved approval item.</p>
+<h2 id="stage-4-learn-3">Learn</h2>
+<p>This is the pattern to copy: guide-executable docs, one CLI surface, real tests, runtime wiring, fail-soft notification behavior, and no special model path. The module changes timing, not authority.</p>
+<h2 id="stage-4-build-your-first-custom-module-4">Build Your First Custom Module</h2>
+<p>Copy <a href="#building-template">BUILDING.md</a> into a private working note and define one narrow use case. A complete Henry module normally has these layers:</p>
+<ol><li><code>src/&lt;module&gt;/service.ts</code> owns domain behavior and accepts dependencies.</li><li><code>src/config.ts</code> reads optional configuration without hard-coded personal data.</li><li><code>src/runtime.ts</code> constructs the service once and shares kernel dependencies.</li><li><code>src/cli.ts</code> exposes one truthful command surface.</li><li><code>src/types.ts</code> adds activity or approval kinds only when required.</li><li><code>tests/&lt;module&gt;.test.ts</code> proves success, failure, and safety boundaries.</li><li><code>docs/modules/&lt;module&gt;.md</code> explains configuration, verification, and disablement.</li></ol>
+<p>If the feature only reads or changes local state, keep it local. If it sends, posts, merges, submits, pays, or otherwise changes external state, stage an exact approval payload first and execute only after a separate approval claim. Prompts may explain that policy; code must enforce it.</p>
+<p>Finish a module with:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>npx tsc --noEmit
+npx tsx --import ./tests/isolate.mjs --test-concurrency=1 --test tests/&lt;module&gt;.test.ts
+npm test
+git diff --check</code></pre>
+        </div>
+<h2 id="stage-4-record-5">Record</h2>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Module inspected:
+CLI branch:
+Runtime/ticker path:
+Storage path:
+Focused test:
+Approval behavior:
+New module use case:
+Expected files:
+Disable/rollback path:</code></pre>
+        </div>
+<hr>
+<p>Previous: <a href="#stage-3">Stage 3: Soul And Personality</a> | Next: <a href="#stage-5">Stage 5: Memory Vs Knowledge</a></p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#stage-3"><span class="section-nav__direction">Previous</span><span>Soul &amp; personality</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#stage-5"><span class="section-nav__direction">Next</span><span>Memory vs knowledge</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="stage-5" data-section="stage-5" data-title="Stage 5: Memory Vs Knowledge" data-index="5" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>STAGE 05</span><span>06 / 12</span></div>
+        <h1>Stage 5: Memory Vs Knowledge</h1>
+      </div>
+      <div class="section-body"><p>Goal: use the right retrieval store for the right kind of information.</p>
+<h2 id="stage-5-do-1">Do</h2>
+<p>Read the architecture and knowledge docs:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>sed -n '100,150p' docs/architecture.md
+sed -n '1,240p' docs/modules/knowledge-base.md</code></pre>
+        </div>
+<p>Inspect personal memory:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry memory search &quot;preferences&quot;
+henry memory graph</code></pre>
+        </div>
+<p>Inspect the knowledge store:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry knowledge stats
+henry knowledge search &quot;planning guidance&quot; --domain project-management
+henry knowledge context &quot;planning guidance&quot;</code></pre>
+        </div>
+<p>Add knowledge only from a source you are allowed to store locally:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry knowledge add /path/to/notes --domain project-management --name handbook-test</code></pre>
+        </div>
+<h2 id="stage-5-check-2">Check</h2>
+<p>Memory commands in <code>src/cli.ts</code>:</p>
+
+        <div class="code-frame" data-language="text">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">text</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy text code">Copy</button>
+          </div>
+          <pre><code>henry memory search|remember|index|graph|dream</code></pre>
+        </div>
+<p>Knowledge commands in <code>src/cli.ts</code>:</p>
+
+        <div class="code-frame" data-language="text">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">text</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy text code">Copy</button>
+          </div>
+          <pre><code>henry knowledge export|index|distill|add|search|context|eval|stats</code></pre>
+        </div>
+<h2 id="stage-5-learn-3">Learn</h2>
+<p>Personal memory captures durable user preferences, decisions, corrections, and commitments. It decays, promotes, supersedes, consolidates, and is injected under a budget.</p>
+<p>Knowledge is a separate, source-attributed corpus for reusable domain material. It does not decay and is injected only when the prompt routes to a relevant domain or when explicitly queried.</p>
+<p>Examples:</p>
+<ul><li>“Prefer concise morning updates” is personal memory.</li><li>A product-management book or engineering playbook is knowledge.</li><li>A one-off secret or access token belongs in neither store.</li></ul>
+<p>Durable source material lives under the gitignored <code>memory/</code> and <code>knowledge/</code> directories. Rebuildable indexes and operational state live under <code>data/</code>, including Engram and knowledge SQLite databases. Treat all three locations as sensitive local data. Before indexing a file, confirm you have the right to store it and understand that extracted text and embeddings remain on disk until you deliberately remove/rebuild that local store.</p>
+<h2 id="stage-5-record-4">Record</h2>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Memory query:
+Useful memory:
+Knowledge domain:
+Knowledge source:
+Search result:
+Store chosen and why:</code></pre>
+        </div>
+<hr>
+<p>Previous: <a href="#stage-4">Stage 4: BUILDING</a> | Next: <a href="#stage-6">Stage 6: Grow Through Surfaces, Schedules, And Approval</a></p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#stage-4"><span class="section-nav__direction">Previous</span><span>BUILDING</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#stage-6"><span class="section-nav__direction">Next</span><span>Surfaces &amp; approval</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="stage-6" data-section="stage-6" data-title="Stage 6: Grow Through Surfaces, Schedules, And Approval" data-index="6" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>STAGE 06</span><span>07 / 12</span></div>
+        <h1>Stage 6: Grow Through Surfaces, Schedules, And Approval</h1>
+      </div>
+      <div class="section-body"><p>Goal: connect more ways to use Henry without broadening its authority.</p>
+<h2 id="stage-6-do-1">Do</h2>
+<p>Read the surface and automation docs:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>sed -n '1,220p' docs/modules/workflows.md
+sed -n '1,220p' docs/modules/gmail.md
+sed -n '1,180p' docs/modules/telegram.md
+sed -n '1,120p' docs/modules/pr-review.md</code></pre>
+        </div>
+<p>Try local surfaces:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry ask &quot;what can you do from this checkout?&quot;
+henry repl
+henry dashboard
+henry status</code></pre>
+        </div>
+<p><code>henry dashboard</code> occupies its terminal and prints the loopback URL, normally <code>http://127.0.0.1:7337</code>. Keep <code>HENRY_HOST=127.0.0.1</code>; do not expose approval controls or a full-access provider on an unauthenticated network interface.</p>
+<p>Connect your private Telegram DM only if you want phone access:</p>
+<ol><li>Create a bot with <a href="https://t.me/BotFather" target="_blank" rel="noreferrer">@BotFather</a> using <code>/newbot</code>.</li><li>Message the bot once and obtain the chat id as described in</li></ol>
+<p><a href="../modules/telegram.md">the Telegram module guide</a>.</p>
+<ol><li>Set <code>HENRY_TELEGRAM_BOT_TOKEN</code> and <code>HENRY_TELEGRAM_CHAT_ID</code> in <code>.env</code>.</li><li>Verify and enable the bridge:</li></ol>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry telegram test
+henry telegram status
+henry telegram on
+henry repl</code></pre>
+        </div>
+<p>The configured DM is allowlisted. Operator mode is optional and still cannot approve, push, merge, deploy, post, send mail, or bypass destructive-command rails:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry telegram operator on
+henry telegram operator off</code></pre>
+        </div>
+<p>Inspect schedules and workflows:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry schedule list
+henry workflow list
+henry schedule install</code></pre>
+        </div>
+<p>Bare <code>schedule install</code> only generates reviewable files. Actual installation is explicit and reversible:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry schedule install --launchd   # macOS user LaunchAgent
+henry schedule install --cron      # marked block in the user's crontab
+henry schedule status
+henry schedule uninstall --launchd
+henry schedule uninstall --cron</code></pre>
+        </div>
+<p>Inspect approvals:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry approve list</code></pre>
+        </div>
+<p>Stage a manual email only in a private configured setup:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry draft mail --to person@example.com --subject &quot;Test&quot; --body &quot;This is a staged draft.&quot;
+henry approve list</code></pre>
+        </div>
+<h2 id="stage-6-check-2">Check</h2>
+<p>Approval commands are separate:</p>
+
+        <div class="code-frame" data-language="text">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">text</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy text code">Copy</button>
+          </div>
+          <pre><code>henry approve list
+henry approve approve &lt;id&gt;
+henry approve send &lt;id&gt;</code></pre>
+        </div>
+<p>Scheduling commands exist as:</p>
+
+        <div class="code-frame" data-language="text">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">text</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy text code">Copy</button>
+          </div>
+          <pre><code>henry schedule list|run &lt;id&gt;|daemon|install|status|uninstall
+henry workflow list|show &lt;name&gt;|run &lt;name&gt;|logs &lt;name&gt;|daemon</code></pre>
+        </div>
+<h2 id="stage-6-learn-3">Learn</h2>
+<p>Growth means adding surfaces and repeatable workflows while keeping execution rules stable. Dashboard, REPL, Telegram, scheduler, Gmail drafting, and PR review should all converge on the same runtime and approval store.</p>
+<p>Approving and executing are separate operations. A scheduled job or casual &quot;go ahead&quot; does not approve an outbound item.</p>
+<h2 id="stage-6-record-4">Record</h2>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Surface tested:
+Schedule inspected:
+Workflow inspected:
+Approval queue state:
+Outbound item staged:
+Execution authority:</code></pre>
+        </div>
+<hr>
+<p>Previous: <a href="#stage-5">Stage 5: Memory Vs Knowledge</a> | Next: <a href="#stage-7">Stage 7: Daily Demo Path</a></p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#stage-5"><span class="section-nav__direction">Previous</span><span>Memory vs knowledge</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#stage-7"><span class="section-nav__direction">Next</span><span>Daily demo path</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="stage-7" data-section="stage-7" data-title="Stage 7: Daily Demo Path" data-index="7" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>STAGE 07</span><span>08 / 12</span></div>
+        <h1>Stage 7: Daily Demo Path</h1>
+      </div>
+      <div class="section-body"><p>Goal: run a short, truthful demo that shows Henry's daily operating loop without claiming external work happened.</p>
+<h2 id="stage-7-do-1">Do</h2>
+<p>Start with health:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry status
+henry provider
+henry knowledge stats
+henry approve list</code></pre>
+        </div>
+<p>Ask a repo-grounded question:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry ask &quot;Summarize the current Henry architecture and name the approval boundary.&quot;</code></pre>
+        </div>
+<p>Open the live surfaces:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry repl
+henry dashboard</code></pre>
+        </div>
+<p>Inside the REPL:</p>
+
+        <div class="code-frame" data-language="text">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">text</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy text code">Copy</button>
+          </div>
+          <pre><code>:help
+:status
+:dashboard
+:provider
+:quit</code></pre>
+        </div>
+<p>Show automation without installing it:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry schedule list
+henry workflow list
+henry remind &quot;demo reminder&quot; --in &quot;10m&quot;
+henry remind list</code></pre>
+        </div>
+<p>Cancel the demo reminder:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry remind cancel &lt;id&gt;</code></pre>
+        </div>
+<h2 id="stage-7-check-2">Check</h2>
+<p>A truthful demo can show:</p>
+<ul><li>A local dashboard URL, normally <code>http://127.0.0.1:7337</code>.</li><li>The configured provider.</li><li>Memory and knowledge status.</li><li>A reminder staged locally.</li><li>An approval queue that does not execute outbound work without explicit action.</li></ul>
+<h2 id="stage-7-learn-3">Learn</h2>
+<p>The demo path should show the system's real shape: local-first runtime, subscription CLI provider, memory and knowledge stores, schedules, and approval. Do not imply that a draft, notification, review, or staged item has been sent or posted.</p>
+<h2 id="stage-7-record-4">Record</h2>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Status output:
+Provider:
+Dashboard URL:
+Reminder id:
+Approval queue:
+Demo claim checked:</code></pre>
+        </div>
+<hr>
+<p>Previous: <a href="#stage-6">Stage 6: Grow Through Surfaces, Schedules, And Approval</a> | Next: <a href="#stage-8">Stage 8: Troubleshooting</a></p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#stage-6"><span class="section-nav__direction">Previous</span><span>Surfaces &amp; approval</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#stage-8"><span class="section-nav__direction">Next</span><span>Troubleshooting</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="stage-8" data-section="stage-8" data-title="Stage 8: Troubleshooting" data-index="8" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>STAGE 08</span><span>09 / 12</span></div>
+        <h1>Stage 8: Troubleshooting</h1>
+      </div>
+      <div class="section-body"><p>Goal: fix known Henry setup/runtime failures with source-backed remedies only.</p>
+<h2 id="stage-8-henry-command-not-found-1"><code>henry: command not found</code></h2>
+<p>From the repository root, either install the local global link or use the checked-in entrypoint directly:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>npm link
+henry status
+# equivalent without linking:
+node bin/henry.mjs status</code></pre>
+        </div>
+<h2 id="stage-8-tests-pass-but-henry-cannot-answer-2">Tests Pass But Henry Cannot Answer</h2>
+<p>The test suite does not authenticate subscription CLIs. Verify the selected provider and its login independently:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry provider
+codex login status
+# or: claude auth status
+henry ask &quot;Reply with: provider connected&quot;</code></pre>
+        </div>
+<h2 id="stage-8-provider-auth-expired-3">Provider Auth Expired</h2>
+<p>Symptom: the provider says it is not logged in, asks for login, or Henry reports an auth failure instead of treating the text as an answer.</p>
+<p>Check:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>codex login status
+claude auth status</code></pre>
+        </div>
+<p>Fix from the user's own terminal:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>codex login
+claude auth login</code></pre>
+        </div>
+<p>Then re-run the matching status command.</p>
+<h2 id="stage-8-typecheck-or-node-hangs-4">Typecheck Or Node Hangs</h2>
+<p>Symptom: <code>npx tsc --noEmit</code>, <code>node</code>, or <code>npm</code> appears stuck with no useful error.</p>
+<p>Check the path:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>pwd</code></pre>
+        </div>
+<p>Verified fix from <code>SETUP.md</code>: move the clone out of cloud-synced folders such as <code>~/Desktop</code>, <code>~/Documents</code>, Dropbox, OneDrive, or <code>Library/Mobile Documents</code>. Then reinstall dependencies in the moved checkout:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>rm -rf node_modules
+npm install
+npx tsc --noEmit</code></pre>
+        </div>
+<p>Only run the removal command from the repo root after confirming <code>pwd</code>.</p>
+<h2 id="stage-8-bad-path-or-missing-dependencies-5">Bad Path Or Missing Dependencies</h2>
+<p>Check:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>node -v
+npm -v
+git --version</code></pre>
+        </div>
+<p>Verified fixes:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>xcode-select --install
+npm install</code></pre>
+        </div>
+<p>On Linux, install <code>build-essential</code> and <code>python3</code> if <code>better-sqlite3</code> needs to compile. If <code>engram-memory</code> fails during install, confirm <code>git</code> and GitHub network access; it is installed from a pinned GitHub repository.</p>
+<h2 id="stage-8-browser-profile-locks-6">Browser Profile Locks</h2>
+<p>Symptom: a browser-backed Henry action reports that the persistent browser profile is already open, the browser closed, or a singleton/profile lock exists.</p>
+<p>Check the configured profile path in <code>.env</code> or source defaults:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>rg -n &quot;BROWSER_PROFILE_DIR|browserProfileDir&quot; .env .env.example src/config.ts</code></pre>
+        </div>
+<p>Verified fix from the browser code path: close the open Henry-controlled browser window and retry. Henry clears stale Chromium files named <code>SingletonLock</code>, <code>SingletonCookie</code>, and <code>SingletonSocket</code> before launching a persistent context, but it should not fight a live browser using the same profile.</p>
+<h2 id="stage-8-dashboard-port-already-in-use-7">Dashboard Port Already In Use</h2>
+<p>If port <code>7337</code> is occupied, stop the older Henry dashboard/REPL process or pick a different loopback port in <code>.env</code>:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>HENRY_HOST=127.0.0.1
+HENRY_PORT=7338</code></pre>
+        </div>
+<p>Restart Henry after changing <code>.env</code>.</p>
+<h2 id="stage-8-telegram-or-gmail-is-not-connected-8">Telegram Or Gmail Is Not Connected</h2>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry telegram status
+henry telegram test
+henry gmail inbox --limit 3</code></pre>
+        </div>
+<p>Telegram reports missing token/chat configuration. Gmail doctor checks local credentials, token refresh, scopes, and redirect URI without sending mail or printing secrets. Follow its next-step output, then restart long-lived Henry processes after changing <code>.env</code>.</p>
+<h2 id="stage-8-scheduler-installation-fails-9">Scheduler Installation Fails</h2>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry schedule status
+henry schedule install            # regenerate reviewable files only</code></pre>
+        </div>
+<p>launchd is macOS-only and user-level. Cron installation preserves unrelated entries inside a separately marked Henry block. Use the matching <code>henry schedule uninstall --launchd|--cron</code> command before changing strategies.</p>
+<h2 id="stage-8-ollama-is-missing-or-misconfigured-10">Ollama Is Missing Or Misconfigured</h2>
+<p>Symptom: optional local model helpers return no enrichment.</p>
+<p>Check whether Ollama is configured:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>rg -n &quot;local.*ollama|ollama&quot; data/settings.json src/local/ollama.ts</code></pre>
+        </div>
+<p>Verified behavior: Ollama is optional and fail-open. The default URL is <code>http://127.0.0.1:11434</code>, local NER is opt-in with <code>local.ollama.ner === true</code>, and non-loopback URLs are refused unless <code>local.ollama.allowRemote</code> is true.</p>
+<p>Verified fix if you intend to use it:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>ollama pull llama3.2:3b</code></pre>
+        </div>
+<p>Then start the Ollama daemon with your normal local Ollama setup. If it is not needed, leave it off; Henry should continue without it.</p>
+<h2 id="stage-8-embedding-provider-mismatch-11">Embedding Provider Mismatch</h2>
+<p>Symptom: Henry warns that existing memory vectors were embedded with an older provider and will not recall well.</p>
+<p>Verified fix from <code>tests/engram.test.ts</code>:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry memory index --fresh</code></pre>
+        </div>
+<p>This rebuilds the memory index from durable memory source material and advances the marker after re-embedding.</p>
+<hr>
+<p>Previous: <a href="#stage-7">Stage 7: Daily Demo Path</a> | Next: <a href="#stage-9">Stage 9: Extend And Review Safely</a></p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#stage-7"><span class="section-nav__direction">Previous</span><span>Daily demo path</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#stage-9"><span class="section-nav__direction">Next</span><span>Extend safely</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="stage-9" data-section="stage-9" data-title="Stage 9: Extend And Review Safely" data-index="9" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>STAGE 09</span><span>10 / 12</span></div>
+        <h1>Stage 9: Extend And Review Safely</h1>
+      </div>
+      <div class="section-body"><p>Goal: make future Henry changes with bounded scope, verified behavior, and no approval bypass.</p>
+<h2 id="stage-9-do-1">Do</h2>
+<p>Read the core design docs:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>sed -n '1,260p' docs/architecture.md
+sed -n '1,220p' docs/module-doctrine.md</code></pre>
+        </div>
+<p>Use Henry for local engineering tasks:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry task &quot;inspect this repo and summarize the smallest safe implementation path&quot; --cwd /path/to/repo</code></pre>
+        </div>
+<p>Use the review path for pull requests:</p>
+
+        <div class="code-frame" data-language="bash">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">bash</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy bash code">Copy</button>
+          </div>
+          <pre><code>henry pr review 123 --repo owner/repository --cwd /path/to/repo
+henry pr merge 123 --repo owner/repository --cwd /path/to/repo --check &quot;npm test&quot; --verify &quot;npm run build&quot; --method squash
+henry approve list</code></pre>
+        </div>
+<h2 id="stage-9-check-2">Check</h2>
+<p>The review commands in <code>src/cli.ts</code> are:</p>
+
+        <div class="code-frame" data-language="text">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">text</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy text code">Copy</button>
+          </div>
+          <pre><code>henry pr review|merge &lt;pr-number-or-url&gt; [--cwd path] [--repo owner/name]
+henry review &lt;pr-number-or-url&gt; [--cwd path] [--repo owner/name]</code></pre>
+        </div>
+<p>The approval commands are:</p>
+
+        <div class="code-frame" data-language="text">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">text</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy text code">Copy</button>
+          </div>
+          <pre><code>henry approve list|approve|send &lt;id&gt;</code></pre>
+        </div>
+<p><code>docs/modules/pr-review.md</code> requires six passes: logic, safety, product thinking, query performance, consistency, and surface.</p>
+<h2 id="stage-9-learn-3">Learn</h2>
+<p>Keep implementation additive. Use existing config, runtime, provider runner, memory, activity, scheduler, and approval interfaces. Parallelize only independent investigation. Shared-file implementation should be sequential or isolated.</p>
+<p>For read-only external tools, MCP can be appropriate. For anything that writes, sends, posts, pays, deletes, or changes external state, build or use a Henry approval path.</p>
+<h2 id="stage-9-record-4">Record</h2>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Change:
+Owned paths:
+Existing dirty files:
+Runtime hook:
+Approval kind:
+Focused tests:
+Typecheck:
+Full tests:
+Final status:
+Residual risk:</code></pre>
+        </div>
+<hr>
+<p>Previous: <a href="#stage-8">Stage 8: Troubleshooting</a> | Next: <a href="#overview">Handbook README</a></p></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#stage-8"><span class="section-nav__direction">Previous</span><span>Troubleshooting</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#ideation-template"><span class="section-nav__direction">Next</span><span>IDEATION template</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="ideation-template" data-section="ideation-template" data-title="IDEATION Template" data-index="10" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>REFERENCE</span><span>11 / 12</span></div>
+        <h1>IDEATION Template</h1>
+      </div>
+      <div class="section-body"><p>Use this before building. Keep answers short and concrete.</p>
+<h2 id="ideation-template-problem-1">Problem</h2>
+<p>What problem should Henry solve?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Who experiences it?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>What happens today?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<h2 id="ideation-template-desired-behavior-2">Desired Behavior</h2>
+<p>What should the user be able to do?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>What should Henry produce or change?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>What proves it worked?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<h2 id="ideation-template-boundaries-3">Boundaries</h2>
+<p>What files, modules, accounts, or data are in scope?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>What is explicitly out of scope?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Could this send, post, message, pay, delete, or change external state?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>If yes, what approval item must exist before execution?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<h2 id="ideation-template-existing-surface-4">Existing Surface</h2>
+<p>Which docs already describe the area?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Which CLI command or runtime path already exists?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Which tests already cover nearby behavior?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<h2 id="ideation-template-decision-5">Decision</h2>
+<p>Build, configure, document, or decline?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Why is that the smallest truthful next step?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#stage-9"><span class="section-nav__direction">Previous</span><span>Extend safely</span></a>
+        <a class="section-nav__link section-nav__link--next" href="#building-template"><span class="section-nav__direction">Next</span><span>BUILDING template</span></a>
+      </nav>
+    </section>
+
+    <section class="handbook-section" id="building-template" data-section="building-template" data-title="BUILDING Template" data-index="11" tabindex="-1">
+      <div class="section-heading">
+        <div class="section-heading__meta"><span>REFERENCE</span><span>12 / 12</span></div>
+        <h1>BUILDING Template</h1>
+      </div>
+      <div class="section-body"><p>Use this when implementing or auditing a scoped Henry change.</p>
+<h2 id="building-template-scope-1">Scope</h2>
+<p>Task:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Allowed paths:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Forbidden paths:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Existing dirty files before work:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<h2 id="building-template-read-first-2">Read First</h2>
+<p>Instruction files:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Relevant docs:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Relevant source files:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Relevant tests:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<h2 id="building-template-plan-3">Plan</h2>
+<p>Smallest implementation path:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Expected changed files:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>New or changed commands:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Approval behavior, if any:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<h2 id="building-template-build-log-4">Build Log</h2>
+<p>Commands run while inspecting:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Files changed:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Important tradeoffs:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<h2 id="building-template-verification-5">Verification</h2>
+<p>Focused tests:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Typecheck:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Full test command:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Manual checks:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Final <code>git status --short --untracked-files=all</code>:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<h2 id="building-template-handoff-6">Handoff</h2>
+<p>What changed?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>What did not change?</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Unresolved risks:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div>
+<p>Next useful step:</p>
+
+        <div class="code-frame" data-language="md">
+          <div class="code-frame__bar">
+            <span class="code-frame__language">md</span>
+            <button class="copy-button" type="button" data-copy aria-label="Copy md code">Copy</button>
+          </div>
+          <pre><code>Answer:</code></pre>
+        </div></div>
+      <nav class="section-nav" aria-label="Section navigation">
+        <a class="section-nav__link section-nav__link--previous" href="#ideation-template"><span class="section-nav__direction">Previous</span><span>IDEATION template</span></a>
+        <span class="section-nav__empty" aria-hidden="true"></span>
+      </nav>
+    </section>
+          <footer class="site-footer"><span>HENRY HANDBOOK</span><span>Generated 2026-09-13 from Markdown sources</span></footer>
+        </div>
+      </main>
+    </div>
+    <script src="app.js" defer></script>
+  </body>
+</html>
