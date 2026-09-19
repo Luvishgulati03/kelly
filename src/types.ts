@@ -39,7 +39,9 @@ export type ActivityKind =
   | "task.completed"
   | "social.drafted"
   | "social.posted"
-  | "gmail.drafted";
+  | "gmail.drafted"
+  /** A catalogue/knowledge source was indexed (Kelly: a supplier catalogue import). */
+  | "knowledge.indexed";
 
 export interface ActivityEvent {
   id: string;

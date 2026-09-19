@@ -131,11 +131,11 @@ test("private backup workflow skips when no mirror is configured, and never thro
   }
 });
 
-test("the shipped defaults schedule a daily private backup", async () => {
+test("the shipped defaults consolidate memory nightly", async () => {
   const defaults = JSON.parse(await fs.readFile(path.join(process.cwd(), "workflows", "defaults.json"), "utf8")) as WorkflowDefinition[];
-  const backup = defaults.find((entry) => entry.kind === "backup.private");
-  assert.ok(backup, "a backup nobody scheduled is a snapshot");
-  assert.equal(backup?.enabled, true);
+  const dream = defaults.find((entry) => entry.kind === "memory.dream");
+  assert.ok(dream, "memory that is never consolidated only grows");
+  assert.equal(dream?.enabled, true);
 });
 
 test("job digest skips zero activity without notifying and sends only after a newly indexed record", async () => {
@@ -168,11 +168,17 @@ test("job digest skips zero activity without notifying and sends only after a ne
   assert.match(notifications[0] ?? "", /indexed job records/);
 });
 
-test("the shipped defaults contain one daily job digest", async () => {
+/**
+ * Kelly ships its own schedule. Henry's mail/job/standup/social jobs depend on services the
+ * kelly profile never loads (src/profile.ts), so a default that schedules one would fire into
+ * a service that does not exist — and quietly look like a broken agent rather than a skipped one.
+ */
+test("the shipped defaults never schedule a service the Kelly profile excludes", async () => {
   const defaults = JSON.parse(await fs.readFile(path.join(process.cwd(), "workflows", "defaults.json"), "utf8")) as WorkflowDefinition[];
-  const digests = defaults.filter((entry) => entry.kind === "mail.digest" && entry.enabled);
-  assert.equal(digests.length, 1);
-  assert.equal(digests[0]?.cron, "40 23 * * *", "digest runs after the mailwatch window");
+  const excluded = ["gmail.inbox", "mail.watch", "mail.digest", "jobs.scout", "standup.prompt", "standup.scan", "standup.summary", "social.tweet", "portfolio.stats", "backup.private"];
+  const offenders = defaults.filter((entry) => excluded.includes(entry.kind));
+  assert.deepEqual(offenders.map((entry) => entry.id), [], "Kelly must not ship Henry's personal-agent schedule");
+  assert.ok(defaults.length > 0, "an empty schedule would pass this test for the wrong reason");
 });
 
 test("scheduled digest reconciles submitted records before counting, with zero provider spend", async () => {

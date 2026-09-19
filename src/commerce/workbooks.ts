@@ -41,9 +41,13 @@ export async function readRange(filePath: string, sheetName: string, range: stri
   if (!match) throw new Error("Range must look like A1:F20");
   const start = sheet.getCell(`${match[1]}${match[2]}`); const end = sheet.getCell(`${match[3]}${match[4]}`);
   const values: unknown[][] = [];
-  for (let row = start.row; row <= end.row; row++) {
+  // exceljs types Cell.row/Cell.col as strings, so coerce once: the loop bounds must be
+  // real numbers or the range walks lexicographically (row "10" < "9") and drops cells.
+  const startRow = Number(start.row); const endRow = Number(end.row);
+  const startCol = Number(start.col); const endCol = Number(end.col);
+  for (let row = startRow; row <= endRow; row++) {
     const current: unknown[] = [];
-    for (let col = start.col; col <= end.col; col++) current.push(displayed(sheet.getCell(row, col).value));
+    for (let col = startCol; col <= endCol; col++) current.push(displayed(sheet.getCell(row, col).value));
     values.push(current);
   }
   return { sheet: sheetName, range, values };

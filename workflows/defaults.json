@@ -1,0 +1,17 @@
+[
+  {
+    "id": "nightly-engram-dream",
+    "name": "Nightly Engram consolidation",
+    "cron": "0 2 * * *",
+    "kind": "memory.dream",
+    "enabled": true
+  },
+  {
+    "id": "catalogue-knowledge-distill",
+    "name": "Catalogue knowledge distillation (opt-in: enable once a corpus is indexed)",
+    "cron": "0 3 * * *",
+    "kind": "knowledge.distill",
+    "enabled": false,
+    "batchLimit": 25
+  }
+]

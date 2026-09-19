@@ -273,9 +273,11 @@ test("skills are enumerated from both layouts with a parsed description", async 
 test("the repo's own skills/ directory enumerates", async () => {
   const skills = await listSkills(process.cwd());
   const names = skills.map((skill) => skill.name);
-  assert.ok(names.includes("job-application"), "the real skills/ directory is readable as-is");
+  assert.ok(names.includes("quotation"), "the real skills/ directory is readable as-is");
+  assert.ok(names.includes("catalogue-import"));
   assert.ok(names.includes("pr-review"));
   for (const skill of skills) assert.ok(skill.path.startsWith("skills"), "a skill never resolves outside skills/");
+  for (const skill of skills) assert.ok(skill.description, `${skill.name} needs a frontmatter description to be listable`);
 });
 
 test("/skill injects the skill's content into the turn as labelled guidance", async () => {
