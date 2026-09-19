@@ -1,134 +1,138 @@
-# Kelly — a Codex-only quotation agent for electrical shops
+# Kelly
 
-> Kelly's current product documentation is in [KELLY_README.md](KELLY_README.md).
-> The material below documents the shared Henry runtime Kelly is built on. It does
-> not mean Kelly loads Henry's Gmail, career, social, or personal-data modules.
+Kelly is a locally running business agent for small teams in India.
 
-> **Setting it up? → [SETUP.md](SETUP.md).** It is written for an AI
-> coding agent to execute — clone this repo, hand your Claude Code or
-> Codex CLI the link, and it will walk you through install, provider auth
-> (Claude *or* Codex — you only need the one you have), and the smoke
-> tests. A ten-line human quick path and the real troubleshooting list
-> are in the same file.
->
-> **Want to understand and customize it? → [Open the Henry Handbook](docs/handbook/index.html).**
-> It takes you from a blank clone to your own persona, first working run,
-> private knowledge base, Telegram surface, automation, and custom module.
+It is designed for businesses where the owner still handles repetitive work by
+hand: preparing quotations, answering the same customer questions, checking
+catalogues, updating spreadsheets, and following up on routine tasks. Kelly turns
+those workflows into reliable tools that can be adapted to each business.
 
-After cloning, open the repository in Codex CLI, Claude Code, or Gemini CLI and
-paste this:
+Quotation is the first complete workflow. Voice is the next major interface.
 
-```text
-Set up this repository as Kelly, the electrical-shop quotation agent. Read
-AGENTS.md, CLAUDE.md, KELLY_README.md, SETUP-PROMPT.md, SETUP.md, and BOOTSTRAP.md
-completely before changing anything. Follow the fresh-clone setup flow: ask me for
-the shop's problem statement and users, research the workflow, and recommend a
-blueprint for catalogue import, quotation, approvals, and data boundaries. Ask me
-to correct it before implementation. Then interview me for identity, personality,
-memory, and authority choices; configure Kelly for Codex only; run the repository
-checks; and hand me a working local setup. Never send anything, approve anything
-for me, expose the dashboard remotely, or commit private data.
-```
+## Why Kelly exists
 
-Henry is a terminal-first personal agent framework: one brain (Claude/Codex CLIs +
-a local memory engine) behind **three chat surfaces** — terminal REPL, a streaming
-web chat, and Telegram — with real jobs wired in: job-hunt automation, team
-standups, scheduled pipelines, and a hard **approval gate** so nothing outbound
-ever leaves without the operator's explicit yes. Local-first: SQLite memory,
-on-device embeddings, $0 marginal cost on an 8GB M1 Air.
+Small businesses rarely need another generic chatbot. They need an agent that
+understands their products, follows their pricing rules, works with the files they
+already use, and keeps business data under their control.
+
+Kelly runs locally, learns from approved business material, and separates facts
+from generated language. It can search a catalogue conversationally, but totals,
+discounts, taxes, and final quotation values are calculated in code.
+
+## What works today
+
+- Import supplier catalogues from PDF, XLSX, and CSV files
+- Review extracted products before publishing them to search
+- Find matching items across brands and product categories
+- Create and compare quotations in Indian rupees
+- Apply discounts and GST with deterministic calculations
+- Export quotations to Excel
+- Inspect, search, and safely edit spreadsheets through a local Excel connector
+- Remember owner preferences and recurring corrections
+- Learn from previous questions without mixing one customer's context with another
+- Run through the terminal, local web dashboard, or Telegram
+- Schedule reminders and routine checks
+
+## Where Kelly can go next
+
+Kelly is built around business workflows, not one industry. A deployment can be
+adapted for:
+
+- customer support grounded in company documents
+- product discovery and guided selling
+- order intake and follow-up
+- service booking and status updates
+- stock and catalogue questions
+- voice conversations in English, Hindi, or a business-specific language mix
+
+These are extension paths, not claims about the current release. The present build
+has the deepest support for catalogue search, quotations, spreadsheets, and local
+business memory.
+
+## How quotation works
 
 ```mermaid
 flowchart LR
-    subgraph Surfaces
-        R[REPL] ; W[Web chat /chat] ; T[Telegram bot]
-    end
-    subgraph Brain
-        H[Henry core<br/>Claude / Codex CLIs] ; M[(Engram memory<br/>SQLite + local embeddings)] ; K[(Knowledge RAG<br/>your corpus + books)]
-    end
-    subgraph Jobs
-        J[Job scout + tailor + tracker] ; S[Team standups AM/PM] ; P[PM mode] ; D[Dashboard + observatory]
-    end
-    R --> H ; W --> H ; T --> H
-    H <--> M ; H <--> K
-    H --> J ; H --> S ; H --> P ; H --> D
-    H -.every outbound action.-> A{{Approval gate}}
+    A[Supplier files] --> B[Import and review]
+    B --> C[Approved catalogue]
+    D[Customer requirement] --> E[Product matching]
+    C --> E
+    E --> F[Pricing and GST rules]
+    F --> G[Reviewable quotation]
+    G --> H[Excel export]
 ```
 
-## What Henry does
+The language model helps understand requests and retrieve likely products. The
+catalogue remains the source of truth. Ambiguous matches stay unresolved until a
+person reviews them.
 
-| | |
-| --- | --- |
-| 🧠 **Remembers** | Hybrid memory (semantic + lexical + activation graph), nightly consolidation, per-person style profiles |
-| 📚 **Learns your corpus** | Index courses, notes, and books you own into a cited, coverage-labeled RAG ([guide](docs/build-your-own-knowledge-rag.md) · [books](build-your-pm-brain.md)) |
-| 💼 **Runs your job hunt** | Morning scout (LinkedIn + X shortlist), one-page tailored resume + cover letter per JD, inbox watch, application tracker + Telegram digests. It can also fill a real application form in a browser and submit it — only for an application you approved, and filling and submitting are two separate approvals |
-| 👥 **Runs team standups** | Telegram group bot: morning plans + evening delivered-vs-planned, style-matched nudges, summaries to your DM |
-| 📋 **Acts as a PM** | `pm on`: PMBOK-grounded decisions with explicit rationale, update processing, gated work assignment |
-| 🌙 **Dispatches deep research** | Long research asks acknowledge immediately, run through Luna's read-only research specialist, remain visible in the agent registry, and report back when complete |
-| 🔒 **Never freelances outbound** | Email/comments/applications are staged; `approve` ≠ `send`; scope-guarded Telegram surfaces |
+## Quick start
 
-## Chat with it — including from your phone
-
-Terminal: `henry repl` · Web: `henry dashboard` → `http://127.0.0.1:7337/chat` ·
-**Telegram**: your agent walks you through it — ask it to "set up telegram", and it
-gives you the BotFather steps, wires your token + chat id into `.env` itself, and
-verifies with a test message. Full instructions: [docs/modules/telegram.md](docs/modules/telegram.md).
-
-## Quick start (or let your own agent do it)
-
-Fastest: open this repo in Claude Code / Codex CLI and paste the block from
-**[BOOTSTRAP.md](BOOTSTRAP.md)** — it interviews you, builds your persona from the
-example templates, and verifies each step. By hand:
+Requires Node 22 or newer and an authenticated Codex CLI.
 
 ```bash
 npm install
-cp .env.example .env        # then soul.example.md → soul.md, personality.example.md → personality.md
-npm run typecheck && npm test
-npm link                    # installs the global `henry` command
-npx tsx src/cli.ts repl
+cp KELLY.env.example .env
+cp soul.example.md soul.md
+cp personality.example.md personality.md
+codex login
+node bin/kelly.mjs repl
 ```
 
-## Common commands
+The local dashboard runs at `http://127.0.0.1:7338` by default.
+
+## Useful commands
 
 ```bash
-henry ask "summarize the current git changes"
-henry repl                      # chat + dashboard + schedules, all alive in one terminal
-henry pm on                     # project-manager mode
-henry draft replies --limit 5   # reads unread mail and creates Gmail drafts only—never sends
-henry draft mail --to you@example.com --subject "Hello" --body "…"  # approval-gated
-henry jobs login && henry jobs scout --prepare 2
-henry jd --file posting.txt     # tailored one-page resume + cover letter
-henry standup discover          # wire your team's Telegram group
-henry knowledge add <path> --domain project-management
-henry memory search "what did we decide about deploys?"
-henry approve list && henry approve send <approval-id>
-henry schedule daemon           # or: schedule install (launchd)
-henry pr review 123 --repo owner/repository
-henry pr merge 123 --repo owner/repository --check "npm test" --verify "npm run build"
+kelly repl
+kelly dashboard
+kelly ask "Find ceiling fans under ₹3,000"
+
+kelly catalogue import ./supplier-list.xlsx --sheet Products
+kelly catalogue review
+kelly catalogue publish <document-id>
+kelly catalogue search "20W LED batten" --brand Havells
+
+kelly quote create --from ./quote-request.json
+kelly quote compare --from ./requirements.json --brands Havells,Philips
+kelly quote export <quote-id> --out ./customer-quote.xlsx
+
+kelly sheets inspect ./catalogue.xlsx
+kelly sheets search ./catalogue.xlsx --query "ceiling fan"
+kelly sheets edit ./catalogue.xlsx --edits ./edits.json --out ./catalogue-v2.xlsx
 ```
 
-PR review runs six engineering passes. PR merges are pinned to the reviewed commit,
-approval-gated, and followed by the supplied verification command. If verification
-fails, Henry stages a separate approval for a GitHub revert PR. See
-[docs/modules/pr-review.md](docs/modules/pr-review.md).
+## Data and memory
 
-## The safety boundary
+Kelly keeps different kinds of knowledge separate:
 
-Providers run with full local access; **outbound is different**. Every email,
-comment, or application is drafted, staged, and shown for review — execution
-happens only after the operator explicitly approves that exact item. Telegram
-sends are pinned to two configured chats (operator DM + standup group) and can
-never address anyone else.
+| Layer | Purpose |
+| --- | --- |
+| Approved catalogue | Product facts, prices, brands, specifications, and source records |
+| Business knowledge | Policies, FAQs, service details, and material supplied by the owner |
+| Owner memory | Preferences, corrections, and durable operating decisions |
+| Customer conversation memory | Previous questions and answers, isolated by customer |
 
-## Make it yours
+Previous answers are hints, not authority. Current catalogue records, pricing
+rules, and verified business documents always win.
 
-`BOOTSTRAP.md` (agent-executable setup) · [`SETUP-PROMPT.md`](SETUP-PROMPT.md) ·
-[`docs/rename-your-agent.md`](docs/rename-your-agent.md) ·
-[`docs/connector-architecture.md`](docs/connector-architecture.md) ·
-`docs/build-your-own-knowledge-rag.md` ·
-`build-your-pm-brain.md` · `docs/architecture.md` · `docs/modules/` (per-module
-agent-facing docs). Personal data (soul, memory, corpus, `data/`) is gitignored —
-the framework ships, your life doesn't.
+## Safety and control
+
+- Source catalogues are never overwritten.
+- Spreadsheet edits are saved to a new file.
+- Imported records require review before publication.
+- Customer conversation stores are isolated.
+- Outbound actions remain staged until the owner approves the exact action.
+- The dashboard binds to the local machine unless secure remote access is
+  explicitly configured.
+
+## Product direction
+
+Kelly's long-term interface is voice. A shop owner or staff member should be able
+to ask for a quote, compare alternatives, answer a customer, or update a routine
+record without learning a new back-office tool. The same workflow remains
+available through web, Telegram, and terminal for review and control.
 
 ## License
 
-MIT — see [LICENSE](LICENSE). Copyright (c) 2026 Luvish Gulati.
+MIT. Copyright 2026 Luvish Gulati.

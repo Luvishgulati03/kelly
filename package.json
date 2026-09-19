@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
-  "description": "Kelly — a local-first electrical catalogue and quotation agent built on Henry's shared runtime.",
+  "description": "A locally running, configurable business agent for Indian small businesses.",
   "type": "module",
   "bin": {
     "kelly": "./bin/kelly.mjs",
