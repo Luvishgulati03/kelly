@@ -231,6 +231,10 @@ function chatDataDir(runtime: HenryRuntime, user?: SessionUser): string {
   return path.join(runtime.config.dataDir, "counter-users", principal);
 }
 
+function chatPrincipal(user?: SessionUser): string | undefined {
+  return user ? crypto.createHash("sha256").update(user.userId).digest("hex") : undefined;
+}
+
 function conversations(runtime: HenryRuntime, user?: SessionUser): ConversationStore {
   const dataDir = chatDataDir(runtime, user);
   let store = conversationStores.get(dataDir);
@@ -1017,7 +1021,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           // kept alongside only when it actually differs (see src/voice/roman.ts).
           const roman = toRomanHinglish(result.text);
           const differs = roman !== result.text;
-          const record = runtime.voiceTranscripts.record({ surface: "counter", text: roman, original: differs ? result.text : undefined, language: result.language, durationSeconds, bytes: audio.length, sttMs });
+          const record = runtime.voiceTranscripts.record({ surface: "counter", text: roman, original: differs ? result.text : undefined, principal: chatPrincipal(user), language: result.language, durationSeconds, bytes: audio.length, sttMs });
           const audioKept = Boolean(runtime.voiceTranscripts.saveAudio(record.id, audio));
           // Timing and size only: the words stay in the transcript store, never in the log.
           await runtime.activity.record("voice.transcribed", "Counter voice note transcribed", {
@@ -1144,9 +1148,10 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         const transcriptId = voiceMode && typeof input.transcriptId === "string" && /^[A-Za-z0-9-]{1,64}$/.test(input.transcriptId) ? input.transcriptId : undefined;
         if (user?.role === "counter" && transcriptId) {
           const transcript = runtime.voiceTranscripts.get(transcriptId);
-          // Existing transcripts are owner records, not proof of counter ownership.
-          json(response, 403, { error: "Counter transcript linking requires an owner session" });
-          return;
+          if (!transcript || transcript.surface !== "counter" || transcript.principal !== chatPrincipal(user)) {
+            json(response, 403, { error: "Transcript does not belong to this counter session" });
+            return;
+          }
         }
         const skill = requestedSkill ? await loadSkill(runtime.config.rootDir, requestedSkill) : undefined;
         if (requestedSkill && !skill) { json(response, 400, { error: `Unknown skill: ${requestedSkill}` }); return; }

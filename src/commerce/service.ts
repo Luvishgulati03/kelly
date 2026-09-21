@@ -66,6 +66,43 @@ export class CommerceService {
     const exact = this.store.search(query, brand, includePending);
     return { products: exact, semanticEvidence: query.trim() ? await (await this.catalogueRag()).search(query, brand) : [] };
   }
+
+  /**
+   * Small, authoritative prompt block for Kelly's brain. This is deliberately assembled
+   * from the published structured store rather than relying on the model to remember to
+   * invoke a CLI. Semantic RAG helps discover candidates; prices and evidence always come
+   * from the structured rows below.
+   */
+  async context(query: string, limit = 12): Promise<string> {
+    const clean = query.trim();
+    const broad = /\b(what|which|show|list|available|catalog(?:ue)?|categories|products|items|stock)\b/i.test(clean)
+      && !/\b(sku|brand|model|watt|volt|amp|mm|bulb|fan|wire|cable|switch|socket|chair|desk|kettle|paper|mcb)\b/i.test(clean);
+    const candidates = new Map<string, CatalogueProductInput & { id: string; documentId: string; status: "pending" | "published"; importedAt: string }>();
+    const add = (items: ReturnType<CommerceStore["search"]>): void => {
+      for (const item of items) if (!candidates.has(item.id)) candidates.set(item.id, item);
+    };
+    if (broad || !clean) add(this.store.search("", undefined, false));
+    else {
+      add(this.store.search(clean, undefined, false));
+      const terms = clean.toLowerCase().match(/[a-z0-9][a-z0-9.-]{1,}/g) ?? [];
+      const ignored = new Set(["what", "which", "show", "list", "have", "need", "want", "with", "from", "same", "available", "product", "products", "item", "items", "quotation", "quote", "please"]);
+      for (const term of terms.filter((value) => !ignored.has(value)).slice(0, 8)) add(this.store.search(term, undefined, false));
+    }
+    const products = [...candidates.values()].slice(0, limit);
+    if (!products.length) return [
+      "--- Published catalogue (AUTHORITATIVE) ---",
+      "No matching published products were found. Say that the requested item was not found; do not claim that the whole catalogue is empty unless this was a broad catalogue request.",
+    ].join("\n");
+    const allPublished = broad ? [...candidates.values()] : [];
+    const categories = [...new Set(allPublished.map((item) => item.category))].sort();
+    return [
+      "--- Published catalogue (AUTHORITATIVE CURRENT DATA) ---",
+      "Use only these structured rows for product, SKU, price, tax, unit and source claims. Similar-conversation RAG is secondary and cannot override them.",
+      ...(categories.length ? [`Available categories: ${categories.join(", ")}.`] : []),
+      ...products.map((item) => `- ${item.brand} | ${item.sku} | ${item.name} | category ${item.category} | unit ${item.unit || "unit"} | ₹${(item.pricePaise / 100).toFixed(2)} before configured tax | GST ${(item.gstBasisPoints || 0) / 100}% | source ${item.sourceLocation}`),
+      allPublished.length > products.length ? `Showing ${products.length} of ${allPublished.length} published products.` : `Matched ${products.length} published product${products.length === 1 ? "" : "s"}.`,
+    ].join("\n");
+  }
   documents(): unknown { return this.store.listDocuments(); }
 
   createQuote(request: QuoteRequest, save = true): CalculatedQuote {

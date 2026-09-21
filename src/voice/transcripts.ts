@@ -102,6 +102,8 @@ export interface TranscriptRecord {
   original?: string;
   /** True when `original` is present — Whisper's own output contained Devanagari. */
   mixed: boolean;
+  /** Opaque authenticated dashboard principal that created a counter transcript. */
+  principal?: string;
   entities: TranscriptEntities;
   state: TranscriptState;
   conversationId?: string;
@@ -226,7 +228,7 @@ function mergeEntities(primary: TranscriptEntities, original?: string): Transcri
 interface Row {
   id: string; at: string; surface: string; language: string | null; durationSeconds: number | null;
   bytes: number | null; sttMs: number | null; text: string; original: string | null; entities: string; state: string;
-  conversationId: string | null; reply: string | null; replyAt: string | null; audioPath: string | null; error: string | null;
+  principal: string | null; conversationId: string | null; reply: string | null; replyAt: string | null; audioPath: string | null; error: string | null;
 }
 
 const SURFACES: TranscriptSurface[] = ["counter", "telegram"];
@@ -258,6 +260,7 @@ export class VoiceTranscriptStore {
       sttMs INTEGER,
       text TEXT NOT NULL,
       original TEXT,
+      principal TEXT,
       entities TEXT NOT NULL,
       state TEXT NOT NULL,
       conversationId TEXT,
@@ -273,6 +276,9 @@ export class VoiceTranscriptStore {
     if (!columns.some((column) => column.name === "original")) {
       this.db.exec("ALTER TABLE transcripts ADD COLUMN original TEXT");
     }
+    if (!columns.some((column) => column.name === "principal")) {
+      this.db.exec("ALTER TABLE transcripts ADD COLUMN principal TEXT");
+    }
     this.db.exec("CREATE INDEX IF NOT EXISTS transcripts_at ON transcripts(at DESC)");
     try { fs.chmodSync(path.join(this.dir, "transcripts.db"), 0o600); } catch { /* best effort */ }
   }
@@ -281,7 +287,7 @@ export class VoiceTranscriptStore {
 
   /** Writes a transcript (or a failure with no words) and prunes what has aged out. */
   record(input: {
-    surface: TranscriptSurface; text: string; original?: string; language?: string; durationSeconds?: number; bytes?: number;
+    surface: TranscriptSurface; text: string; original?: string; principal?: string; language?: string; durationSeconds?: number; bytes?: number;
     sttMs?: number; state?: TranscriptState; conversationId?: string; error?: string; at?: string;
   }): TranscriptRecord {
     // `original` is kept only when it actually differs from the (Roman) text — a caller that
@@ -298,16 +304,17 @@ export class VoiceTranscriptStore {
       text: input.text,
       ...(original ? { original } : {}),
       mixed: Boolean(original),
+      ...(input.principal ? { principal: input.principal } : {}),
       entities: mergeEntities(extractEntities(input.text), original),
       state: input.state ?? (input.error ? "failed" : "transcribed"),
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
       ...(input.error ? { error: input.error } : {}),
     };
-    this.db.prepare(`INSERT INTO transcripts (id, at, surface, language, durationSeconds, bytes, sttMs, text, original, entities, state, conversationId, reply, replyAt, audioPath, error)
-      VALUES (@id, @at, @surface, @language, @durationSeconds, @bytes, @sttMs, @text, @original, @entities, @state, @conversationId, NULL, NULL, NULL, @error)`).run({
+    this.db.prepare(`INSERT INTO transcripts (id, at, surface, language, durationSeconds, bytes, sttMs, text, original, principal, entities, state, conversationId, reply, replyAt, audioPath, error)
+      VALUES (@id, @at, @surface, @language, @durationSeconds, @bytes, @sttMs, @text, @original, @principal, @entities, @state, @conversationId, NULL, NULL, NULL, @error)`).run({
       id: record.id, at: record.at, surface: record.surface, language: record.language ?? null,
       durationSeconds: record.durationSeconds ?? null, bytes: record.bytes ?? null, sttMs: record.sttMs ?? null,
-      text: record.text, original: original ?? null, entities: JSON.stringify(record.entities), state: record.state,
+      text: record.text, original: original ?? null, principal: input.principal ?? null, entities: JSON.stringify(record.entities), state: record.state,
       conversationId: record.conversationId ?? null, error: record.error ?? null,
     });
     this.prune();
@@ -420,6 +427,7 @@ function fromRow(row: Row): TranscriptRecord {
     text: row.text,
     ...(row.original ? { original: row.original } : {}),
     mixed: Boolean(row.original),
+    ...(row.principal ? { principal: row.principal } : {}),
     entities,
     state: isTranscriptState(row.state) ? row.state : "transcribed",
     ...(row.conversationId ? { conversationId: row.conversationId } : {}),

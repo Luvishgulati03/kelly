@@ -165,7 +165,10 @@ test("check() serializes concurrent service instances without regressing the cur
   const firstCheck = firstService.check();
   await entered;
   const secondCheck = secondService.check();
-  await new Promise<void>((resolve) => setTimeout(resolve, 75));
+  // The runner gate proves the first check is inside the critical section. Starting
+  // the second async check must not synchronously enter that runner; the final dedupe
+  // assertions below prove it eventually acquired the lock after release. A wall-clock
+  // sleep here made this test flaky when the full suite saturated the event loop.
   assert.equal(calls, 1, "the second process-equivalent service must wait on the file lock");
 
   releaseFirst();

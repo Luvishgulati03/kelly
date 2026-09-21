@@ -1,0 +1,51 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { setActiveProfile } from "../src/profile.ts";
+import { loadConfig } from "../src/config.ts";
+import { ActivityLog } from "../src/activity.ts";
+import { CommerceService } from "../src/commerce/service.ts";
+import { HenryAgent } from "../src/agent/henry.ts";
+import type { HenryMemory } from "../src/memory/engram.ts";
+
+test("Kelly injects published catalogue facts directly and never exposes pending rows", async () => {
+  setActiveProfile("kelly");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "kelly-catalogue-context-"));
+  const config = loadConfig(root); config.dataDir = path.join(root, "data");
+  await fs.writeFile(path.join(root, "soul.md"), "test soul");
+  await fs.writeFile(path.join(root, "personality.md"), "test personality");
+  const activity = new ActivityLog(config.activityPath); await activity.init();
+  const commerce = new CommerceService(config, activity, { index: async items => items.length, search: async () => [], close() {} });
+  const publishedCsv = path.join(root, "published.csv");
+  const pendingCsv = path.join(root, "pending.csv");
+  await fs.writeFile(publishedCsv, "SKU,Brand,Name,Category,Unit,Price,GST\nPUB-LED,DemoAster,LED bulb 9W,Lighting,piece,100,18\n");
+  await fs.writeFile(pendingCsv, "SKU,Brand,Name,Category,Unit,Price,GST\nSECRET-LED,PendingCo,LED bulb 12W,Lighting,piece,90,18\n");
+  const published = await commerce.importCatalogue(publishedCsv) as {documentId:string};
+  await commerce.publish(published.documentId);
+  await commerce.importCatalogue(pendingCsv);
+  const memory = { context: async () => "" } as unknown as HenryMemory;
+  const agent = new HenryAgent(config, activity, memory, undefined, query => commerce.context(query));
+  const prompt = await agent.buildPrompt("What products and categories do you have?", "run-catalogue", true, "codex");
+  assert.match(prompt, /Published catalogue \(AUTHORITATIVE CURRENT DATA\)/);
+  assert.match(prompt, /Available categories: Lighting/);
+  assert.match(prompt, /DemoAster \| PUB-LED \| LED bulb 9W/);
+  assert.match(prompt, /₹100\.00/);
+  assert.doesNotMatch(prompt, /SECRET-LED|PendingCo/);
+  await agent.flushMemoryCaptures(); commerce.close();
+});
+
+test("specific requests retrieve structured product rows despite conversational wording", async () => {
+  setActiveProfile("kelly");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "kelly-catalogue-wording-"));
+  const config = loadConfig(root); config.dataDir = path.join(root, "data");
+  const activity = new ActivityLog(config.activityPath); await activity.init();
+  const commerce = new CommerceService(config, activity, { index: async items => items.length, search: async () => [], close() {} });
+  const csv = path.join(root, "catalogue.csv");
+  await fs.writeFile(csv, "SKU,Brand,Name,Category,Unit,Price,GST\nFAN-12,DemoBirch,Ceiling fan 1200mm,Appliances,piece,2400,18\n");
+  const imported = await commerce.importCatalogue(csv) as {documentId:string}; await commerce.publish(imported.documentId);
+  const context = await commerce.context("Mujhe do DemoBirch ceiling fan ka quotation chahiye");
+  assert.match(context, /FAN-12/); assert.match(context, /₹2400\.00/); assert.match(context, /source sheet1!2:2/);
+  commerce.close();
+});

@@ -177,6 +177,15 @@ test("entity extraction unions brands from the Roman text and the hidden origina
   store.close();
 });
 
+test("counter transcript principal survives storage without changing legacy records", () => {
+  const { store } = storeIn(tempDir("kelly-principal-"));
+  const scoped = store.record({ surface: "counter", text: "do fan", principal: "opaque-principal" });
+  assert.equal(store.get(scoped.id)?.principal, "opaque-principal");
+  const legacy = store.record({ surface: "telegram", text: "do fan" });
+  assert.equal(store.get(legacy.id)?.principal, undefined);
+  store.close();
+});
+
 test("search over q matches the hidden original script as well as the Roman text", () => {
   const { store } = storeIn(tempDir("kelly-tos-"));
   const row = store.record({ surface: "counter", text: "Havells ke do fan", original: "हैवेल्स के दो fan" });

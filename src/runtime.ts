@@ -159,7 +159,7 @@ export class HenryRuntime {
     this.memory = new HenryMemory(config, this.activity);
     if (config.commerceEnabled) this.commerce = new CommerceService(config, this.activity);
 
-    this.agent = new HenryAgent(config, this.activity, this.memory, () => this.knowledge);
+    this.agent = new HenryAgent(config, this.activity, this.memory, () => this.knowledge, this.commerce ? (query) => this.commerce!.context(query) : undefined);
 
     // Conditionally initialize excluded services. Gmail runs through the provider's
     // connector, so it is built once the agent's provider runner exists.
