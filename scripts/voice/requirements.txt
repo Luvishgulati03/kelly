@@ -1,0 +1,3 @@
+# Matches Kelly's local Python 3.12 voice environment.
+kokoro-onnx==0.4.9
+soundfile==0.13.1

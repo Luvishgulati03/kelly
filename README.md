@@ -131,7 +131,13 @@ rules, and verified business documents always win.
 Kelly's long-term interface is voice. A shop owner or staff member should be able
 to ask for a quote, compare alternatives, answer a customer, or update a routine
 record without learning a new back-office tool. The same workflow remains
-available through web, Telegram, and terminal for review and control.
+available through web, Telegram, and terminal for review and control. The local
+speech baseline under evaluation is quantized multilingual Whisper for
+Hindi/English transcription and Kokoro-82M for speech output; Hinglish shop-audio
+quality has not yet been benchmarked. See [Voice](docs/voice.md) for model,
+privacy, hardware, and setup notes.
+The desktop's built-in Codex voice feature is not verified as an embeddable
+Kelly interface; Kelly's documented voice path is its local CLI and dashboard.
 
 ## License
 

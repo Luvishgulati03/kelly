@@ -3,6 +3,7 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import fs from "node:fs/promises";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { HenryRuntime } from "./runtime.ts";
 import { startDashboard } from "./dashboard/server.ts";
 import {
@@ -365,6 +366,15 @@ async function repl(
 
 async function main(): Promise<void> {
   const command = args[0] || "repl";
+  // Standalone voice tools do not need the agent runtime, memory, or a provider.
+  if (command === "voice") {
+    if (process.env.AGENT_PROFILE === "kelly") {
+      const dotenv = await import("dotenv");
+      dotenv.config(); // Kelly reads only cwd .env; the launcher never loads Henry's repo .env.
+    }
+    await runVoiceCommand(args.slice(1));
+    return;
+  }
   const runtime = await HenryRuntime.create();
   let keepAlive = false;
   try {
@@ -936,6 +946,104 @@ async function main(): Promise<void> {
   } finally {
     if (!keepAlive) runtime.close();
   }
+}
+
+async function runVoiceCommand(voiceArgs: string[]): Promise<void> {
+  const usage = "Usage: kelly voice status | serve | transcribe <wav> --language auto|hi|en | speak <text> --language hi|en --out <new.wav>";
+  const sub = voiceArgs[0];
+  const optionValue = (name: string): string | undefined => {
+    const index = voiceArgs.indexOf(name);
+    return index < 0 ? undefined : voiceArgs[index + 1];
+  };
+  if (sub === "serve") {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+    const model = process.env.KELLY_KOKORO_MODEL_PATH;
+    const voices = process.env.KELLY_KOKORO_VOICES_PATH;
+    const token = process.env.KELLY_KOKORO_TOKEN || "";
+    if (!model || !voices) throw new Error("Set KELLY_KOKORO_MODEL_PATH and KELLY_KOKORO_VOICES_PATH to existing local files; Kelly does not download model weights");
+    if (token.length < 24) throw new Error("KELLY_KOKORO_TOKEN must contain at least 24 characters");
+    const modelPath = path.resolve(repoRoot, model);
+    const voicesPath = path.resolve(repoRoot, voices);
+    for (const [label, filePath] of [["Kokoro model", modelPath], ["Kokoro voices", voicesPath]] as const) {
+      const info = await fs.stat(filePath).catch(() => undefined);
+      if (!info?.isFile()) throw new Error(`${label} file does not exist: ${filePath}`);
+    }
+    const python = process.env.KELLY_VOICE_PYTHON || path.join(repoRoot, "data/voice/venv/bin/python");
+    const pythonPath = path.isAbsolute(python) ? python : path.resolve(repoRoot, python);
+    let workerUrl: URL;
+    try { workerUrl = new URL(process.env.KELLY_KOKORO_URL || "http://127.0.0.1:8765"); }
+    catch { throw new Error("KELLY_KOKORO_URL must be a loopback HTTP origin, for example http://127.0.0.1:8765"); }
+    if (workerUrl.protocol !== "http:" || workerUrl.username || workerUrl.password
+      || !["127.0.0.1", "localhost", "[::1]"].includes(workerUrl.hostname.toLowerCase())
+      || workerUrl.pathname !== "/" || workerUrl.search || workerUrl.hash) {
+      throw new Error("KELLY_KOKORO_URL must be a loopback HTTP origin, for example http://127.0.0.1:8765");
+    }
+    const port = Number(workerUrl.port || 8765);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("KELLY_KOKORO_URL must include a valid port");
+    const script = path.join(repoRoot, "scripts/voice/kokoro_server.py");
+    const { spawn } = await import("node:child_process");
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(pythonPath, [script, "--model", modelPath, "--voices", voicesPath, "--port", String(port)], {
+        shell: false,
+        stdio: "inherit",
+        env: { ...process.env, KELLY_KOKORO_TOKEN: token },
+      });
+      child.once("error", reject);
+      child.once("close", (code) => code === 0 ? resolve() : reject(new Error(`Kokoro worker exited ${code === null ? "after a signal" : `with code ${code}`}`)));
+    });
+    return;
+  }
+  const { LocalVoiceService, voiceConfigFromEnv } = await import("./voice/index.ts");
+  const config = voiceConfigFromEnv();
+  const voice = new LocalVoiceService(config);
+
+  if (sub === "status") {
+    let kokoro = config.tts?.engine === "kokoro" && voice.ttsEnabled() ? "configured" : "not configured";
+    if (kokoro === "configured" && config.tts?.url && config.tts.token) {
+      try {
+        const health = new URL("/health", config.tts.url);
+        const response = await fetch(health, {
+          headers: { Authorization: `Bearer ${config.tts.token}` },
+          signal: AbortSignal.timeout(2_000),
+        });
+        kokoro = response.ok ? "ready" : `unavailable (HTTP ${response.status})`;
+      } catch { kokoro = "unavailable (worker not reachable)"; }
+    }
+    print({ transcription: voice.sttEnabled() ? "configured" : "not configured", speech: kokoro });
+    return;
+  }
+
+  if (sub === "transcribe") {
+    const wavPath = voiceArgs[1];
+    const language = optionValue("--language");
+    if (!wavPath || wavPath.startsWith("--") || !language || !["auto", "hi", "en"].includes(language)) throw new Error(usage);
+    const audio = await fs.readFile(path.resolve(wavPath));
+    const result = await voice.transcribe(audio, { language });
+    print(result.text);
+    return;
+  }
+
+  if (sub === "speak") {
+    const language = optionValue("--language");
+    const outPath = optionValue("--out");
+    if (!language || !["hi", "en"].includes(language) || !outPath || outPath.startsWith("--")) throw new Error(usage);
+    const textParts: string[] = [];
+    for (let index = 1; index < voiceArgs.length; index += 1) {
+      if (voiceArgs[index] === "--language" || voiceArgs[index] === "--out") { index += 1; continue; }
+      textParts.push(voiceArgs[index]!);
+    }
+    const text = textParts.join(" ").trim();
+    if (!text) throw new Error(usage);
+    const audio = await voice.synthesize(text, { language });
+    const target = path.resolve(outPath);
+    const file = await fs.open(target, "wx", 0o600);
+    try { await file.writeFile(audio); }
+    catch (error) { await file.close(); await fs.rm(target, { force: true }); throw error; }
+    await file.close();
+    print({ output: target, bytes: audio.length });
+    return;
+  }
+  throw new Error(usage);
 }
 
 // Last-line backstop (audit 2026-08-09): long-lived Henry processes (repl, daemon,
