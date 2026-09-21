@@ -5,7 +5,10 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { DASHBOARD_HTML } from "./page.ts";
-import { clearedSessionCookie, endSession, issueSession, readSession, requireRole, verifyLogin, type Role, type SessionUser } from "./auth.ts";
+import {
+  clearedSessionCookie, clearLoginFailures, endSession, issueSession, loginLockedFor,
+  readSession, recordLoginFailure, requireRole, verifyLogin, type Role, type SessionUser,
+} from "./auth.ts";
 import { KnowledgeBase } from "../knowledge/store.ts";
 import { sampleResources } from "./resources.ts";
 import { sharedAdmissionController } from "../orchestration/admission.ts";
@@ -190,6 +193,20 @@ let loginHtmlCache: string | null = null;
 async function loginHtml(): Promise<string> {
   loginHtmlCache ??= await fs.readFile(LOGIN_HTML_PATH, "utf8");
   return loginHtmlCache;
+}
+
+/**
+ * Renders the lockout message through the SAME `#error` element login.html already uses
+ * for "incorrect username or password" — this only substitutes the text and shows it
+ * directly (server-rendered, since a 429 is answered in place rather than via the
+ * redirect-then-query-string dance the generic wrong-password case uses).
+ */
+async function lockedLoginHtml(message: string): Promise<string> {
+  const html = await loginHtml();
+  return html.replace(
+    '<div id="error">Incorrect username or password.</div>',
+    `<div id="error" class="show">${escapeHtml(message)}</div>`,
+  );
 }
 
 /**
@@ -530,7 +547,14 @@ async function sessionUserFor(request: http.IncomingMessage, runtime: HenryRunti
   const session = readSession(request.headers.cookie);
   if (session) return session;
   if (tokenAdmin(request, runtime)) return SYNTHETIC_ADMIN;
-  if (remoteIsLoopback(request) && localAdminBypassEnabled(runtime)) return SYNTHETIC_ADMIN;
+  // The bypass exists for Luvish's own terminal on his own Mac. A tunnel forwards a
+  // remote visitor's traffic into this same loopback socket, so once one is up the
+  // bypass would hand every tablet/tunnel visitor admin for free — it only applies
+  // while no tunnel is active. A getter that throws is treated as "a tunnel might be
+  // active" (fail closed) rather than silently reopening the bypass.
+  let tunnelActive = true;
+  try { tunnelActive = runtime.tunnel.active; } catch { tunnelActive = true; }
+  if (!tunnelActive && remoteIsLoopback(request) && localAdminBypassEnabled(runtime)) return SYNTHETIC_ADMIN;
   return undefined;
 }
 
@@ -555,6 +579,25 @@ function wrongRolePage(response: http.ServerResponse, user: SessionUser, roles: 
     + `<a href="/logout">Switch account</a></p></body></html>`;
   response.writeHead(403, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
   response.end(html);
+}
+
+const COUNTER_EXACT_ROUTES = new Set([
+  "/chat", "/voice", "/logout",
+  "/api/health", "/api/status", "/api/skills",
+  "/api/voice/status", "/api/voice/transcribe", "/api/voice/speak",
+]);
+
+/**
+ * The counter role's entire reach: chat and counter voice, nothing else. `route` is the
+ * caller's trailing-slash-stripped pathname (see `route` above), so "/chat/" and "/chat"
+ * both normalize to "/chat" before this runs. The three prefixes cover every conversation,
+ * attachment, and chat-send/history/clear route without enumerating each one — a new
+ * `/api/chat/...` endpoint stays reachable from the counter surface without a second edit
+ * here, which is the same shape the admin gate already trusts everywhere else.
+ */
+function counterAllowedRoute(route: string): boolean {
+  if (COUNTER_EXACT_ROUTES.has(route)) return true;
+  return route.startsWith("/api/chat/") || route.startsWith("/api/conversations") || route.startsWith("/api/attachments");
 }
 
 /**
@@ -592,14 +635,22 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       const route = url.pathname.replace(/\/$/, "") || "/";
       const publicPath = route === "/login" || route === "/logout" || route === "/api/health";
       const user = await sessionUserFor(request, runtime);
-      if (!publicPath && !requireRole(user, "admin")) {
-        if (request.method === "GET" && wantsHtml(request)) {
-          if (user) { wrongRolePage(response, user, ["admin"]); return; }
-          redirect(response, "/login");
+      if (!publicPath && !user) {
+        if (request.method === "GET" && wantsHtml(request)) { redirect(response, "/login"); return; }
+        json(response, 401, { error: "dashboard authentication required" });
+        return;
+      }
+      // The counter role (shop tablet) only ever reaches chat and counter voice: it reads
+      // no approvals, changes no settings, and sees no owner transcript history — only the
+      // routes chat.html and voice.html actually call. GET / and /index.html send it
+      // straight to /chat instead of the mission-control dashboard it cannot use.
+      if (!publicPath && user && user.role !== "admin") {
+        if (request.method === "GET" && (route === "/" || url.pathname === "/index.html")) { redirect(response, "/chat"); return; }
+        if (user.role !== "counter" || !counterAllowedRoute(route)) {
+          if (request.method === "GET" && wantsHtml(request)) { wrongRolePage(response, user, ["admin"]); return; }
+          json(response, 403, { error: "admin access required" });
           return;
         }
-        json(response, user ? 403 : 401, { error: user ? "admin access required" : "dashboard authentication required" });
-        return;
       }
       if (request.method === "GET" && route === "/login") {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
@@ -702,6 +753,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       }
       if (request.method === "GET" && url.pathname === "/api/health") { json(response, 200, { ok: true, timestamp: new Date().toISOString() }); return; }
       if (request.method === "GET" && url.pathname === "/api/status") { json(response, 200, await runtime.status()); return; }
+      if (request.method === "GET" && url.pathname === "/api/remote") { json(response, 200, runtime.tunnel.status()); return; }
       if (request.method === "GET" && url.pathname === "/api/resources") {
         const events = await runtime.activity.list(40).catch(() => []);
         json(response, 200, await resourcesPayload(runtime, events));
@@ -982,10 +1034,34 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         const form = await formBody(request);
         const username = (form.get("username") || "").trim();
         const password = form.get("password") || "";
+        const lockedSeconds = loginLockedFor(username);
+        if (lockedSeconds > 0) {
+          const minutes = Math.max(1, Math.ceil(lockedSeconds / 60));
+          const message = `Too many failed attempts. Try again in ${minutes} minute${minutes === 1 ? "" : "s"}.`;
+          if (wantsHtml(request)) {
+            response.writeHead(429, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+            response.end(await lockedLoginHtml(message));
+            return;
+          }
+          json(response, 429, { error: message });
+          return;
+        }
         const account = username && password ? verifyLogin(username, password) : undefined;
         // Never echo the attempt back in the URL — no username, no reason, no timing tell.
-        if (!account) { redirect(response, "/login?error=1"); return; }
-        // Henry's dashboard is admin-only — every account lands on mission control at "/".
+        if (!account) {
+          recordLoginFailure(username);
+          // Fires exactly once per lock: the request that trips it is the only one that
+          // sees loginLockedFor go from 0 to >0 here — every later attempt during the
+          // lock is caught by the check above before it ever reaches recordLoginFailure.
+          if (loginLockedFor(username) > 0) {
+            void runtime.activity.record("workflow.failed", `dashboard login locked for ${username}`).catch(() => undefined);
+          }
+          redirect(response, "/login?error=1");
+          return;
+        }
+        clearLoginFailures(username);
+        // Both dashboard roles land on "/" — admin gets mission control, counter is bounced
+        // straight to /chat by the auth gate above on the next request.
         redirect(response, "/", { "set-cookie": issueSession(account).cookie });
         return;
       }
@@ -1115,7 +1191,10 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           }
           startSse();
           try {
-            const approvalResult = voiceMode ? undefined : await executeExplicitApproval(runtime, prompt);
+            // A counter turn is owner-assisted but not owner-authenticated (see the voiceMode
+            // guidance block above) — it must never be able to approve or execute anything by
+            // typing the approval grammar, same as a voice transcript never can.
+            const approvalResult = voiceMode || user?.role !== "admin" ? undefined : await executeExplicitApproval(runtime, prompt);
             if (approvalResult !== undefined) {
               await store.append(conversation.id, [{ role: "henry", text: approvalResult, at: new Date().toISOString() }], { ifGeneration: generation });
               sseWrite(response, "done", { response: approvalResult, provider: "local", durationMs: 0, conversationId: conversation.id });

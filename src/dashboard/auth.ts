@@ -8,8 +8,9 @@ import Database from "better-sqlite3";
  * Dashboard identity — multi-user auth so the same server can be reached over a
  * token-protected remote binding without changing Luvish's localhost UX (the
  * localAdminBypass branch lives in server.ts; this module only supplies the
- * primitives). Henry is a personal chief-of-staff + PM agent, so the dashboard is
- * admin-only: there is exactly one role.
+ * primitives). Two roles: `admin` (Luvish, full mission control) and `counter`
+ * (the shop tablet — chat and counter voice only; server.ts owns exactly what a
+ * counter session can reach).
  *
  * Storage is `data/dashboard/dashboard.db`, a database this module owns end to end:
  * it creates ONLY `users` and `sessions` (IF NOT EXISTS) and never touches a table
@@ -23,7 +24,7 @@ import Database from "better-sqlite3";
  * password, a token, or a cookie.
  */
 
-export type Role = "admin";
+export type Role = "admin" | "counter";
 export type SessionUser = {
   userId: string;
   username: string;
@@ -34,7 +35,7 @@ export type SessionUser = {
 export const SESSION_COOKIE = "henry_sess";
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, slid forward on every authenticated read
-const ROLES: readonly Role[] = ["admin"];
+const ROLES: readonly Role[] = ["admin", "counter"];
 const TOKEN_BYTES = 32;
 const SALT_BYTES = 16;
 const KEY_LENGTH = 64;
@@ -42,6 +43,7 @@ const KEY_LENGTH = 64;
 // rather than sitting one parameter bump away from an ERR_CRYPTO_INVALID_SCRYPT_PARAMS.
 const SCRYPT_PARAMS = { N: 16384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const HEX_64 = /^[0-9a-f]{64}$/;
+const MIN_PASSWORD_LENGTH = 10;
 
 // ---------------------------------------------------------------------------
 // storage
@@ -79,7 +81,7 @@ function db(): Database.Database {
     CREATE TABLE IF NOT EXISTS users (
       userId TEXT PRIMARY KEY,
       username TEXT NOT NULL UNIQUE,
-      role TEXT NOT NULL CHECK (role IN ('admin')),
+      role TEXT NOT NULL CHECK (role IN ('admin', 'counter')),
       passwordHash TEXT NOT NULL,
       passwordSalt TEXT NOT NULL,
       createdAt TEXT NOT NULL
@@ -228,6 +230,7 @@ export function createUser(u: { username: string; password: string; role: Role }
   const username = u.username.trim();
   if (!username) throw new Error("username is required");
   if (!u.password) throw new Error("password is required");
+  if (u.password.length < MIN_PASSWORD_LENGTH) throw new Error(`password must be at least ${MIN_PASSWORD_LENGTH} characters`);
   if (!ROLES.includes(u.role)) throw new Error(`unknown role: ${String(u.role)}`);
   const database = db();
   const existing = database.prepare("SELECT userId FROM users WHERE username = ?").get(username);
@@ -240,6 +243,35 @@ export function createUser(u: { username: string; password: string; role: Role }
     INSERT INTO users (userId, username, role, passwordHash, passwordSalt, createdAt)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(userId, username, u.role, passwordHash, salt.toString("hex"), now);
+}
+
+/** Every account, newest first, with no hash or salt in the result — safe to print or log. */
+export function listUsers(): Array<{ username: string; role: Role; createdAt: string }> {
+  const rows = db().prepare("SELECT username, role, createdAt FROM users ORDER BY createdAt DESC").all() as Array<{ username: string; role: string; createdAt: string }>;
+  return rows.map((row) => ({ username: row.username, role: ROLES.includes(row.role as Role) ? (row.role as Role) : "admin", createdAt: row.createdAt }));
+}
+
+/** Deletes the account and every session it holds. Returns false for an unknown username. */
+export function deleteUser(username: string): boolean {
+  const database = db();
+  const row = database.prepare("SELECT userId FROM users WHERE username = ?").get(username.trim()) as { userId: string } | undefined;
+  if (!row) return false;
+  database.prepare("DELETE FROM sessions WHERE userId = ?").run(row.userId);
+  database.prepare("DELETE FROM users WHERE userId = ?").run(row.userId);
+  return true;
+}
+
+/** Re-salts and re-hashes an existing account's password. Returns false for an unknown username. */
+export function setPassword(username: string, password: string): boolean {
+  if (!password) throw new Error("password is required");
+  if (password.length < MIN_PASSWORD_LENGTH) throw new Error(`password must be at least ${MIN_PASSWORD_LENGTH} characters`);
+  const database = db();
+  const row = database.prepare("SELECT userId FROM users WHERE username = ?").get(username.trim()) as { userId: string } | undefined;
+  if (!row) return false;
+  const salt = crypto.randomBytes(SALT_BYTES);
+  const passwordHash = scryptHash(password, salt).toString("hex");
+  database.prepare("UPDATE users SET passwordHash = ?, passwordSalt = ? WHERE userId = ?").run(passwordHash, salt.toString("hex"), row.userId);
+  return true;
 }
 
 export function verifyLogin(username: string, password: string): SessionUser | undefined {
@@ -289,6 +321,17 @@ export function requireRole(user: SessionUser | undefined, ...roles: Role[]): bo
   return roles.length === 0 || roles.includes(user.role);
 }
 
+/**
+ * True when the dashboard's own user database already has at least one account with
+ * `role`. Used by the remote-access tunnel (src/remote/tunnel.ts) as a fail-closed
+ * precondition: Kelly refuses to open a tunnel until an admin account exists, since the
+ * loopback admin bypass is meant to disappear once a tunnel is up.
+ */
+export function hasUserWithRole(role: "admin"): boolean {
+  const row = db().prepare("SELECT userId FROM users WHERE role = ? LIMIT 1").get(role);
+  return Boolean(row);
+}
+
 // --- logout helpers (additive: the contract names GET /logout but no primitive) ---
 
 /** Deletes the caller's own session row. Silent no-op for a missing/forged cookie. */
@@ -301,4 +344,67 @@ export function endSession(cookieHeader: string | undefined): void {
 /** Set-Cookie value that expires the session cookie in the browser. */
 export function clearedSessionCookie(): string {
   return `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+}
+
+// ---------------------------------------------------------------------------
+// login throttling
+// ---------------------------------------------------------------------------
+
+/**
+ * In-memory only, keyed by lower-cased username — a tablet or a script hammering /login
+ * must not be able to brute-force a password, but this is a per-process guard, not a
+ * persisted ban list: a restart clears it, same as every other in-memory rate limit in
+ * this codebase. Five failures inside a 15-minute window lock the account for 15 minutes;
+ * a successful login (or the lock itself expiring) clears the slate.
+ */
+const LOGIN_FAILURE_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_LOCK_MS = 15 * 60 * 1000;
+const LOGIN_FAILURE_LIMIT = 5;
+
+interface LoginThrottleState {
+  failures: number[];
+  lockedUntil?: number;
+}
+
+const loginThrottle = new Map<string, LoginThrottleState>();
+
+function throttleKey(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+/** Records one bad password attempt. The 5th failure inside the window locks the account. */
+export function recordLoginFailure(username: string): void {
+  const key = throttleKey(username);
+  if (!key) return;
+  const now = Date.now();
+  const state = loginThrottle.get(key) ?? { failures: [] };
+  state.failures = state.failures.filter((at) => now - at < LOGIN_FAILURE_WINDOW_MS);
+  state.failures.push(now);
+  if (state.failures.length >= LOGIN_FAILURE_LIMIT) {
+    state.lockedUntil = now + LOGIN_LOCK_MS;
+    state.failures = [];
+  }
+  loginThrottle.set(key, state);
+}
+
+/** Called on a successful login — a real login clears the failure count for that username. */
+export function clearLoginFailures(username: string): void {
+  const key = throttleKey(username);
+  if (key) loginThrottle.delete(key);
+}
+
+/** Seconds remaining on an active lock, or 0 when the account is not locked (or the lock has expired). */
+export function loginLockedFor(username: string): number {
+  const key = throttleKey(username);
+  if (!key) return 0;
+  const state = loginThrottle.get(key);
+  if (!state?.lockedUntil) return 0;
+  const remainingMs = state.lockedUntil - Date.now();
+  if (remainingMs <= 0) { loginThrottle.delete(key); return 0; }
+  return Math.ceil(remainingMs / 1000);
+}
+
+/** Test-only escape hatch: clears every tracked failure/lock so tests stay isolated from each other. */
+export function resetLoginThrottleForTests(): void {
+  loginThrottle.clear();
 }

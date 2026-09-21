@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 import readline from "node:readline/promises";
+import { Writable } from "node:stream";
 import { stdin as input, stdout as output } from "node:process";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { HenryRuntime } from "./runtime.ts";
 import { startDashboard } from "./dashboard/server.ts";
+import { createUser, deleteUser, listUsers, setPassword } from "./dashboard/auth.ts";
 import {
   writeCronFile, writeLaunchdPlist, installCron, installLaunchd,
   uninstallCron, uninstallLaunchd, schedulerStatus,
@@ -43,6 +45,42 @@ function restAfter(command: string): string[] {
 
 function print(value: unknown): void {
   if (typeof value === "string") console.log(value); else console.log(JSON.stringify(value, null, 2));
+}
+
+/** All of stdin, read to EOF, with a single trailing newline trimmed (the shape `--password-stdin` expects). */
+async function readStdinAll(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of input) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  return Buffer.concat(chunks).toString("utf8").replace(/\r?\n$/, "");
+}
+
+/**
+ * Terminal password prompt with the typed characters never echoed: readline (in terminal
+ * mode) writes every keystroke's echo to the `output` stream it was given rather than
+ * relying on the kernel tty, so routing that stream through a Writable that swallows every
+ * write hides the password while readline's own line-editing (backspace, etc.) still works.
+ */
+function promptHiddenPassword(promptText: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    output.write(promptText);
+    const mutedOutput = new Writable({ write(_chunk, _encoding, callback) { callback(); } });
+    const rl = readline.createInterface({ input, output: mutedOutput, terminal: true });
+    rl.question("").then((answer) => {
+      rl.close();
+      output.write("\n");
+      resolve(answer);
+    }).catch((error) => { rl.close(); reject(error); });
+  });
+}
+
+/** `--password-stdin` reads the whole password from stdin; otherwise it is typed with hidden echo. */
+async function resolvePassword(): Promise<string> {
+  if (args.includes("--password-stdin")) {
+    const raw = await readStdinAll();
+    if (!raw) throw new Error("--password-stdin was set but stdin was empty");
+    return raw;
+  }
+  return promptHiddenPassword("Password: ");
 }
 
 /**
@@ -170,6 +208,23 @@ function announceTelegramPump(state: { armed: boolean; bridge: boolean; standup:
   if (!state.armed) return;
   const surfaces = [state.bridge ? "your DM (two-way)" : "", state.standup ? "the team group" : ""].filter(Boolean);
   console.log(note("info", `Telegram: watching ${surfaces.join(" + ")}.`));
+}
+
+/**
+ * Starts the remote-access tunnel (src/remote/tunnel.ts) once the dashboard is up, and
+ * prints exactly one line: the URL, or the plain reason it did not start. A no-op when
+ * KELLY_TUNNEL is unset or "off". Never throws — a broken tunnel must not take the
+ * dashboard or the repl down with it.
+ */
+async function announceTunnel(runtime: HenryRuntime): Promise<void> {
+  if ((process.env.KELLY_TUNNEL || "off") === "off") return;
+  try {
+    const status = await runtime.startTunnel();
+    if (status.active && status.url) console.log(note("ok", `Remote access: ${status.url}`));
+    else console.log(note("warn", `Remote access did not start: ${status.lastError || "not connected yet"}`));
+  } catch (error) {
+    console.log(note("warn", `Remote access did not start: ${error instanceof Error ? error.message : String(error)}`));
+  }
 }
 
 /**
@@ -410,6 +465,7 @@ async function main(): Promise<void> {
     } else if (command === "repl") {
       keepAlive = true;
       startDashboardBeside(runtime);
+      await announceTunnel(runtime);
       const pump = runtime.startTelegramPump();
       announceTelegramPump(pump);
       // One open repl = fully alive Henry: crons (mailwatch, standups, digests, portfolio
@@ -469,8 +525,40 @@ async function main(): Promise<void> {
       });
       announceTelegramPump(pump);
       console.log(`Henry dashboard: http://${runtime.config.host}:${runtime.config.port}`);
+      await announceTunnel(runtime);
     } else if (command === "status") {
       print(await runtime.status());
+    } else if (command === "tunnel") {
+      const sub = args[1] || "status";
+      if (sub === "status") print(runtime.tunnel.status());
+      else if (sub === "start") print(await runtime.startTunnel());
+      else if (sub === "stop") { await runtime.tunnel.stop(); print(runtime.tunnel.status()); }
+      else throw new Error("Usage: henry tunnel status|start|stop");
+    } else if (command === "users") {
+      const sub = args[1];
+      if (sub === "add") {
+        const username = args[2];
+        const role = option("--role");
+        if (!username || username.startsWith("--") || (role !== "admin" && role !== "counter")) {
+          throw new Error("Usage: henry users add <username> --role admin|counter [--password-stdin]");
+        }
+        const password = await resolvePassword();
+        createUser({ username, password, role });
+        console.log(`Created user ${username} (${role}).`);
+      } else if (sub === "list") {
+        print(listUsers());
+      } else if (sub === "remove") {
+        const username = args[2];
+        if (!username) throw new Error("Usage: henry users remove <username>");
+        console.log(deleteUser(username) ? `Removed user ${username}.` : `No such user: ${username}`);
+      } else if (sub === "set-password") {
+        const username = args[2];
+        if (!username) throw new Error("Usage: henry users set-password <username> [--password-stdin]");
+        const password = await resolvePassword();
+        console.log(setPassword(username, password) ? `Password updated for ${username}.` : `No such user: ${username}`);
+      } else {
+        throw new Error("Usage: henry users add <username> --role admin|counter | list | remove <username> | set-password <username>");
+      }
     } else if (command === "memory") {
       const sub = args[1] || "search";
       if (sub === "search") print(await runtime.memory.recall(args.slice(2).join(" ")));
@@ -942,7 +1030,7 @@ async function main(): Promise<void> {
       } else if (sub === "list") {
         print(await runtime.launch.list());
       } else throw new Error('Usage: henry launch intake "<brief|path>" | run <slug> | list');
-    } else throw new Error("Commands: ask, repl, dashboard, status, code, provider, jobs, cover, resume, jd, memory, dispatch, gmail, review, approve, schedule, workflow, goal, remind, telegram, mailwatch, standup, linkedin, tweet, launch");
+    } else throw new Error("Commands: ask, repl, dashboard, status, tunnel, users, code, provider, jobs, cover, resume, jd, memory, dispatch, gmail, review, approve, schedule, workflow, goal, remind, telegram, mailwatch, standup, linkedin, tweet, launch");
   } finally {
     if (!keepAlive) runtime.close();
   }

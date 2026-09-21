@@ -48,7 +48,11 @@ export type ActivityKind =
   | "voice.confirmed"
   | "voice.answered"
   | "voice.dropped"
-  | "voice.failed";
+  | "voice.failed"
+  /** Remote-access tunnel (Tailscale Serve or Cloudflare Tunnel) came up, was stopped, or failed to (re)connect. */
+  | "remote.started"
+  | "remote.stopped"
+  | "remote.failed";
 
 export interface ActivityEvent {
   id: string;

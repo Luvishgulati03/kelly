@@ -1,5 +1,7 @@
 import fs from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
+import { spawn } from "node:child_process";
 import type { HenryConfig } from "./config.ts";
 import { loadConfig } from "./config.ts";
 import { ActivityLog } from "./activity.ts";
@@ -44,6 +46,56 @@ import { isLongResearchAsk, type DispatchReportHandle } from "./orchestration/lu
 import type { ReflexSnapshot } from "./reflex.ts";
 import { isServiceExcluded, getActiveProfile } from "./profile.ts";
 import { CommerceService } from "./commerce/service.ts";
+import { TunnelManager, type TunnelConfig, type TunnelMode, type TunnelStatus } from "./remote/tunnel.ts";
+import { hasUserWithRole } from "./dashboard/auth.ts";
+
+/** Runs a binary with no shell and captures its output; the default TunnelDeps runner. */
+function runCommand(cmd: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  return new Promise((resolve, reject) => {
+    let child: ReturnType<typeof spawn>;
+    try {
+      child = spawn(cmd, args, { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+    } catch (error) {
+      reject(error);
+      return;
+    }
+    let stdout = "";
+    let stderr = "";
+    child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+    child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+    child.once("error", reject);
+    child.once("close", (code) => resolve({ stdout, stderr, exitCode: code }));
+  });
+}
+
+/**
+ * True when `<binary> version` runs at all, or the binary resolves on PATH. Never installs
+ * or downloads anything; a missing binary just fails closed (see TunnelManager.start).
+ */
+async function whichBinary(binary: string): Promise<boolean> {
+  try {
+    await runCommand(binary, ["version"]);
+    return true;
+  } catch {
+    /* not runnable that way; fall through to a PATH lookup */
+  }
+  if (binary.includes(path.sep)) {
+    try { await fs.access(binary, fsConstants.X_OK); return true; } catch { return false; }
+  }
+  const dirs = (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    try { await fs.access(path.join(dir, binary), fsConstants.X_OK); return true; } catch { /* keep looking */ }
+  }
+  return false;
+}
+
+function tunnelModeFromEnv(value: string | undefined): TunnelMode {
+  return value === "tailscale" || value === "cloudflare" ? value : "off";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
 
 export type InteractiveTurn =
   | { delegated: false; completion: Promise<RunResult> }
@@ -82,6 +134,8 @@ export class HenryRuntime {
   private _voiceTranscripts?: VoiceTranscriptStore;
   private _telegramPump?: TelegramPump;
   private _jobScout?: JobScoutService;
+  private _tunnel?: TunnelManager;
+  private tunnelStarted = false;
 
   /**
    * Composed operator-notification channel: console + osascript (via `notifyReminder`) then
@@ -466,6 +520,41 @@ export class HenryRuntime {
     return { armed: this.telegramPump.start(), bridge, standup };
   }
 
+  /**
+   * The shop tablet's route in: Tailscale Serve by default, Cloudflare Tunnel as a fallback,
+   * off unless KELLY_TUNNEL says otherwise. Kelly's own bind address never changes; this only
+   * supervises an external process that forwards into the loopback dashboard. Lazy, because
+   * most runs (CLI one-shots, tests) never touch it.
+   */
+  get tunnel(): TunnelManager {
+    if (!this._tunnel) {
+      const tunnelConfig: TunnelConfig = {
+        mode: tunnelModeFromEnv(process.env.KELLY_TUNNEL),
+        port: Number(process.env.KELLY_TUNNEL_PORT) || this.config.port,
+        tailscalePath: process.env.KELLY_TAILSCALE_PATH?.trim() || "tailscale",
+        cloudflaredPath: process.env.KELLY_CLOUDFLARED_PATH?.trim() || "cloudflared",
+        cloudflareTunnel: process.env.KELLY_CLOUDFLARE_TUNNEL?.trim() || undefined,
+      };
+      this._tunnel = new TunnelManager(tunnelConfig, this.activity, {
+        run: runCommand,
+        spawn,
+        which: whichBinary,
+        hasAdminAccount: () => hasUserWithRole("admin"),
+      });
+    }
+    return this._tunnel;
+  }
+
+  /** Starts the tunnel if KELLY_TUNNEL configures one. Never throws; failures live in the returned status. */
+  async startTunnel(): Promise<TunnelStatus> {
+    this.tunnelStarted = true;
+    try {
+      return await this.tunnel.start();
+    } catch (error) {
+      return { mode: this.tunnel.status().mode, active: false, restarts: 0, lastError: errorMessage(error) };
+    }
+  }
+
   static async create(rootDir?: string): Promise<HenryRuntime> {
     const runtime = new HenryRuntime(loadConfig(rootDir));
     await runtime.loadSettings();
@@ -599,6 +688,7 @@ export class HenryRuntime {
 
   close(): void {
     this.scheduler.stop(); this._workflowEngine?.stop(); this._telegramPump?.stop(); this._standupPoller?.stop(); this._standupStore?.close(); this._voiceTranscripts?.close();
+    if (this.tunnelStarted) void this._tunnel?.stop();
     // Agent replies stream/return before durable conversation capture completes.
     // Defer only the memory close; shutting it immediately caused one-shot `ask`
     // commands to log "database connection is not open" and lose the memory.
