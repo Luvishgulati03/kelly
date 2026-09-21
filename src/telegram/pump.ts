@@ -168,9 +168,12 @@ export class TelegramPump {
    * rather than drops. Never throws.
    */
   async pollOnce(): Promise<PumpResult> {
+    // Snapshotted once per poll: `live` re-filters every consumer on each access, and this
+    // cycle reads it several times (the guard, the census, and the routing loop below).
+    const live = this.live;
     const empty = { seenUpdates: 0, routed: {}, ignored: 0 };
     if (!this.config.telegramBotToken) return { polled: false, reason: "HENRY_TELEGRAM_BOT_TOKEN is not set", ...empty };
-    if (this.live.length === 0) return { polled: false, reason: "no telegram consumers configured", ...empty };
+    if (live.length === 0) return { polled: false, reason: "no telegram consumers configured", ...empty };
     if (!this.tryAcquireLock()) {
       if (!this.loggedConflict) {
         this.loggedConflict = true;
@@ -221,7 +224,7 @@ export class TelegramPump {
 
     // Census first, purely from chat ids — no message text is inspected here.
     const owners = new Map<string, string>();
-    for (const consumer of this.live) owners.set(String(consumer.chatId), consumer.name);
+    for (const consumer of live) owners.set(String(consumer.chatId), consumer.name);
     const routed: Record<string, number> = {};
     let ignored = 0;
     for (const update of updates) {
@@ -233,7 +236,7 @@ export class TelegramPump {
 
     let held = false;
     let holdReason: string | undefined;
-    for (const consumer of this.live) {
+    for (const consumer of live) {
       // Fail-open (doctrine rule 6): one consumer throwing must never stop the other from
       // getting its messages, and must never wedge the offset forever.
       try {

@@ -64,6 +64,14 @@ export interface DispatchOptions {
   /** Optional provider pin and stream sink for surfaced dispatch-and-report work. */
   provider?: ProviderName;
   onEvent?: (event: ProviderEvent) => void;
+  /**
+   * Caller-scoped conversation surface (e.g. "telegram", a dashboard session id). When set,
+   * it replaces the default `luna::${selected}` provider session with `${surface}::research`,
+   * so every caller keeps its own resumable research session instead of every delegated
+   * research turn from every conversation sharing ONE `luna::research` session and bleeding
+   * context between them.
+   */
+  surface?: string;
 }
 
 export interface DispatchReportHandle {
@@ -108,7 +116,10 @@ export class LunaOrchestrator {
         // Resumable workers: each specialist role rides a per-surface provider session,
         // so a disconnected worker's context survives restarts — the next dispatch of
         // the same role resumes the same provider session instead of starting cold.
-        surface: `luna::${selected}`,
+        // A caller-scoped surface (e.g. a Telegram chat) keeps its OWN research session
+        // instead of sharing the one default `luna::research` session with every other
+        // caller, which otherwise bled context between unrelated conversations.
+        surface: options.surface ? `${options.surface}::research` : `luna::${selected}`,
         readOnly: !options.allowEdits,
         ...(options.provider ? { provider: options.provider } : {}),
         ...(options.onEvent ? { onEvent: options.onEvent } : {}),

@@ -241,17 +241,24 @@ export class HenryRuntime {
           // The finished report is a second DM, so the inbound queue is free for
           // Luvish's next message while the research worker is still running.
           void turn.completion.then(async (result) => {
-            const report = result.exitCode === 0 && result.response.trim()
-              ? result.response.trim()
-              : `Research failed: ${result.error ?? `Codex exited ${String(result.exitCode)}`}`;
+            // Out of quota is not a failed research turn — it is unanswered work, so the
+            // owner is told to ask again later instead of being told "Research failed".
+            const report = result.limited
+              ? this.limitedResearchReply(result.error)
+              : result.exitCode === 0 && result.response.trim()
+                ? result.response.trim()
+                : `Research failed: ${result.error ?? `Codex exited ${String(result.exitCode)}`}`;
             const sent = await reportToTelegram(report);
+            // A failure recording the OUTCOME must never look like the report itself
+            // failed — the DM has already gone out (or been attempted) by this point,
+            // so this failure is swallowed rather than reaching the catch below.
             await this.activity.record(sent ? "run.completed" : "run.failed", sent ? "Telegram delivered Luna's research report" : "Telegram could not deliver Luna's research report", {
               telegram: true, dispatchReport: true, chars: report.length,
-            }, { runId: result.runId, role: "research", provider: result.provider });
+            }, { runId: result.runId, role: "research", provider: result.provider }).catch((error) => { console.warn("Luna research activity record failed", error); });
           }).catch(async (error) => {
             const message = `Research failed: ${error instanceof Error ? error.message : String(error)}`;
             await reportToTelegram(message).catch(() => false);
-            await this.activity.record("run.failed", "Luna research dispatch threw", { telegram: true, dispatchReport: true, error: message }, { role: "research", provider: "codex" });
+            await this.activity.record("run.failed", "Luna research dispatch threw", { telegram: true, dispatchReport: true, error: message }, { role: "research", provider: "codex" }).catch(() => undefined);
           });
           return Promise.resolve(turn.acknowledgement);
         },
@@ -389,6 +396,17 @@ export class HenryRuntime {
   }
 
   /**
+   * The DM a Telegram owner gets when a delegated research turn ran out of provider quota.
+   * Plain and actionable rather than "Research failed", and carries the reset time when the
+   * runner's own message (`describeLimited`, providers/limits.ts) found one.
+   */
+  private limitedResearchReply(error?: string): string {
+    const reset = error?.match(/earliest reset ([^.]+)\./i)?.[1] ?? error?.match(/\buntil ([^.;]+)/i)?.[1];
+    const resetNote = reset ? ` It resets ${reset.trim()}.` : "";
+    return `Codex is out of quota right now, so I couldn't finish that research.${resetNote} Send me the ask again once quota is back.`;
+  }
+
+  /**
    * One surface-neutral entry for foreground Henry vs background Luna routing.
    * Starting a delegated turn is synchronous; its completion runs independently.
    */
@@ -398,6 +416,7 @@ export class HenryRuntime {
         cwd: options.cwd,
         timeoutMs: options.timeoutMs,
         onEvent: options.onEvent,
+        surface: options.surface,
       });
       return { delegated: true, ...handle };
     }

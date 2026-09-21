@@ -83,6 +83,7 @@ interface Harness {
   config: HenryConfig;
   clock: { now: number };
   spoken: string[];
+  settles: Array<{ id: string; state: string; reply?: string }>;
 }
 
 async function harness(options: {
@@ -102,16 +103,21 @@ async function harness(options: {
   const store = options.store ?? memoryStore();
   const clock = { now: Date.now() };
   const spoken: string[] = [];
+  const settles: Array<{ id: string; state: string; reply?: string }> = [];
   const voice = {
     enabled: options.voiceEnabled !== false,
     ...(options.speak
       ? { speak: async (text: string) => { spoken.push(text); return options.speak !== "fail"; } }
       : {}),
+    // A distinct id per transcript, same as the real voiceTranscripts store gives every
+    // recorded row — needed so `settle()` (below) actually has something to key on.
     async transcribe(meta: TelegramAudioMeta) {
       transcribed.push(meta);
-      if (typeof options.transcript === "function") return { ...(await options.transcript()), language: "hi" };
-      return { text: options.transcript ?? "do Havells ke pankhe ka quote banao", language: "hi", bytes: 8_000, durationSeconds: 4 };
+      const id = `voice-${transcribed.length}`;
+      if (typeof options.transcript === "function") return { ...(await options.transcript()), language: "hi", id };
+      return { text: options.transcript ?? "do Havells ke pankhe ka quote banao", language: "hi", bytes: 8_000, durationSeconds: 4, id };
     },
+    settle: (id: string, state: string, reply?: string) => { settles.push({ id, state, reply }); },
   };
   const bridge = new TelegramBridge(config, activity, store, {
     think: async (prompt) => { asked.push(prompt); return `answered: ${prompt}`; },
@@ -120,7 +126,7 @@ async function harness(options: {
     fetchImpl: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch,
     ...(options.withVoice === false ? {} : { voice }),
   });
-  return { bridge, sent, asked, transcribed, store, activity, config, clock, spoken };
+  return { bridge, sent, asked, transcribed, store, activity, config, clock, spoken, settles };
 }
 
 /* ------------------------------------------------------------------ *
@@ -499,4 +505,27 @@ test("intake returns the trimmed transcript with the bytes it actually read", as
   assert.equal(result.bytes, 1_234);
   assert.equal(result.durationSeconds, 6);
   assert.deepEqual(calls, { getFile: 1, download: 1, convert: 1, transcribe: 1 });
+});
+
+/* ------------------------------------------------------------------ *
+ * 5. A second voice note before the first is confirmed
+ * ------------------------------------------------------------------ */
+
+test("a second voice note replaces the first, which is settled dropped instead of orphaned", async () => {
+  const h = await harness();
+  await h.bridge.consume([voiceUpdate(1)]);
+  await h.bridge.settled();
+  assert.equal(h.store.map.get("bridge:pendingVoice") !== undefined, true, "the first transcript is armed");
+
+  await h.bridge.consume([voiceUpdate(2)]);
+  await h.bridge.settled();
+
+  assert.deepEqual(h.settles, [{ id: "voice-1", state: "dropped", reply: undefined }], "the first transcript is settled dropped, not left orphaned in \"transcribed\" state");
+  assert.match(h.sent[1], /replaced/i, "the new preview says the earlier note was replaced");
+
+  // The second transcript is the one now armed — a typed yes runs IT, not the first.
+  await h.bridge.consume([textUpdate(3, "yes")]);
+  await h.bridge.settled();
+  assert.equal(h.asked.length, 1);
+  assert.match(h.asked[0], /<voice_transcript>\ndo Havells ke pankhe ka quote banao\n<\/voice_transcript>/);
 });

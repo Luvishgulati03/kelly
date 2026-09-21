@@ -660,8 +660,9 @@ export class ProviderRunner {
             ? { id: options.session.id, fresh: options.session.fresh }
             : this.sessions().acquire(options.surface, provider))
         : undefined;
-      const args = buildProviderArgs(provider, prompt, {
-        readOnly: options.readOnly === true,
+      // Single source of truth for the fields buildProviderArgs and resolveProviderRoute
+      // both need — these two calls had drifted apart before (11 fields written out twice).
+      const routing = {
         tier: options.tier,
         role: options.role,
         codexModel: this.config.codexModel,
@@ -673,22 +674,14 @@ export class ProviderRunner {
         claudeModel: this.config.claudeModel,
         claudeT0Model: this.config.claudeT0Model,
         claudeT2Model: this.config.claudeT2Model,
+      };
+      const args = buildProviderArgs(provider, prompt, {
+        ...routing,
+        readOnly: options.readOnly === true,
         session,
         outputSchemaPath: options.outputSchemaPath,
       });
-      const route = resolveProviderRoute(provider, {
-        tier: options.tier,
-        role: options.role,
-        codexModel: this.config.codexModel,
-        codexT0Model: this.config.codexT0Model,
-        codexT2Model: this.config.codexT2Model,
-        codexResumeTailorModel: this.config.codexResumeTailorModel,
-        codexApplicationReviewModel: this.config.codexApplicationReviewModel,
-        codexApplicationManagerModel: this.config.codexApplicationManagerModel,
-        claudeModel: this.config.claudeModel,
-        claudeT0Model: this.config.claudeT0Model,
-        claudeT2Model: this.config.claudeT2Model,
-      });
+      const route = resolveProviderRoute(provider, routing);
       const cwd = options.cwd || this.config.rootDir;
       const decision = await this.admission.waitForSlot({ provider, timeoutMs: envelopeMs, label: options.role });
       const queued = decision.queuedMs >= QUEUE_NOTICE_MS;

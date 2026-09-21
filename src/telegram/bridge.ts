@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import type { HenryConfig } from "../config.ts";
 import type { ActivityLog } from "../activity.ts";
 import { readSettings } from "../util/settings.ts";
@@ -40,9 +41,13 @@ export const BRIDGE_STALE_MS = 24 * 60 * 60 * 1000;
 const TYPING_REFRESH_MS = 4_000;
 const HANDLED_KEY = "bridge:lastUpdateId";
 /**
- * The one turn that was interrupted by a provider running out of quota. Persisted (not held
- * in memory) so it survives the restart that a quota wall often prompts, and singular on
- * purpose: keeping a backlog of stale asks would be worse than keeping the last one.
+ * The turns interrupted by a provider running out of quota. Persisted (not held in memory)
+ * so they survive the restart that a quota wall often prompts. A bounded FIFO, not a single
+ * row: a quota wall can park more than one message inside a single drain, and a second parked
+ * turn silently overwriting the first one's row was a lost message with no note that it went
+ * missing. Bounded to BRIDGE_MAX_PENDING for the same reason the live queue is: a backlog of
+ * stale asks is worse than a capped one. A legacy single-object value is still read back for
+ * backward compatibility with a row written before this became an array.
  */
 const DEFERRED_KEY = "bridge:deferredTurn";
 /**
@@ -148,16 +153,37 @@ function safeSentence(error: unknown): string {
   return cleaned.slice(0, 200) || "I could not read that voice note.";
 }
 
-/**
- * Kill switch. Absent settings mean ON — the bridge is the default behaviour once the two
- * env vars exist; only an explicit `false` turns it off, and OFF wins instantly.
- */
-export function bridgeEnabled(settingsPath: string): boolean {
+/** Last computed value per settings file, keyed by mtime so a poll never re-parses JSON it already read. */
+const bridgeEnabledCache = new Map<string, { mtimeMs: number; value: boolean }>();
+
+function computeBridgeEnabled(settingsPath: string): boolean {
   const telegram = readSettings(settingsPath).telegram;
   if (typeof telegram !== "object" || telegram === null || Array.isArray(telegram)) return true;
   const bridge = (telegram as Record<string, unknown>).bridge;
   if (typeof bridge !== "object" || bridge === null || Array.isArray(bridge)) return true;
   return (bridge as Record<string, unknown>).enabled !== false;
+}
+
+/**
+ * Kill switch. Absent settings mean ON — the bridge is the default behaviour once the two
+ * env vars exist; only an explicit `false` turns it off, and OFF wins instantly.
+ *
+ * Memoised per settings file mtime: `readSettings` is a synchronous read+JSON.parse on every
+ * `enabled` check, and that getter is read several times per poll. A `statSync` is far cheaper
+ * and still catches an edit within the SAME poll, so the kill switch keeps biting instantly —
+ * it just stops re-reading a file that has not changed. A stat failure skips the cache
+ * entirely and falls back to a fresh read every time, same as before this existed.
+ */
+export function bridgeEnabled(settingsPath: string): boolean {
+  let mtimeMs: number | undefined;
+  try { mtimeMs = fs.statSync(settingsPath).mtimeMs; } catch { mtimeMs = undefined; }
+  if (mtimeMs !== undefined) {
+    const cached = bridgeEnabledCache.get(settingsPath);
+    if (cached && cached.mtimeMs === mtimeMs) return cached.value;
+  }
+  const value = computeBridgeEnabled(settingsPath);
+  if (mtimeMs !== undefined) bridgeEnabledCache.set(settingsPath, { mtimeMs, value });
+  return value;
 }
 
 export interface BridgeStats {
@@ -241,8 +267,17 @@ export interface BridgeDeps {
  * A legacy deferred row carries no `kind` and is read back as text.
  */
 type Pending =
-  | { kind?: "text"; updateId: number; text: string; spoken?: boolean; voiceId?: string }
+  | { kind?: "text"; updateId: number; text: string; spoken?: boolean; voiceId?: string; resumed?: boolean }
   | { kind: "voice"; updateId: number; meta: TelegramAudioMeta };
+
+/** Guards a parsed deferred-queue row: a resumable turn is text, non-empty, and identifiable. */
+function isResumableTextPending(value: unknown): value is Pending & { kind?: "text"; updateId: number; text: string } {
+  if (typeof value !== "object" || value === null) return false;
+  const candidate = value as Record<string, unknown>;
+  return candidate.kind !== "voice"
+    && typeof candidate.text === "string" && candidate.text.trim().length > 0
+    && typeof candidate.updateId === "number";
+}
 
 export class TelegramBridge implements PumpConsumer {
   readonly name = "bridge";
@@ -398,23 +433,34 @@ export class TelegramBridge implements PumpConsumer {
     }
   }
 
-  /**
-   * Puts a quota-parked turn back at the FRONT of the queue, once. Cleared as it is taken,
-   * so a turn can be parked again if quota is still gone but can never be replayed twice.
-   */
-  private resumeDeferred(): void {
+  /** Reads the deferred FIFO, tolerating a legacy single-object row. Never throws. */
+  private readDeferredQueue(): Array<Pending & { kind?: "text"; updateId: number; text: string }> {
     const raw = this.store.getMeta(DEFERRED_KEY);
-    if (!raw) return;
-    this.store.deleteMeta(DEFERRED_KEY);
+    if (!raw) return [];
     try {
-      const parsed = JSON.parse(raw) as Pending;
+      const parsed = JSON.parse(raw) as unknown;
+      const rows = Array.isArray(parsed) ? parsed : [parsed];
       // Only a TEXT turn is resumable: a Telegram file id may already have expired by the
       // time quota returns, and a silently failed re-download would look like a lost answer.
-      if (parsed && parsed.kind !== "voice" && typeof parsed.text === "string" && parsed.text.trim()) {
-        this.queue.unshift(parsed);
-        this.counters.resumed += 1;
-      }
-    } catch { /* an unreadable row is dropped rather than poisoning every future poll */ }
+      return rows.filter(isResumableTextPending);
+    } catch { return []; } // an unreadable row is dropped rather than poisoning every future poll
+  }
+
+  /**
+   * Puts every quota-parked turn back at the FRONT of the queue, oldest first, ahead of the
+   * message that is about to be queued behind it — the work Luvish already asked for finishes
+   * before the thing he just said. Cleared as it is taken, so a parked turn can never be
+   * replayed twice; each is marked `resumed` so an overflow never sacrifices resumed work
+   * (see `enqueue`).
+   */
+  private resumeDeferred(): void {
+    const queue = this.readDeferredQueue();
+    if (!queue.length) return;
+    this.store.deleteMeta(DEFERRED_KEY);
+    for (let i = queue.length - 1; i >= 0; i -= 1) {
+      this.queue.unshift({ ...queue[i], resumed: true });
+      this.counters.resumed += 1;
+    }
   }
 
   /**
@@ -455,13 +501,14 @@ export class TelegramBridge implements PumpConsumer {
 
     this.counters.voiceTranscribed += 1;
     const sttMs = (this.deps.now?.() ?? Date.now()) - started;
-    this.storePendingVoice(result.text, result.id);
+    const replaced = this.storePendingVoice(result.text, result.id);
     await this.reply([
       `${note}🎤 I heard:`,
       "",
       result.text,
       "",
       'Reply "yes" to run that, or just type what you meant instead. I will not act on a voice note until you confirm it in text.',
+      ...(replaced ? ["", "(Your earlier voice note was replaced by this one and was never run.)"] : []),
     ].join("\n"));
     // Length, size and timing only: the words themselves stay out of the activity log.
     await this.activity.record("voice.transcribed", "Telegram bridge transcribed a voice note", {
@@ -492,11 +539,31 @@ export class TelegramBridge implements PumpConsumer {
     this.reflexInFlight.add(pending);
   }
 
-  /** Arms one transcript for confirmation, replacing any older one. */
-  private storePendingVoice(text: string, id?: string): void {
+  /**
+   * Arms one transcript for confirmation, replacing any older one. A still-armed transcript
+   * is settled "dropped" first — fresh or already expired — so it never sits orphaned in
+   * "transcribed" state forever just because a second voice note arrived before a typed
+   * confirmation did. Returns true when an earlier note was actually replaced, so the caller
+   * can say so in the new preview reply.
+   */
+  private storePendingVoice(text: string, id?: string): boolean {
+    const replaced = this.dropPendingVoice();
     try {
       this.store.setMeta(PENDING_VOICE_KEY, JSON.stringify({ text, createdAt: this.deps.now?.() ?? Date.now(), ...(id ? { id } : {}) }));
     } catch { /* best effort: without the row the transcript simply expires unconfirmed */ }
+    return replaced;
+  }
+
+  /** Settles any currently armed transcript as "dropped" without waiting for the TTL. */
+  private dropPendingVoice(): boolean {
+    const raw = this.store.getMeta(PENDING_VOICE_KEY);
+    if (!raw) return false;
+    try {
+      const parsed = JSON.parse(raw) as { id?: unknown };
+      const id = typeof parsed.id === "string" ? parsed.id : undefined;
+      this.settleVoice(id, "dropped");
+    } catch { /* an unreadable row is simply overwritten below */ }
+    return true;
   }
 
   /**
@@ -519,18 +586,37 @@ export class TelegramBridge implements PumpConsumer {
     } catch { return undefined; }
   }
 
-  /** Parks the turn for the next message to pick up, and says so instead of pretending it failed. */
+  /**
+   * Parks the turn for the next message to pick up, and says so instead of pretending it
+   * failed. Appends to the bounded FIFO (deduped by updateId so a retried park never doubles
+   * up), oldest dropped first once it is over BRIDGE_MAX_PENDING — the same backlog policy
+   * `enqueue` uses for the live queue.
+   */
   private async deferTurn(item: Pending, reason: string): Promise<void> {
     this.counters.deferredByLimit += 1;
-    try { this.store.setMeta(DEFERRED_KEY, JSON.stringify(item)); } catch { /* best effort */ }
+    try {
+      const queue = this.readDeferredQueue().filter((existing) => existing.updateId !== item.updateId);
+      queue.push(item as Pending & { kind?: "text"; updateId: number; text: string });
+      while (queue.length > BRIDGE_MAX_PENDING) queue.shift();
+      this.store.setMeta(DEFERRED_KEY, JSON.stringify(queue));
+    } catch { /* best effort */ }
     await this.activity.record("run.failed", "Telegram turn parked — provider out of quota", { telegram: true, reason }).catch(() => undefined);
     await this.reply(`I'm out of provider quota right now, so I haven't answered that yet.\n\nI've kept your message — send me anything when quota is back and I'll finish this one first.`);
   }
 
+  /**
+   * Overflow never drops resumed work: `resumeDeferred()` just put it back at the FRONT of
+   * the queue on purpose, so dropping from the front (the old behaviour) threw away exactly
+   * the turns quota had already made Luvish wait for once. Instead this drops the OLDEST
+   * item that is not marked `resumed`. If every item in flight is resumed (no such item
+   * exists), the newest arrival — the one that caused the overflow — is dropped instead.
+   */
   private enqueue(item: Pending): void {
     this.queue.push(item);
     while (this.queue.length > BRIDGE_MAX_PENDING) {
-      this.queue.shift();
+      const dropIndex = this.queue.findIndex((queued) => !("resumed" in queued && queued.resumed));
+      if (dropIndex === -1) this.queue.pop();
+      else this.queue.splice(dropIndex, 1);
       this.droppedSinceLastReply += 1;
       this.counters.dropped += 1;
     }
@@ -550,7 +636,12 @@ export class TelegramBridge implements PumpConsumer {
 
   private drain(): Promise<void> {
     if (this.draining) return this.draining;
-    this.draining = this.loop().finally(() => { this.draining = undefined; });
+    this.draining = this.loop().finally(() => {
+      this.draining = undefined;
+      // An item enqueued in the microtask window between the loop's last empty check and
+      // this `finally` running would otherwise sit unread until the NEXT inbound message.
+      if (this.queue.length) void this.drain();
+    });
     return this.draining;
   }
 
@@ -615,7 +706,10 @@ export class TelegramBridge implements PumpConsumer {
     // Spoken reply: only for a turn the owner actually spoke, only after the text is
     // delivered, and never allowed to fail the turn.
     if (sent && item.spoken && this.deps.voice?.speak) this.speakAnswer(answer);
-    if (item.voiceId) {
+    // Only a DELIVERED answer moves the transcript to "answered" — an undelivered reply is
+    // still a confirmed-but-unspoken transcript, not an answered one, and the failure is
+    // already recorded below either way.
+    if (sent && item.voiceId) {
       this.settleVoice(item.voiceId, "answered", answer);
       void this.activity.record("voice.answered", "Kelly answered a confirmed voice note", { telegram: true, voice: true, chars: answer.length }).catch(() => undefined);
     }

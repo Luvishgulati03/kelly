@@ -13,6 +13,11 @@ import {
   TelegramBridge, bridgeEnabled, chunkTelegramText, terminalOnlyReason,
   BRIDGE_MAX_PENDING, TELEGRAM_MAX_CHARS,
 } from "../src/telegram/bridge.ts";
+import { LunaOrchestrator } from "../src/orchestration/luna.ts";
+import type { HenryMemory } from "../src/memory/engram.ts";
+import type { RunResult } from "../src/types.ts";
+import { HenryRuntime } from "../src/runtime.ts";
+import { setActiveProfile, getActiveProfile } from "../src/profile.ts";
 
 const LUVISH_CHAT = "12345";
 const STANDUP_CHAT = "-100777";
@@ -54,6 +59,18 @@ function dm(updateId: number, text: string, chatId = LUVISH_CHAT, extra: Record<
       chat: { id: Number(chatId), type: "private" },
       from: { id: 7, first_name: "Luvish" },
       ...extra,
+    },
+  };
+}
+
+function voiceDm(updateId: number, chatId = LUVISH_CHAT): TelegramUpdate {
+  return {
+    update_id: updateId,
+    message: {
+      message_id: updateId, date: Math.floor(Date.now() / 1000),
+      voice: { file_id: "voice-file", duration: 3 },
+      chat: { id: Number(chatId), type: "private" },
+      from: { id: 7, first_name: "Luvish" },
     },
   };
 }
@@ -545,4 +562,272 @@ test("bridge: an ordinary brain failure is NOT parked — only a quota wall is",
   assert.equal(bridge.stats().failed, 1);
   assert.ok(!store.map.get("bridge:deferredTurn"));
   assert.match(sent[0], /say it again/i);
+});
+
+/* ------------------------------------------------------------------ *
+ * 5. An undelivered answer never settles a confirmed voice transcript
+ * ------------------------------------------------------------------ */
+
+test("bridge: an undelivered answer never settles a confirmed voice transcript as answered", async () => {
+  const store = memoryStore();
+  const config = tempConfig();
+  const activity = await activityFor(config);
+  const settles: Array<{ id: string; state: string; reply?: string }> = [];
+  const bridge = new TelegramBridge(config, activity, store, {
+    think: async () => "here is the quote",
+    // Every send fails — the preview reply, the confirmation notice, and the final answer.
+    send: async () => false,
+    fetchImpl: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch,
+    voice: {
+      enabled: true,
+      transcribe: async () => ({ text: "quote a fan", id: "voice-1", bytes: 10 }),
+      settle: (id, state, reply) => { settles.push({ id, state, reply }); },
+    },
+  });
+
+  await bridge.consume([voiceDm(1)]);
+  await bridge.settled();
+  await bridge.consume([dm(2, "yes")]);
+  await bridge.settled();
+
+  assert.ok(settles.some((s) => s.state === "confirmed"), "the typed yes still settles confirmed");
+  assert.ok(!settles.some((s) => s.state === "answered"), "an undelivered reply must never settle as answered");
+});
+
+/* ------------------------------------------------------------------ *
+ * 6. The deferred queue is a bounded FIFO, not a single overwritten row
+ * ------------------------------------------------------------------ */
+
+test("bridge: two turns parked in the same drain both resume, in order", async () => {
+  const store = memoryStore();
+  const config = tempConfig();
+  const activity = await activityFor(config);
+  const sent: string[] = [];
+  const asked: string[] = [];
+  let outOfQuota = true;
+  const bridge = new TelegramBridge(config, activity, store, {
+    think: async (prompt) => {
+      asked.push(prompt);
+      if (outOfQuota) throw Object.assign(new Error("every provider is out of quota"), { deferrable: true });
+      return `answered: ${prompt}`;
+    },
+    send: async (_config, text) => { sent.push(text); return true; },
+    fetchImpl: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch,
+  });
+
+  // Both m1 and m2 hit the quota wall inside the SAME drain — the single-row deferred
+  // slot used to let the second parked turn silently overwrite the first.
+  await bridge.consume([dm(1, "first ask"), dm(2, "second ask")]);
+  await bridge.settled();
+  assert.equal(bridge.stats().deferredByLimit, 2, "both turns are parked, not just the last one");
+
+  outOfQuota = false;
+  await bridge.consume([dm(3, "third ask")]);
+  await bridge.settled();
+
+  assert.deepEqual(
+    asked,
+    ["first ask", "second ask", "first ask", "second ask", "third ask"],
+    "both parked turns resume in the order they were asked, ahead of the newest message",
+  );
+  assert.equal(bridge.stats().resumed, 2);
+  assert.ok(!store.map.get("bridge:deferredTurn"), "the row is cleared once every parked turn is taken");
+});
+
+/* ------------------------------------------------------------------ *
+ * 7. Overflow never sacrifices a resumed turn
+ * ------------------------------------------------------------------ */
+
+test("bridge: a resumed turn survives an overflow that would otherwise drop it", async () => {
+  const store = memoryStore();
+  // Pre-load a parked turn as the FIFO the fix expects (also exercises the legacy
+  // single-object read path when written as a bare object instead of an array).
+  store.map.set("bridge:deferredTurn", JSON.stringify({ updateId: 0, kind: "text", text: "resumed ask" }));
+  const config = tempConfig();
+  const activity = await activityFor(config);
+  const asked: string[] = [];
+  const bridge = new TelegramBridge(config, activity, store, {
+    think: async (prompt) => { asked.push(prompt); return `ack:${prompt}`; },
+    send: async () => true,
+    fetchImpl: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch,
+  });
+
+  // 6 new messages arrive in one batch. resumeDeferred() puts the resumed turn at the
+  // front before any of them are enqueued, so the FIFO fills to 7 and must drop 2 — the
+  // old front-drop policy would have sacrificed the just-resumed turn first.
+  await bridge.consume(Array.from({ length: 6 }, (_, index) => dm(index + 1, `m${index + 1}`)));
+  await bridge.settled();
+
+  assert.equal(bridge.stats().dropped, 2, "two of the newly arrived messages are dropped, not the resumed one");
+  assert.equal(bridge.stats().resumed, 1);
+  assert.deepEqual(asked, ["resumed ask", "m3", "m4", "m5", "m6"], "the resumed turn is never sacrificed to overflow");
+});
+
+/* ------------------------------------------------------------------ *
+ * 8. The drain never stalls in its own closing microtask window
+ * ------------------------------------------------------------------ */
+
+test("bridge: a message that lands in the drain's closing window is not stranded until a third message", async () => {
+  const store = memoryStore();
+  const config = tempConfig();
+  const asked: string[] = [];
+  const bridge = new TelegramBridge(
+    config,
+    // A fake activity log removes real filesystem I/O from the chain, so the handful of
+    // microtask hops between the loop finishing and its `.finally` running are the ONLY
+    // async gaps left — small and fixed enough to land a second `consume()` call inside them.
+    { record: async () => undefined } as unknown as ActivityLog,
+    store,
+    {
+      think: async (prompt) => { asked.push(prompt); return `ack:${prompt}`; },
+      send: async () => true,
+      fetchImpl: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch,
+    },
+  );
+
+  let chain = Promise.resolve();
+  for (let hop = 0; hop < 5; hop += 1) chain = chain.then(() => undefined);
+  const secondConsumed = chain.then(() => { void bridge.consume([dm(2, "m2")]); });
+
+  await bridge.consume([dm(1, "m1")]);
+  await bridge.settled();
+  await secondConsumed;
+  await bridge.settled();
+
+  assert.deepEqual(asked, ["m1", "m2"], "m2 is drained without a third message nudging drain() again");
+});
+
+/* ------------------------------------------------------------------ *
+ * 9. A delegated research turn keeps its caller's own provider session
+ * ------------------------------------------------------------------ */
+
+function fakeMemory(): HenryMemory {
+  return { remember: async () => "mem-id" } as unknown as HenryMemory;
+}
+
+test("luna: a caller-scoped surface keeps its own research session instead of sharing luna::research", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "henry-luna-surface-"));
+  const config = loadConfig(root);
+  const activity = new ActivityLog(config.activityPath);
+  await activity.init();
+  const luna = new LunaOrchestrator(config, activity, fakeMemory());
+  const calls: Array<{ surface?: string }> = [];
+  const runnerStub = {
+    run: async (_prompt: string, options: { surface?: string }): Promise<RunResult> => {
+      calls.push({ surface: options.surface });
+      return { runId: "run-1", provider: "codex", response: "done", exitCode: 0, durationMs: 1, events: [] };
+    },
+  };
+  (luna as unknown as { runner: unknown }).runner = runnerStub;
+
+  await luna.dispatch("research", "look into telegram bridging", {});
+  assert.equal(calls[0]?.surface, "luna::research", "no surface still falls back to the shared default");
+
+  await luna.dispatch("research", "look into telegram bridging", { surface: "telegram" });
+  assert.equal(calls[1]?.surface, "telegram::research", "a caller-scoped surface gets its OWN research session");
+
+  const handle = luna.dispatchAndReport("deep research on agent queues", { surface: "dashboard-session-1" });
+  await handle.completion;
+  assert.equal(calls[2]?.surface, "dashboard-session-1::research", "dispatchAndReport forwards the caller's surface too");
+});
+
+/* ------------------------------------------------------------------ *
+ * 10. Out-of-quota research is reported honestly, and an activity-log
+ *     failure after delivery never masquerades as a research failure
+ * ------------------------------------------------------------------ */
+
+/** Reaches into runtime.ts's telegramBridge getter for its `think` dep directly, so the
+ * test exercises the real dispatch/report closure without going through Telegram's queue,
+ * config gating, or a real `sendTelegram` network call. */
+function bridgeThink(runtime: HenryRuntime): (prompt: string, report: (text: string) => Promise<boolean>) => Promise<string> {
+  return (runtime.telegramBridge as unknown as {
+    deps: { think: (prompt: string, report: (text: string) => Promise<boolean>) => Promise<string> };
+  }).deps.think;
+}
+
+const LONG_RESEARCH_ASK = "Do an in-depth research plan for agent orchestration latency and cite primary sources.";
+
+/** The delegated report lands on its own background chain (real activity-log fs writes,
+ * memory recall) after `think()`'s acknowledgement already returned, so tests poll for it
+ * instead of guessing a fixed number of microtask ticks. */
+async function waitFor(condition: () => boolean, timeoutMs = 2_000): Promise<void> {
+  const start = Date.now();
+  while (!condition()) {
+    if (Date.now() - start > timeoutMs) throw new Error("waitFor: condition never became true");
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+test("runtime: an out-of-quota delegated research turn is told plainly, with the reset time, never 'Research failed'", async () => {
+  const original = getActiveProfile();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "henry-runtime-quota-"));
+  try {
+    setActiveProfile("henry");
+    const runtime = await HenryRuntime.create(tempRoot);
+    const runnerStub = {
+      run: async (): Promise<RunResult> => ({
+        runId: "run-1", provider: "codex", response: "", exitCode: null, durationMs: 1, events: [],
+        limited: true,
+        error: "The provider CLI is out of quota: codex (limit) until 2026-09-22T00:00:00.000Z. Earliest reset 2026-09-22T00:00:00.000Z.",
+      }),
+    };
+    (runtime.luna as unknown as { runner: unknown }).runner = runnerStub;
+    // Memory recall does real embedding work; stubbed so the test waits on the report,
+    // not on an unrelated background computation.
+    (runtime.memory as unknown as { remember: () => Promise<string> }).remember = async () => "mem-id";
+
+    const reports: string[] = [];
+    const ack = await bridgeThink(runtime)(LONG_RESEARCH_ASK, async (text) => { reports.push(text); return true; });
+    assert.equal(ack, "Started — I'll report back.");
+
+    await waitFor(() => reports.length > 0);
+
+    assert.equal(reports.length, 1, "exactly one DM — no separate follow-up");
+    assert.match(reports[0], /Codex is out of quota/i);
+    assert.match(reports[0], /2026-09-22/, "the reset time parsed from result.error is carried into the DM");
+    assert.ok(!/Research failed/i.test(reports[0]), "out of quota is unanswered work, not a failure");
+
+    runtime.close();
+  } finally {
+    setActiveProfile(original.id);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test("runtime: an activity-log failure after a delivered research report never sends a bogus 'Research failed' DM", async () => {
+  const original = getActiveProfile();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "henry-runtime-activity-"));
+  try {
+    setActiveProfile("henry");
+    const runtime = await HenryRuntime.create(tempRoot);
+    const runnerStub = {
+      run: async (): Promise<RunResult> => ({
+        runId: "run-2", provider: "codex", response: "Here is the research report.", exitCode: 0, durationMs: 1, events: [],
+      }),
+    };
+    (runtime.luna as unknown as { runner: unknown }).runner = runnerStub;
+    (runtime.memory as unknown as { remember: () => Promise<string> }).remember = async () => "mem-id";
+    // Only the SPECIFIC record call runtime.ts makes AFTER delivering the report fails —
+    // Luna's own internal dispatch bookkeeping must keep working, or the dispatch itself
+    // would fail before ever producing a report, which is a different (legitimate) failure.
+    const originalRecord = runtime.activity.record.bind(runtime.activity);
+    (runtime.activity as unknown as { record: typeof runtime.activity.record }).record = async (kind, message, ...rest) => {
+      if (message === "Telegram delivered Luna's research report") throw new Error("disk full");
+      return originalRecord(kind, message, ...rest);
+    };
+
+    const reports: string[] = [];
+    await bridgeThink(runtime)(LONG_RESEARCH_ASK, async (text) => { reports.push(text); return true; });
+
+    await waitFor(() => reports.length > 0);
+    // Give the (buggy, pre-fix) second "Research failed" follow-up a real chance to arrive.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+
+    assert.deepEqual(reports, ["Here is the research report."], "only the real report is delivered, never a bogus failure DM");
+
+    runtime.close();
+  } finally {
+    setActiveProfile(original.id);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

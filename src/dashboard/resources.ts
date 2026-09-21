@@ -67,9 +67,36 @@ async function sampleMemoryPressure(): Promise<MemoryPressure | null> {
   } catch { return null; }
 }
 
-export async function sampleResources(): Promise<ResourceSample> {
+/** How long a sample stays fresh enough to hand back without re-shelling out. */
+const SAMPLE_TTL_MS = 2000;
+
+/**
+ * Module-level memo (dashboard-design-v2.md perf note): sampleResources() shells out to
+ * `ps` and `memory_pressure`, and both the SSE tick and GET /api/resources call it — one
+ * SSE client polling every 2s used to mean a fresh `ps`/`memory_pressure` spawn every 2s
+ * PER CLIENT, and overlapping timer ticks could even spawn a second pair before the first
+ * had returned. A sample younger than SAMPLE_TTL_MS is handed back as-is; a sample already
+ * in flight is awaited (never re-started) so concurrent callers share one subprocess pair.
+ */
+let cachedSample: { at: number; sample: ResourceSample } | null = null;
+let inFlight: Promise<ResourceSample> | null = null;
+
+async function collectSample(): Promise<ResourceSample> {
   const [children, memoryPressure] = await Promise.all([sampleChildren(), sampleMemoryPressure()]);
   const rss = process.memoryUsage().rss;
   const totalRssBytes = children.codex + children.claude + children.chromium + children.node;
   return { rss, children, totalRssBytes, memoryPressure };
+}
+
+export async function sampleResources(): Promise<ResourceSample> {
+  if (cachedSample && Date.now() - cachedSample.at < SAMPLE_TTL_MS) return cachedSample.sample;
+  if (inFlight) return inFlight;
+  inFlight = collectSample();
+  try {
+    const sample = await inFlight;
+    cachedSample = { at: Date.now(), sample };
+    return sample;
+  } finally {
+    inFlight = null;
+  }
 }

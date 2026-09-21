@@ -23,6 +23,7 @@ import {
   purgeAttachments, readAttachment, saveAttachment, sanitizeFileName,
 } from "./attachments.ts";
 import { CHAT_COMMANDS, parseCommand, unescapeMessage, unknownCommandMessage } from "./chat-commands.ts";
+import { readSettings } from "../util/settings.ts";
 import type { HenryRuntime } from "../runtime.ts";
 import type { ActivityEvent, ProviderEvent, ProviderName } from "../types.ts";
 import { classifyIntentTier } from "../agent/intent.ts";
@@ -353,6 +354,30 @@ function scanAuthAlert(events: ActivityEvent[]): { provider: ProviderName; at: s
   return null;
 }
 
+/**
+ * The one shared payload for both GET /api/resources and the SSE "resources" tick
+ * (dashboard-design-v2.md §B1/§B3-ish): these two had drifted apart before — the SSE
+ * tick carried authAlert and the poll route didn't — because each rebuilt the same
+ * shape by hand. `events` is the caller's own activity window (list(40) for the SSE
+ * loop, which also doubles as scanAuthAlert's 10-minute lookback) so this function
+ * never re-fetches it.
+ */
+async function resourcesPayload(runtime: HenryRuntime, events: ActivityEvent[]): Promise<Record<string, unknown>> {
+  const resources = await sampleResources();
+  const pending = await runtime.approvals.list("pending").catch(() => []);
+  const admission = sharedAdmissionController().snapshot();
+  const lastActivityAt = events[0]?.timestamp ?? null;
+  const lastActivityAgeSec = lastActivityAt
+    ? Math.max(0, Math.round((Date.now() - new Date(lastActivityAt).getTime()) / 1000))
+    : null;
+  return {
+    ...resources,
+    agentState: { state: admission.running > 0 ? "working" : "idle", running: admission.running, heavy: admission.heavyRunning, queued: admission.queued },
+    heartbeat: { uptimeSec: Math.round(process.uptime()), lastActivityAt, lastActivityAgeSec, pendingApprovals: pending.length },
+    authAlert: scanAuthAlert(events),
+  };
+}
+
 const RELOGIN_COMMANDS: Record<ProviderName, string> = { codex: "codex login", claude: "claude" };
 
 /**
@@ -476,14 +501,18 @@ const SYNTHETIC_ADMIN: SessionUser = { userId: "local", username: "luvish", role
 
 /**
  * settings `dashboard.auth.localAdminBypass` (default TRUE) — read straight off
- * disk per request with a {} fallback: no settings util (another module owns that
- * file) and no cache, so flipping the setting takes effect immediately.
- * Both the nested shape and the flat dotted key are honoured, since data/settings.json
- * is a flat record today and the settings util may nest it tomorrow.
+ * disk per request via readSettings (src/util/settings.ts), which is the one shared
+ * reader for data/settings.json: it never throws and, critically, treats a malformed
+ * settings file (a bare JSON string, array, or scalar — all valid JSON, none a settings
+ * record) as `{}` rather than casting it into an object, which is what previously let a
+ * corrupt settings.json fall through to bypass ENABLED. No cache, so flipping the setting
+ * takes effect immediately. Both the nested shape and the flat dotted key are honoured,
+ * since data/settings.json is a flat record today and the settings util may nest it
+ * tomorrow. Exported: it is a pure function of runtime.config.settingsPath, and tests
+ * exercise its decision directly against a temp settings file.
  */
-async function localAdminBypassEnabled(runtime: HenryRuntime): Promise<boolean> {
-  let settings: Record<string, unknown> = {};
-  try { settings = JSON.parse(await fs.readFile(runtime.config.settingsPath, "utf8")) as Record<string, unknown>; } catch { /* no settings file: default applies */ }
+export function localAdminBypassEnabled(runtime: HenryRuntime): boolean {
+  const settings = readSettings(runtime.config.settingsPath);
   const flat = settings["dashboard.auth.localAdminBypass"];
   if (typeof flat === "boolean") return flat;
   const dashboard = settings.dashboard as Record<string, unknown> | undefined;
@@ -501,7 +530,7 @@ async function sessionUserFor(request: http.IncomingMessage, runtime: HenryRunti
   const session = readSession(request.headers.cookie);
   if (session) return session;
   if (tokenAdmin(request, runtime)) return SYNTHETIC_ADMIN;
-  if (remoteIsLoopback(request) && await localAdminBypassEnabled(runtime)) return SYNTHETIC_ADMIN;
+  if (remoteIsLoopback(request) && localAdminBypassEnabled(runtime)) return SYNTHETIC_ADMIN;
   return undefined;
 }
 
@@ -674,16 +703,8 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       if (request.method === "GET" && url.pathname === "/api/health") { json(response, 200, { ok: true, timestamp: new Date().toISOString() }); return; }
       if (request.method === "GET" && url.pathname === "/api/status") { json(response, 200, await runtime.status()); return; }
       if (request.method === "GET" && url.pathname === "/api/resources") {
-        const resources = await sampleResources();
-        const pending = await runtime.approvals.list("pending").catch(() => []);
-        const admission = sharedAdmissionController().snapshot();
-        const events = await runtime.activity.list(1).catch(() => []);
-        const lastActivityAt = events[0]?.timestamp ?? null;
-        json(response, 200, {
-          ...resources,
-          agentState: { state: admission.running > 0 ? "working" : "idle", running: admission.running, heavy: admission.heavyRunning, queued: admission.queued },
-          heartbeat: { uptimeSec: Math.round(process.uptime()), lastActivityAt, lastActivityAgeSec: lastActivityAt ? Math.max(0, Math.round((Date.now() - new Date(lastActivityAt).getTime()) / 1000)) : null, pendingApprovals: pending.length },
-        });
+        const events = await runtime.activity.list(40).catch(() => []);
+        json(response, 200, await resourcesPayload(runtime, events));
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/activity") { json(response, 200, await runtime.activity.list(Number(url.searchParams.get("limit")) || 100)); return; }
@@ -696,6 +717,11 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         sseWrite(response, "hello", { timestamp: new Date().toISOString() });
 
         let lastSeenId: string | null = null;
+        // Companion to lastSeenId: when the id has scrolled out of the 40-event window
+        // (a burst of >40 events between polls), findIndex on id alone returns -1 and used
+        // to fall back to startIndex 0 — replaying all 40 events on every following tick.
+        // The timestamp lets that case emit only what is actually newer instead.
+        let lastSeenTimestamp: string | null = null;
         let lastAgentSeq = 0;
 
         const tick = async (): Promise<void> => {
@@ -705,9 +731,16 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           try { events = await runtime.activity.list(40); } catch { /* activity log hiccup; skip this tick's diff */ }
           if (events.length) {
             const chronological = [...events].reverse(); // oldest -> newest
-            const startIndex = lastSeenId ? chronological.findIndex((event) => event.id === lastSeenId) + 1 : 0;
-            for (const event of chronological.slice(startIndex)) sseWrite(response, "activity", event);
-            lastSeenId = chronological[chronological.length - 1].id;
+            const seenIndex = lastSeenId ? chronological.findIndex((event) => event.id === lastSeenId) : -1;
+            const toEmit = seenIndex !== -1
+              ? chronological.slice(seenIndex + 1)
+              : lastSeenTimestamp
+                ? chronological.filter((event) => event.timestamp > lastSeenTimestamp!)
+                : chronological;
+            for (const event of toEmit) sseWrite(response, "activity", event);
+            const newest = chronological[chronological.length - 1];
+            lastSeenId = newest.id;
+            lastSeenTimestamp = newest.timestamp;
           }
           try {
             const { entries, seq } = sharedAgentRegistry().changesSince(lastAgentSeq);
@@ -715,47 +748,35 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
             lastAgentSeq = seq;
           } catch { /* registry hiccup; skip this tick's agent diff */ }
           try {
-            const resources = await sampleResources();
-            const pending = await runtime.approvals.list("pending").catch(() => []);
-            const admission = sharedAdmissionController().snapshot();
-            const lastActivityAt = events[0]?.timestamp ?? null;
-            const lastActivityAgeSec = lastActivityAt
-              ? Math.max(0, Math.round((Date.now() - new Date(lastActivityAt).getTime()) / 1000))
-              : null;
-            sseWrite(response, "resources", {
-              ...resources,
-              agentState: {
-                state: admission.running > 0 ? "working" : "idle",
-                running: admission.running,
-                heavy: admission.heavyRunning,
-                queued: admission.queued,
-              },
-              heartbeat: {
-                uptimeSec: Math.round(process.uptime()),
-                lastActivityAt,
-                lastActivityAgeSec,
-                pendingApprovals: pending.length,
-              },
-              authAlert: scanAuthAlert(events),
-            });
+            sseWrite(response, "resources", await resourcesPayload(runtime, events));
           } catch { /* resource sampling hiccup; skip this tick's resources push */ }
         };
 
         // Disconnect is tracked BEFORE the first await. Registering these listeners after
         // it meant a client that dropped during that tick had already fired 'close' by the
-        // time the poll interval existed, so nothing ever cleared it: one leaked timer per
+        // time the poll timer existed, so nothing ever cleared it: one leaked timer per
         // such reconnect, forever. It also kept the process alive, which is what hung the
         // test suite after the dashboard tests.
         let closed = false;
-        let interval: NodeJS.Timeout | undefined;
-        const stop = (): void => { closed = true; if (interval) clearInterval(interval); };
+        let timer: NodeJS.Timeout | undefined;
+        const stop = (): void => { closed = true; if (timer) clearTimeout(timer); };
         request.on("close", stop);
         response.on("close", stop);
 
+        // Self-re-arming setTimeout rather than setInterval: sampleResources() shells out
+        // (ps, memory_pressure) and an interval fires on the wall clock regardless of whether
+        // the previous tick's async work has finished, so a slow tick could overlap the next
+        // one. Scheduling the next tick only after the current one settles keeps them
+        // strictly sequential while still polling on the same 2s cadence.
+        const schedule = (): void => {
+          if (closed) return;
+          timer = setTimeout(() => { void tick().finally(schedule); }, EVENTS_POLL_MS);
+          timer.unref?.();                       // a poll timer must never hold the process open
+        };
+
         await tick();
         if (closed) return;                       // dropped mid-tick: never arm the timer
-        interval = setInterval(() => { void tick(); }, EVENTS_POLL_MS);
-        interval.unref?.();                       // a poll timer must never hold the process open
+        schedule();
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/agents") { json(response, 200, sharedAgentRegistry().snapshot()); return; }
