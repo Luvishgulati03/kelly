@@ -60,8 +60,8 @@
   <p class="intro">For counter use: the owner signs in, the customer may speak, and the owner reviews the transcript before anything is sent.</p>
   <section class="panel" aria-label="Voice recording">
     <div class="controls">
-      <button id="record" class="mic" type="button" aria-pressed="false" aria-label="Hold to record" disabled>Hold to<br>record</button>
-      <div class="status" aria-live="polite"><strong id="state">Checking voice service…</strong><span id="detail">Your microphone is off until you press and hold.</span></div>
+      <button id="record" class="mic" type="button" aria-pressed="false" aria-label="Start recording" disabled>Start<br>recording</button>
+      <div class="status" aria-live="polite"><strong id="state">Checking voice service…</strong><span id="detail">Click once to start, then click again to stop.</span></div>
       <button id="cancel" class="action" type="button" hidden>Discard recording</button>
     </div>
     <div class="bar" aria-hidden="true"><span id="meter"></span></div>
@@ -78,8 +78,9 @@
     </div>
     <p class="warning">Owner workspace. Review names and quantities before sending. Shared with your owner chat.</p>
     <p id="message" role="status" aria-live="polite"></p>
+    <audio id="audioPlayback" controls hidden preload="metadata" aria-label="Kelly speech playback"></audio>
     <section class="reply" aria-label="Kelly's reply"><label for="answer">Kelly’s reply</label><p id="answer" class="reply-text">Your reply will appear here after you send a reviewed transcript.</p><div class="actions"><button id="speakAnswer" class="action" type="button" disabled>Speak reply</button></div></section>
-    <p class="support">Recording is push-to-talk only. Audio is captured as 16 kHz mono WAV; stopping, discarding, or leaving the page releases the microphone.</p>
+    <p class="support">Click to start and stop. Recordings are limited to 60 seconds and converted locally to 16 kHz mono WAV. Stopping, discarding, or leaving the page releases the microphone. Transcripts are never sent to chat automatically.</p>
   </section>
 </main>
 <script>
@@ -88,8 +89,10 @@
   const record = $('record'), cancel = $('cancel'), transcript = $('transcript');
   const state = $('state'), detail = $('detail'), message = $('message'), meter = $('meter'), language = $('language'), answer = $('answer');
   const send = $('send'), speak = $('speak'), speakAnswer = $('speakAnswer'), stopSpeak = $('stopSpeak'), clear = $('clear');
-  let stream = null, context = null, source = null, processor = null, muted = null, chunks = [], recording = false, pressHeld = false, startedAt = 0;
-  let playback = null, playbackUrl = null, busy = false;
+  let stream = null, context = null, recorder = null, chunks = [], recording = false, starting = false, startedAt = 0;
+  let captureTimer = null, stopTimer = null, captureId = 0, discardCapture = false, recordingBytes = 0;
+  const playback = $('audioPlayback');
+  let playbackUrl = null, busy = false, playbackRequest = null;
   const TARGET_RATE = 16000, MAX_MS = 60000;
   function say(text, error = false) { message.textContent = text; message.classList.toggle('error', error); }
   function updateDraftButtons() { const hasText = !!transcript.value.trim(); send.disabled = busy || !hasText; speak.disabled = busy || state.dataset.tts !== 'true' || !hasText; speakAnswer.disabled = busy || state.dataset.tts !== 'true' || !answer.dataset.text; clear.disabled = busy || !hasText; }
@@ -101,19 +104,38 @@
       if (!response.ok || !data.available) throw new Error(data.error || 'Voice service is not available yet.');
       state.dataset.available = data.sttEnabled ? 'true' : 'false'; state.textContent = data.sttEnabled ? 'Ready when you are' : 'Speech recognition is not configured';
       state.dataset.tts = data.ttsEnabled ? 'true' : 'false';
-      detail.textContent = data.sttEnabled ? 'Press and hold the button to record.' : 'Playback may still be available; configure local STT to transcribe.'; record.disabled = !data.sttEnabled;
+      detail.textContent = data.sttEnabled ? 'Click Start recording, allow the microphone, and speak. Click Stop when done.' : 'Playback may still be available; configure local STT to transcribe.'; record.disabled = !data.sttEnabled;
       speak.disabled = !data.ttsEnabled || !transcript.value.trim();
     } catch (error) {
       state.dataset.available = 'false'; state.textContent = 'Voice service unavailable'; detail.textContent = error.message || 'Try again later.'; record.disabled = true;
     }
   }
   function releaseCapture() {
-    if (processor) { processor.disconnect(); processor.onaudioprocess = null; processor = null; }
-    if (source) { source.disconnect(); source = null; }
-    if (muted) { muted.disconnect(); muted = null; }
+    clearInterval(captureTimer); captureTimer = null;
+    clearTimeout(stopTimer); stopTimer = null;
+    if (recorder) {
+      const old = recorder; recorder = null;
+      old.ondataavailable = old.onstop = old.onerror = null;
+      if (old.state !== 'inactive') { try { old.stop(); } catch {} }
+    }
     if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
     if (context) { const old = context; context = null; old.close().catch(() => {}); }
     meter.style.width = '0%';
+  }
+  function resetRecordButton() {
+    record.setAttribute('aria-pressed','false'); record.setAttribute('aria-label','Start recording');
+    record.innerHTML = 'Start<br>recording'; cancel.hidden = true;
+  }
+  function captureFailed(error) {
+    captureId++; starting = recording = false; chunks = []; releaseCapture(); resetRecordButton(); setBusy(false);
+    state.textContent = 'Recording could not start';
+    const hints = {
+      NotAllowedError: 'Allow microphone access for this page in Chrome. Also check macOS System Settings > Privacy & Security > Microphone.',
+      NotFoundError: 'No microphone was found. Connect one or select an available input in your browser.',
+      NotReadableError: 'The microphone could not be opened. Check the selected input and whether another app is using it.',
+    };
+    detail.textContent = hints[error.name] || error.message || 'Try again or check the browser microphone settings.';
+    say(detail.textContent, true);
   }
   function resample(input, fromRate) {
     if (fromRate === TARGET_RATE) return input;
@@ -137,57 +159,99 @@
     return new Blob([buffer],{type:'audio/wav'});
   }
   async function begin() {
-    if (recording || busy || state.dataset.available !== 'true') return;
-    say(''); chunks = [];
+    if (recording || starting || busy || state.dataset.available !== 'true') return;
+    const id = ++captureId;
+    starting = true; setBusy(true); say(''); stopPlayback(); chunks = []; recordingBytes = 0; discardCapture = false;
+    state.textContent = 'Waiting for microphone'; detail.textContent = 'Allow microphone access if your browser asks.';
     try {
-      stream = await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
-      if (!pressHeld) { releaseCapture(); return; }
-      context = new AudioContext(); await context.resume();
-      if (!pressHeld) { releaseCapture(); return; }
-      source = context.createMediaStreamSource(stream);
-      processor = context.createScriptProcessor(4096,1,1);
-      processor.onaudioprocess = event => {
-        if (!recording) return;
-        const input = event.inputBuffer.getChannelData(0); chunks.push(new Float32Array(input));
-        const elapsed = Date.now() - startedAt; meter.style.width = Math.min(100,elapsed / MAX_MS * 100) + '%';
-        if (elapsed >= MAX_MS) finish();
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') throw new Error('This browser cannot record here. Open Kelly on localhost or HTTPS in an updated browser.');
+      const acquired = await navigator.mediaDevices.getUserMedia({audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true}});
+      if (id !== captureId) { acquired.getTracks().forEach(track => track.stop()); return; }
+      stream = acquired;
+      const mimeType = ['audio/webm;codecs=opus','audio/webm','audio/mp4'].find(type => MediaRecorder.isTypeSupported(type));
+      recorder = new MediaRecorder(stream, mimeType ? {mimeType} : undefined);
+      recorder.ondataavailable = event => {
+        if (id !== captureId || !event.data.size) return;
+        recordingBytes += event.data.size;
+        if (recordingBytes > 8 * 1024 * 1024) { captureFailed(new Error('Recording exceeded the 8 MB limit. Please try a shorter message.')); return; }
+        chunks.push(event.data);
       };
-      muted = context.createGain(); muted.gain.value = 0; source.connect(processor); processor.connect(muted); muted.connect(context.destination);
-      recording = true; startedAt = Date.now(); record.setAttribute('aria-pressed','true'); record.innerHTML = 'Recording…'; cancel.hidden = false;
-      state.textContent = 'Listening'; detail.textContent = 'Release to transcribe, or discard the recording.';
+      recorder.onerror = event => captureFailed(event.error || new Error('The browser recorder stopped unexpectedly.'));
+      recorder.onstop = () => { if (id === captureId) void completeRecording(id); };
+      recorder.start(250);
+      starting = false; recording = true; startedAt = Date.now();
+      record.disabled = false; record.setAttribute('aria-pressed','true'); record.setAttribute('aria-label','Stop recording'); record.innerHTML = 'Stop<br>recording'; cancel.hidden = false;
+      state.textContent = 'Recording'; detail.textContent = 'Speak now. Click Stop recording when you are done.';
+      captureTimer = setInterval(() => {
+        const elapsed = Date.now() - startedAt;
+        meter.style.width = Math.min(100, elapsed / MAX_MS * 100) + '%';
+        detail.textContent = `${Math.floor(elapsed / 1000)}s / 60s · ${recordingBytes} bytes captured. Click Stop when done.`;
+        if (elapsed >= MAX_MS) finish();
+      }, 250);
     } catch (error) {
-      releaseCapture(); recording = false; record.setAttribute('aria-pressed','false'); record.innerHTML = 'Hold to<br>record';
-      state.textContent = 'Microphone unavailable'; detail.textContent = 'Allow microphone access and try again.'; say(error.message || 'Could not access microphone.',true);
+      if (id === captureId) captureFailed(error);
     }
   }
-  async function finish(discard = false) {
-    if (!recording) { releaseCapture(); return; }
-    recording = false; record.setAttribute('aria-pressed','false'); record.innerHTML = 'Hold to<br>record'; cancel.hidden = true;
-    const rate = context ? context.sampleRate : TARGET_RATE, parts = chunks; chunks = [];
-    releaseCapture();
-    if (discard) { state.textContent = 'Recording discarded'; detail.textContent = 'Nothing was transcribed or sent.'; return; }
-    if (!parts.length) { state.textContent = 'No audio captured'; detail.textContent = 'Hold the button a little longer and try again.'; return; }
-    setBusy(true); state.textContent = 'Transcribing…'; detail.textContent = 'The result will appear as an editable draft.';
+  function finish(discard = false) {
+    if (!recording) return;
+    recording = false; discardCapture = discard; clearInterval(captureTimer); resetRecordButton(); setBusy(true);
+    state.textContent = 'Finishing recording';
+    // stop() delivers the final dataavailable event BEFORE onstop. Do not release
+    // the tracks or inspect chunks until then.
+    stopTimer = setTimeout(() => captureFailed(new Error('The browser did not finish the recording. Refresh and try again.')), 5000);
+    try { recorder.stop(); } catch (error) { captureFailed(error); }
+  }
+  async function completeRecording(id) {
+    const encoded = new Blob(chunks, {type: recorder?.mimeType || 'audio/webm'});
+    recording = false; chunks = []; releaseCapture(); resetRecordButton(); setBusy(true);
     try {
-      const audio = toWav(parts,rate);
-      const response = await fetch('/api/voice/transcribe',{method:'POST',credentials:'same-origin',headers:{'content-type':'audio/wav','x-kelly-voice-language':language.value},body:audio});
+      if (discardCapture) { state.textContent = 'Recording discarded'; detail.textContent = 'Nothing was transcribed or sent.'; return; }
+      if (!encoded.size) throw new Error('Your browser returned an empty recording. Check the microphone selected in Chrome and macOS input settings.');
+      state.textContent = 'Preparing audio'; detail.textContent = `${encoded.size} bytes captured. Converting locally for transcription.`;
+      const decoder = new (window.AudioContext || window.webkitAudioContext)(); context = decoder;
+      const decoded = await decoder.decodeAudioData(await encoded.arrayBuffer());
+      if (id !== captureId) return;
+      if (!decoded.length || decoded.duration > 65) throw new Error('Recording is empty or exceeds the 60-second limit.');
+      const mono = new Float32Array(decoded.length);
+      for (let channel = 0; channel < decoded.numberOfChannels; channel++) {
+        const samples = decoded.getChannelData(channel);
+        for (let i = 0; i < mono.length; i++) mono[i] += samples[i] / decoded.numberOfChannels;
+      }
+      await decoder.close(); context = null;
+      const audio = toWav([mono], decoded.sampleRate);
+      state.textContent = 'Transcribing…'; detail.textContent = 'The result will appear as an editable draft.';
+      const response = await fetch('/api/voice/transcribe',{method:'POST',credentials:'same-origin',headers:{'content-type':'audio/wav','x-kelly-voice-language':language.value},body:audio,signal:AbortSignal.timeout(120000)});
       const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Transcription failed.');
       transcript.value = data.text || ''; transcript.dataset.transcriptId = data.transcriptId || ''; transcript.focus(); state.textContent = 'Transcript ready to review'; detail.textContent = data.audioKept ? 'Edit it here; it has not been sent. The recording was kept, as you have recording switched on.' : 'Edit it here; it has not been sent.'; updateDraftButtons();
       if (!transcript.value) say('No words detected. You can try recording again.');
-    } catch (error) { state.textContent = 'Transcription failed'; detail.textContent = error.message || 'Please try again.'; say(error.message || 'Transcription failed.',true); }
-    finally { setBusy(false); }
+    } catch (error) { state.textContent = 'Recording or transcription failed'; detail.textContent = error.message || 'Please try again.'; say(error.message || 'Transcription failed.',true); }
+    finally { releaseCapture(); setBusy(false); }
   }
-  function stopPlayback() { if (playback) { playback.pause(); playback.src = ''; playback = null; } if (playbackUrl) { URL.revokeObjectURL(playbackUrl); playbackUrl = null; } stopSpeak.disabled = true; }
+  function stopPlayback() {
+    playbackRequest?.abort(); playbackRequest = null;
+    playback.onerror = playback.onended = null; playback.pause();
+    playback.removeAttribute('src'); playback.load(); playback.hidden = true;
+    if (playbackUrl) { URL.revokeObjectURL(playbackUrl); playbackUrl = null; }
+    stopSpeak.disabled = true;
+  }
   async function playText(text, selectedLanguage) {
-    text = text.trim(); if (!text) return;
+    text = text.trim(); if (!text || busy) return;
     setBusy(true); say('Preparing speech…');
     try {
       stopPlayback();
-      const response = await fetch('/api/voice/speak',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({text,language:selectedLanguage})});
+      playbackRequest = new AbortController();
+      const response = await fetch('/api/voice/speak',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({text,language:selectedLanguage}),signal:playbackRequest.signal});
       if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Speech is unavailable.'); }
-      playbackUrl = URL.createObjectURL(await response.blob()); playback = new Audio(playbackUrl); stopSpeak.disabled = false;
-      playback.onended = stopPlayback; playback.onerror = () => { stopPlayback(); say('Could not play the audio.',true); };
-      await playback.play(); say('Playing speech.');
+      const audio = await response.blob();
+      if (audio.size <= 44 || !response.headers.get('content-type')?.includes('audio/')) throw new Error('Speech service returned no playable audio. Please try again.');
+      playbackUrl = URL.createObjectURL(audio); playback.src = playbackUrl; playback.hidden = false; stopSpeak.disabled = false;
+      playback.onended = () => { stopSpeak.disabled = true; say('Playback finished. Use the player to listen again.'); };
+      playback.onerror = () => say(`Browser audio playback failed (code ${playback.error?.code || 'unknown'}). Try generating speech again.`,true);
+      try { await playback.play(); say('Playing speech. If you hear nothing, check the player volume, tab mute and Mac output device.'); }
+      catch (error) {
+        if (error.name === 'NotAllowedError') say('Audio is ready. Press Play in the audio player below to allow playback.');
+        else throw error;
+      }
     } catch (error) { say(error.message || 'Could not play speech.',true); }
     finally { setBusy(false); updateDraftButtons(); }
   }
@@ -206,16 +270,14 @@
     } catch (error) { say(error.message || 'Chat request failed.',true); }
     finally { setBusy(false); updateDraftButtons(); }
   }
-  record.addEventListener('pointerdown',event=>{event.preventDefault();pressHeld=true;record.setPointerCapture?.(event.pointerId);begin();});
-  record.addEventListener('pointerup',()=>{pressHeld=false;if(recording)finish();}); record.addEventListener('pointercancel',()=>{pressHeld=false;if(recording)finish(true);}); record.addEventListener('lostpointercapture',()=>{pressHeld=false;if(recording)finish(true);});
-  record.addEventListener('keydown',event=>{if((event.key===' '||event.key==='Enter')&&!event.repeat){event.preventDefault();pressHeld=true;begin();}});
-  record.addEventListener('keyup',event=>{if(event.key===' '||event.key==='Enter'){event.preventDefault();pressHeld=false;if(recording)finish();}});
-  cancel.addEventListener('click',()=>{pressHeld=false;finish(true);}); send.addEventListener('click',sendToChat);
+  // Native button clicks also support keyboard and touch, without pointer-capture races.
+  record.addEventListener('click',()=>{if(recording)finish();else if(!busy)void begin();});
+  cancel.addEventListener('click',()=>finish(true)); send.addEventListener('click',sendToChat);
   speak.addEventListener('click',()=>playText(transcript.value,language.value));
   speakAnswer.addEventListener('click',()=>playText(answer.dataset.text||'',/[\u0900-\u097F]/.test(answer.dataset.text||'')?'hi':'en'));
   stopSpeak.addEventListener('click',stopPlayback);
   clear.addEventListener('click',()=>{transcript.value='';say('Draft cleared.');updateDraftButtons();}); transcript.addEventListener('input',updateDraftButtons);
-  window.addEventListener('pagehide',()=>{pressHeld=false;recording=false;releaseCapture();stopPlayback();});
+  window.addEventListener('pagehide',()=>{captureId++;starting=recording=false;chunks=[];releaseCapture();stopPlayback();});
   checkStatus();
 })();
 </script>

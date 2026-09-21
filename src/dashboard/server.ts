@@ -222,13 +222,19 @@ async function lockedLoginHtml(message: string): Promise<string> {
  * Cached per dataDir, not merely cached: a test (or a re-pointed HENRY_DATA_DIR) must get a
  * store for ITS directory rather than keep writing to the previous one.
  */
-let conversationStoreCache: { dataDir: string; store: ConversationStore } | null = null;
+const conversationStores = new Map<string, ConversationStore>();
 
-function conversations(runtime: HenryRuntime): ConversationStore {
-  if (conversationStoreCache?.dataDir !== runtime.config.dataDir) {
-    conversationStoreCache = { dataDir: runtime.config.dataDir, store: new ConversationStore(runtime.config.dataDir) };
-  }
-  return conversationStoreCache.store;
+function chatDataDir(runtime: HenryRuntime, user?: SessionUser): string {
+  if (user?.role !== "counter") return runtime.config.dataDir;
+  const principal = crypto.createHash("sha256").update(user.userId).digest("hex");
+  return path.join(runtime.config.dataDir, "counter-users", principal);
+}
+
+function conversations(runtime: HenryRuntime, user?: SessionUser): ConversationStore {
+  const dataDir = chatDataDir(runtime, user);
+  let store = conversationStores.get(dataDir);
+  if (!store) { store = new ConversationStore(dataDir); conversationStores.set(dataDir, store); }
+  return store;
 }
 
 /** Max images per turn — a bound on both the prompt and the upload surface. */
@@ -250,13 +256,13 @@ function scheduleAttachmentPurge(runtime: HenryRuntime): NodeJS.Timeout {
 }
 
 /** Attachment ids the caller claims, reduced to the ones that actually exist on disk. */
-async function resolveAttachments(runtime: HenryRuntime, raw: unknown): Promise<{ refs: ChatAttachmentRef[]; paths: string[] }> {
+async function resolveAttachments(runtime: HenryRuntime, raw: unknown, user?: SessionUser): Promise<{ refs: ChatAttachmentRef[]; paths: string[] }> {
   const refs: ChatAttachmentRef[] = [];
   const paths: string[] = [];
   if (!Array.isArray(raw)) return { refs, paths };
   for (const item of raw.slice(0, MAX_ATTACHMENTS_PER_TURN)) {
     const id = typeof item === "string" ? item : typeof (item as { id?: unknown })?.id === "string" ? String((item as { id: string }).id) : "";
-    const target = id ? attachmentPath(runtime.config.dataDir, id) : undefined;
+    const target = id ? attachmentPath(chatDataDir(runtime, user), id) : undefined;
     if (!target) continue;
     try { await fs.access(target); } catch { continue; }
     const extension = path.extname(id).slice(1);
@@ -552,9 +558,15 @@ async function sessionUserFor(request: http.IncomingMessage, runtime: HenryRunti
   // bypass would hand every tablet/tunnel visitor admin for free — it only applies
   // while no tunnel is active. A getter that throws is treated as "a tunnel might be
   // active" (fail closed) rather than silently reopening the bypass.
-  let tunnelActive = true;
-  try { tunnelActive = runtime.tunnel.active; } catch { tunnelActive = true; }
-  if (!tunnelActive && remoteIsLoopback(request) && localAdminBypassEnabled(runtime)) return SYNTHETIC_ADMIN;
+  let remoteExposurePossible = true;
+  try {
+    const tunnel = runtime.tunnel;
+    // Health is not an authorization boundary. Configured tunnels may still forward
+    // during startup, failed probes, restarts or unsuccessful shutdowns.
+    remoteExposurePossible = tunnel.active || tunnel.status().mode !== "off"
+      || Boolean(process.env.KELLY_TUNNEL && process.env.KELLY_TUNNEL !== "off");
+  } catch { /* Unknown state must require authentication. */ }
+  if (!remoteExposurePossible && remoteIsLoopback(request) && localAdminBypassEnabled(runtime)) return SYNTHETIC_ADMIN;
   return undefined;
 }
 
@@ -700,7 +712,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         // Back-compatible: no conversationId still answers `{ messages }` for the most
         // recently used thread. It never CREATES one — a GET stays read-only; the first
         // send is what mints a conversation.
-        const store = conversations(runtime);
+        const store = conversations(runtime, user);
         const requested = url.searchParams.get("conversationId")?.trim() || "";
         const list = await store.list();
         const conversation = requested ? list.find((item) => item.id === requested) : list[0];
@@ -713,7 +725,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/conversations") {
-        json(response, 200, { conversations: await conversations(runtime).list() });
+        json(response, 200, { conversations: await conversations(runtime, user).list() });
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/chat/commands") {
@@ -730,7 +742,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       if (request.method === "GET" && attachmentRoute) {
         // Preview bytes for the page. Behind the same admin gate as everything else, and
         // only ids this server minted resolve to a path at all.
-        const stored = await readAttachment(runtime.config.dataDir, decodeURIComponent(attachmentRoute[1]));
+        const stored = await readAttachment(chatDataDir(runtime, user), decodeURIComponent(attachmentRoute[1]));
         if (!stored) { json(response, 404, { error: "attachment not found" }); return; }
         response.writeHead(200, {
           "content-type": stored.mime,
@@ -1117,12 +1129,18 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           return;
         }
         const prompt = unescapeMessage(rawPrompt); // `//text` sends a literal leading slash
-        const store = conversations(runtime);
-        const { refs: attachmentRefs, paths: attachmentPaths } = await resolveAttachments(runtime, input.attachments);
+        const store = conversations(runtime, user);
+        const { refs: attachmentRefs, paths: attachmentPaths } = await resolveAttachments(runtime, input.attachments, user);
         if (!prompt && !attachmentRefs.length) { json(response, 400, { error: "prompt is required" }); return; }
         const requestedSkill = typeof input.skill === "string" ? input.skill.trim() : "";
         const voiceMode = input.voice === true;
         const transcriptId = voiceMode && typeof input.transcriptId === "string" && /^[A-Za-z0-9-]{1,64}$/.test(input.transcriptId) ? input.transcriptId : undefined;
+        if (user?.role === "counter" && transcriptId) {
+          const transcript = runtime.voiceTranscripts.get(transcriptId);
+          // Existing transcripts are owner records, not proof of counter ownership.
+          json(response, 403, { error: "Counter transcript linking requires an owner session" });
+          return;
+        }
         const skill = requestedSkill ? await loadSkill(runtime.config.rootDir, requestedSkill) : undefined;
         if (requestedSkill && !skill) { json(response, 400, { error: `Unknown skill: ${requestedSkill}` }); return; }
         const requestedConversation = typeof input.conversationId === "string" ? input.conversationId.trim() : "";
@@ -1204,7 +1222,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
             // provider pinned to claude (same mechanism as src/screenshots/service.ts). The pin
             // is stated out loud rather than applied silently — if the active provider is codex
             // it cannot read images, and the user is told which model actually saw them.
-            const visionPin = attachmentPaths.length > 0;
+            const visionPin = attachmentPaths.length > 0 && runtime.config.profileId !== "kelly";
             if (visionPin && runtime.config.provider !== "claude") {
               sseWrite(response, "notice", {
                 text: `${runtime.config.provider} can't read images — this turn was routed to Claude so the attachment could be seen.`,
@@ -1228,7 +1246,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
                 : { delegated: false as const, completion: runtime.agent.run(composed, runOptions) }
               : { delegated: false as const, completion: runtime.agent.run(composed, {
               surface: conversation.surface,
-              provider: "claude" as const,
+              provider: runtime.config.profileId === "kelly" ? "codex" as const : "claude" as const,
               onEvent: (event) => {
                 const text = event.parsed && typeof (event.parsed as Record<string, unknown>).text === "string"
                   ? String((event.parsed as Record<string, unknown>).text)
@@ -1269,7 +1287,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       }
       if (request.method === "POST" && url.pathname === "/api/chat/clear") {
         const input = await body(request);
-        const store = conversations(runtime);
+        const store = conversations(runtime, user);
         const requested = typeof input.conversationId === "string" ? input.conversationId.trim() : "";
         const conversation = requested ? await store.get(requested) : (await store.list())[0];
         if (!conversation) { json(response, 200, { cleared: true, conversationId: null }); return; }
@@ -1282,13 +1300,13 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       if (request.method === "POST" && url.pathname === "/api/conversations") {
         const input = await body(request);
         const title = typeof input.title === "string" ? input.title : undefined;
-        json(response, 200, { conversation: await conversations(runtime).create(title) });
+        json(response, 200, { conversation: await conversations(runtime, user).create(title) });
         return;
       }
       const conversationRoute = url.pathname.match(/^\/api\/conversations\/([^/]+)$/);
       if (conversationRoute && (request.method === "PATCH" || request.method === "DELETE")) {
         const id = decodeURIComponent(conversationRoute[1]);
-        const store = conversations(runtime);
+        const store = conversations(runtime, user);
         const existing = await store.get(id);
         if (!existing) { json(response, 404, { error: "conversation not found" }); return; }
         if (request.method === "DELETE") {
@@ -1314,7 +1332,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         catch (error) { json(response, 413, { error: error instanceof Error ? error.message : String(error) }); return; }
         let name = "";
         if (typeof rawName === "string") { try { name = decodeURIComponent(rawName); } catch { name = rawName; } }
-        const saved = await saveAttachment(runtime.config.dataDir, bytes, { name, mime: declared });
+        const saved = await saveAttachment(chatDataDir(runtime, user), bytes, { name, mime: declared });
         if ("error" in saved) { json(response, 400, { error: saved.error }); return; }
         json(response, 200, { attachment: { id: saved.id, name: saved.name, mime: saved.mime, size: saved.size } });
         return;
