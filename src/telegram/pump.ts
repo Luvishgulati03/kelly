@@ -26,10 +26,28 @@ import type { ActivityLog } from "../activity.ts";
  */
 
 export interface TelegramChat { id: number; type?: string; title?: string; first_name?: string }
+/**
+ * Audio metadata Telegram attaches to a voice note (`voice`) or a music/file upload
+ * (`audio`). Declared here because the pump owns the wire shape, but the pump itself never
+ * reads it: routing is by chat id alone, so an unknown chat's media is never inspected,
+ * fetched, or logged. Only a consumer that already matched its own chat id looks at this.
+ */
+export interface TelegramAudioMeta {
+  /** Telegram's handle for the stored file. Never a URL, and never logged. */
+  file_id: string;
+  file_unique_id?: string;
+  /** Seconds, as Telegram reports them. Absent on some clients, so it is never trusted alone. */
+  duration?: number;
+  mime_type?: string;
+  file_size?: number;
+}
 export interface TelegramMessage {
   message_id: number;
   date: number;
   text?: string;
+  caption?: string;
+  voice?: TelegramAudioMeta;
+  audio?: TelegramAudioMeta;
   chat?: TelegramChat;
   from?: { id: number; is_bot?: boolean; first_name?: string; username?: string };
   reply_to_message?: { from?: { id: number; is_bot?: boolean } };

@@ -33,6 +33,8 @@ import { StandupPoller } from "./standup/poller.ts";
 import { TelegramPump } from "./telegram/pump.ts";
 import { sharedAgentRegistry } from "./orchestration/agent-registry.ts";
 import { TelegramBridge } from "./telegram/bridge.ts";
+import { TelegramVoiceIntake, ffmpegAudioConverter, httpTelegramFileFetcher } from "./telegram/voice.ts";
+import { LocalVoiceService, voiceConfigFromEnv } from "./voice/index.ts";
 import { limitState } from "./providers/limits.ts";
 import { DraftRepliesService } from "./gmail-drafts/service.ts";
 import type { ProviderName, RunResult } from "./types.ts";
@@ -75,6 +77,7 @@ export class HenryRuntime {
   private _standup?: StandupService;
   private _standupPoller?: StandupPoller;
   private _telegramBridge?: TelegramBridge;
+  private _telegramVoice?: TelegramVoiceIntake | null;
   private _telegramPump?: TelegramPump;
   private _jobScout?: JobScoutService;
 
@@ -251,6 +254,9 @@ export class HenryRuntime {
           return Promise.resolve(turn.acknowledgement);
         },
         send: (config, text) => sendTelegram(config, text),
+        // Owner voice notes. Absent when local speech recognition or the converter is not
+        // configured, in which case the bridge declines them in one plain sentence.
+        ...(this.telegramVoiceIntake ? { voice: this.telegramVoiceIntake } : {}),
         // Local state for the reflex lane, so "what are you working on?" is answered from
         // the dispatch registry and the approval queue instead of costing a provider run
         // and waiting behind whatever turn is already in flight.
@@ -258,6 +264,52 @@ export class HenryRuntime {
       });
     }
     return this._telegramBridge;
+  }
+
+  /**
+   * Owner voice-note intake, or undefined when it cannot work.
+   *
+   * Everything is explicit and local: whisper.cpp through the existing voice adapter, an
+   * operator-named `ffmpeg` for the OGG/Opus that Telegram sends, and Telegram's own file
+   * API. Nothing is downloaded or installed here, and a missing piece disables the surface
+   * rather than half-enabling it. Settings are read from the environment because voice is
+   * not (yet) part of HenryConfig:
+   *
+   *   KELLY_TELEGRAM_VOICE=0            turn the surface off even when the rest is present
+   *   KELLY_FFMPEG_PATH=/opt/homebrew/bin/ffmpeg   required: the audio converter
+   *   KELLY_TELEGRAM_VOICE_MAX_BYTES    default 20 MB
+   *   KELLY_TELEGRAM_VOICE_MAX_SECONDS  default 300
+   *   KELLY_TELEGRAM_VOICE_LANGUAGE     default "auto" (Hindi, English and Hinglish all arrive here)
+   */
+  private get telegramVoiceIntake(): TelegramVoiceIntake | undefined {
+    if (this._telegramVoice === undefined) {
+      this._telegramVoice = this.buildTelegramVoiceIntake() ?? null;
+    }
+    return this._telegramVoice ?? undefined;
+  }
+
+  private buildTelegramVoiceIntake(): TelegramVoiceIntake | undefined {
+    const env = process.env;
+    if (env.KELLY_TELEGRAM_VOICE === "0" || env.KELLY_TELEGRAM_VOICE === "false") return undefined;
+    const token = this.config.telegramBotToken;
+    const ffmpegPath = env.KELLY_FFMPEG_PATH?.trim();
+    if (!token || !ffmpegPath) return undefined;
+    const transcriber = new LocalVoiceService(voiceConfigFromEnv(env));
+    if (!transcriber.sttEnabled()) return undefined;
+    const positive = (value: string | undefined): number | undefined => {
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+    };
+    return new TelegramVoiceIntake({
+      fetcher: httpTelegramFileFetcher(token),
+      converter: ffmpegAudioConverter({ executablePath: ffmpegPath }),
+      transcriber,
+      limits: {
+        maxBytes: positive(env.KELLY_TELEGRAM_VOICE_MAX_BYTES),
+        maxSeconds: positive(env.KELLY_TELEGRAM_VOICE_MAX_SECONDS),
+        language: env.KELLY_TELEGRAM_VOICE_LANGUAGE?.trim() || undefined,
+      },
+    });
   }
 
   /** Shared local-state snapshot used by every provider-free reflex surface. */
