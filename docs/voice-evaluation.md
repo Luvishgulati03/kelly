@@ -69,6 +69,28 @@ For the Telegram surface, send the same clips as voice notes from the owner acco
 that the transcript preview matches the CLI result. That path adds an OGG/Opus to WAV
 conversion step, so a difference between the two is a conversion problem, not a model problem.
 
+## Telegram surface settings
+
+The owner voice-note surface reads these from the environment. It stays off unless both local
+speech recognition and an explicit ffmpeg are configured, and it never installs either.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `KELLY_FFMPEG_PATH` | unset, required | Existing ffmpeg executable, used to convert Telegram's OGG/Opus to 16 kHz mono WAV. |
+| `KELLY_TELEGRAM_VOICE` | on | Set to `0` to refuse voice notes while leaving the rest of voice alone. |
+| `KELLY_TELEGRAM_VOICE_MAX_BYTES` | 20971520 | Refused before download when the declared size is larger, and again while downloading. |
+| `KELLY_TELEGRAM_VOICE_MAX_SECONDS` | 300 | Refused before download when the declared duration is longer. |
+| `KELLY_TELEGRAM_VOICE_LANGUAGE` | `auto` | Transcription hint. Leave on auto for mixed Hindi and English speech. |
+| `KELLY_TELEGRAM_VOICE_REPLIES` | off | Set to `1` to also receive short answers as a voice note. Needs local synthesis configured. |
+
+These belong in `KELLY.env.example` alongside the other voice settings; that file is owned by
+the main developer, so they are documented here until it is updated.
+
+A transcript is never acted on by itself. Kelly reads it back and waits for a typed yes, so a
+spoken "approve" or "send" cannot authorize anything. Spoken replies are text-first: the
+written answer is always delivered, and speech is a best-effort extra that is skipped for long
+answers because local synthesis costs roughly real time.
+
 ## What to measure
 
 Record these per case, then aggregate per language and per category. Keep the raw table.

@@ -32,8 +32,8 @@ import { StandupService } from "./standup/service.ts";
 import { StandupPoller } from "./standup/poller.ts";
 import { TelegramPump } from "./telegram/pump.ts";
 import { sharedAgentRegistry } from "./orchestration/agent-registry.ts";
-import { TelegramBridge } from "./telegram/bridge.ts";
-import { TelegramVoiceIntake, ffmpegAudioConverter, httpTelegramFileFetcher } from "./telegram/voice.ts";
+import { TelegramBridge, type BridgeVoice } from "./telegram/bridge.ts";
+import { TelegramVoiceIntake, ffmpegAudioConverter, httpTelegramFileFetcher, sendTelegramVoiceNote, telegramVoiceReplier } from "./telegram/voice.ts";
 import { LocalVoiceService, voiceConfigFromEnv } from "./voice/index.ts";
 import { limitState } from "./providers/limits.ts";
 import { DraftRepliesService } from "./gmail-drafts/service.ts";
@@ -256,7 +256,7 @@ export class HenryRuntime {
         send: (config, text) => sendTelegram(config, text),
         // Owner voice notes. Absent when local speech recognition or the converter is not
         // configured, in which case the bridge declines them in one plain sentence.
-        ...(this.telegramVoiceIntake ? { voice: this.telegramVoiceIntake } : {}),
+        ...(this.telegramVoiceIntake ? { voice: this.telegramVoiceWithReplies(this.telegramVoiceIntake) } : {}),
         // Local state for the reflex lane, so "what are you working on?" is answered from
         // the dispatch registry and the approval queue instead of costing a provider run
         // and waiting behind whatever turn is already in flight.
@@ -310,6 +310,38 @@ export class HenryRuntime {
         language: env.KELLY_TELEGRAM_VOICE_LANGUAGE?.trim() || undefined,
       },
     });
+  }
+
+  /**
+   * The intake, plus a spoken reply when the operator has opted in.
+   *
+   * OFF by default: set KELLY_TELEGRAM_VOICE_REPLIES=1. It also needs local synthesis
+   * (KELLY_KOKORO_URL and its token, or an explicit espeak-ng) and the same ffmpeg, because
+   * Telegram wants Opus. Text is always sent first, so every failure here is silent and the
+   * owner still has the answer. Local synthesis costs roughly real time, so only short
+   * answers are spoken (see VOICE_REPLY_MAX_CHARS).
+   */
+  private telegramVoiceWithReplies(intake: TelegramVoiceIntake): BridgeVoice {
+    // `enabled` stays a getter so the intake remains the single source of truth at call time.
+    const base: BridgeVoice = {
+      get enabled() { return intake.enabled; },
+      transcribe: (meta) => intake.transcribe(meta),
+    };
+    const env = process.env;
+    const token = this.config.telegramBotToken;
+    const chatId = this.config.telegramChatId;
+    if (env.KELLY_TELEGRAM_VOICE_REPLIES !== "1" || !token || !chatId || !intake.canSpeak) return base;
+    const speaker = new LocalVoiceService(voiceConfigFromEnv(env));
+    if (!speaker.ttsEnabled()) return base;
+    return {
+      ...base,
+      get enabled() { return intake.enabled; },
+      speak: telegramVoiceReplier({
+        synthesize: (text, options) => speaker.synthesize(text, options),
+        encode: (wav) => intake.encodeReply(wav),
+        send: (audio) => sendTelegramVoiceNote({ token, chatId, audio }),
+      }),
+    };
   }
 
   /** Shared local-state snapshot used by every provider-free reflex surface. */

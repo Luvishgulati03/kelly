@@ -163,6 +163,8 @@ export interface BridgeStats {
   voiceRejected: number;
   voiceConfirmed: number;
   voiceDiscarded: number;
+  /** Answers that were also sent back as a voice note. */
+  voiceSpoken: number;
   /** Answered from local state with no provider call — see the reflex lane below. */
   reflex: number;
   /** Turns picked back up after a quota wall. */
@@ -190,6 +192,11 @@ export interface BridgeVoice {
   /** False when local transcription is not configured; voice notes are then declined politely. */
   readonly enabled: boolean;
   transcribe(meta: TelegramAudioMeta): Promise<{ text: string; language?: string; bytes: number; durationSeconds?: number }>;
+  /**
+   * Optional spoken reply, used ONLY for a turn the owner spoke. Best effort: it resolves
+   * false rather than throwing, because the text answer has already been delivered.
+   */
+  speak?: (text: string) => Promise<boolean>;
 }
 
 export interface BridgeDeps {
@@ -227,7 +234,7 @@ export interface BridgeDeps {
  * A legacy deferred row carries no `kind` and is read back as text.
  */
 type Pending =
-  | { kind?: "text"; updateId: number; text: string }
+  | { kind?: "text"; updateId: number; text: string; spoken?: boolean }
   | { kind: "voice"; updateId: number; meta: TelegramAudioMeta };
 
 export class TelegramBridge implements PumpConsumer {
@@ -235,7 +242,7 @@ export class TelegramBridge implements PumpConsumer {
   private readonly queue: Pending[] = [];
   private draining?: Promise<void>;
   private droppedSinceLastReply = 0;
-  private counters = { replies: 0, deferred: 0, dropped: 0, stale: 0, failed: 0, reflex: 0, resumed: 0, deferredByLimit: 0, voiceReceived: 0, voiceTranscribed: 0, voiceRejected: 0, voiceConfirmed: 0, voiceDiscarded: 0 };
+  private counters = { replies: 0, deferred: 0, dropped: 0, stale: 0, failed: 0, reflex: 0, resumed: 0, deferredByLimit: 0, voiceReceived: 0, voiceTranscribed: 0, voiceRejected: 0, voiceConfirmed: 0, voiceDiscarded: 0, voiceSpoken: 0 };
   /** Reflex answers run outside the sequential queue; `settled()` still has to wait for them. */
   private readonly reflexInFlight = new Set<Promise<void>>();
   private thinking = false;
@@ -317,7 +324,7 @@ export class TelegramBridge implements PumpConsumer {
         if (VOICE_CONFIRM.test(text)) {
           this.counters.voiceConfirmed += 1;
           this.resumeDeferred();
-          this.enqueue({ updateId: update.update_id, text: pendingVoice });
+          this.enqueue({ updateId: update.update_id, text: pendingVoice, spoken: true });
           continue;
         }
         this.counters.voiceDiscarded += 1;
@@ -451,6 +458,21 @@ export class TelegramBridge implements PumpConsumer {
     });
   }
 
+  /**
+   * Sends the answer back as a voice note, tracked like a reflex answer so `settled()` waits
+   * for it. A false result is normal (answer too long, synthesis off, encoder missing) and is
+   * never reported as a failure: the owner already has the text.
+   */
+  private speakAnswer(answer: string): void {
+    const speak = this.deps.voice?.speak;
+    if (!speak) return;
+    const pending = speak(answer)
+      .then((spoken) => { if (spoken) this.counters.voiceSpoken += 1; })
+      .catch(() => undefined)
+      .finally(() => { this.reflexInFlight.delete(pending); });
+    this.reflexInFlight.add(pending);
+  }
+
   /** Arms one transcript for confirmation, replacing any older one. */
   private storePendingVoice(text: string): void {
     try {
@@ -568,6 +590,9 @@ export class TelegramBridge implements PumpConsumer {
     if (!answer) answer = "I hit an error thinking about that one — say it again, or grab me in the terminal.";
     const sent = await this.reply(`${note}${answer}`);
     if (sent) this.counters.replies += 1; else this.counters.failed += 1;
+    // Spoken reply: only for a turn the owner actually spoke, only after the text is
+    // delivered, and never allowed to fail the turn.
+    if (sent && item.spoken && this.deps.voice?.speak) this.speakAnswer(answer);
     await this.activity.record(sent ? "run.completed" : "run.failed", `Telegram bridge ${sent ? "replied to" : "failed to reach"} Luvish`, {
       telegram: true, chars: answer.length,
     });

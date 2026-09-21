@@ -82,6 +82,7 @@ interface Harness {
   activity: ActivityLog;
   config: HenryConfig;
   clock: { now: number };
+  spoken: string[];
 }
 
 async function harness(options: {
@@ -90,6 +91,7 @@ async function harness(options: {
   withVoice?: boolean;
   store?: PumpMetaStore & { map: Map<string, string> };
   config?: HenryConfig;
+  speak?: "ok" | "fail";
 } = {}): Promise<Harness> {
   const config = options.config ?? tempConfig();
   const activity = new ActivityLog(config.activityPath);
@@ -99,8 +101,12 @@ async function harness(options: {
   const transcribed: TelegramAudioMeta[] = [];
   const store = options.store ?? memoryStore();
   const clock = { now: Date.now() };
+  const spoken: string[] = [];
   const voice = {
     enabled: options.voiceEnabled !== false,
+    ...(options.speak
+      ? { speak: async (text: string) => { spoken.push(text); return options.speak !== "fail"; } }
+      : {}),
     async transcribe(meta: TelegramAudioMeta) {
       transcribed.push(meta);
       if (typeof options.transcript === "function") return { ...(await options.transcript()), language: "hi" };
@@ -114,7 +120,7 @@ async function harness(options: {
     fetchImpl: (async () => new Response("{}", { status: 200 })) as unknown as typeof fetch,
     ...(options.withVoice === false ? {} : { voice }),
   });
-  return { bridge, sent, asked, transcribed, store, activity, config, clock };
+  return { bridge, sent, asked, transcribed, store, activity, config, clock, spoken };
 }
 
 /* ------------------------------------------------------------------ *
@@ -329,6 +335,53 @@ test("an error message carrying a URL is redacted before it reaches the chat", a
   assert.equal(h.sent.length, 1);
   assert.ok(!h.sent[0].includes("SECRET"), "a token never reaches the chat");
   assert.ok(!h.sent[0].includes("https://"), "and neither does the URL");
+});
+
+/* ------------------------------------------------------------------ *
+ * 3b. Spoken replies (opt-in, and never load-bearing)
+ * ------------------------------------------------------------------ */
+
+test("a confirmed voice turn is answered in text and then spoken", async () => {
+  const h = await harness({ speak: "ok" });
+  await h.bridge.consume([voiceUpdate(1)]);
+  await h.bridge.settled();
+  await h.bridge.consume([textUpdate(2, "yes")]);
+  await h.bridge.settled();
+
+  const answer = "answered: do Havells ke pankhe ka quote banao";
+  assert.ok(h.sent.includes(answer), "the text answer is always sent");
+  assert.deepEqual(h.spoken, [answer], "and the same answer is offered as speech");
+  assert.equal(h.bridge.stats().voiceSpoken, 1);
+});
+
+test("a typed turn is never spoken back", async () => {
+  const h = await harness({ speak: "ok" });
+  await h.bridge.consume([textUpdate(1, "what is the rate of a 9W bulb?")]);
+  await h.bridge.settled();
+  assert.equal(h.asked.length, 1);
+  assert.deepEqual(h.spoken, [], "speech is offered only for a turn the owner spoke");
+});
+
+test("a failed spoken reply is silent: the text answer still stands", async () => {
+  const h = await harness({ speak: "fail" });
+  await h.bridge.consume([voiceUpdate(1)]);
+  await h.bridge.settled();
+  await h.bridge.consume([textUpdate(2, "yes")]);
+  await h.bridge.settled();
+
+  assert.ok(h.sent.some((text) => text.startsWith("answered:")), "the owner still has the answer");
+  assert.equal(h.bridge.stats().voiceSpoken, 0, "a failed voice reply is not counted");
+  assert.equal(h.bridge.stats().failed, 0, "and is never reported as a turn failure");
+});
+
+test("without the opt-in speaker nothing is spoken", async () => {
+  const h = await harness();
+  await h.bridge.consume([voiceUpdate(1)]);
+  await h.bridge.settled();
+  await h.bridge.consume([textUpdate(2, "yes")]);
+  await h.bridge.settled();
+  assert.deepEqual(h.spoken, []);
+  assert.equal(h.bridge.stats().voiceSpoken, 0);
 });
 
 /* ------------------------------------------------------------------ *

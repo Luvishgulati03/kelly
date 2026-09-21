@@ -389,3 +389,42 @@ export async function sendTelegramVoiceNote(
     clearTimeout(timer);
   }
 }
+
+/**
+ * SPOKEN REPLIES (opt-in).
+ *
+ * Kelly answers in text first, always. A voice reply is an extra, and it is attempted only
+ * for a turn the owner actually spoke. It is best effort by construction: synthesis, Opus
+ * encoding, or the send can each fail, and every failure resolves to `false` so the text
+ * answer the owner already has stands on its own.
+ *
+ * Long answers are not spoken. A quotation table read aloud is slower and less useful than
+ * reading it, and local synthesis costs roughly real time, so anything past the cap stays text.
+ */
+export interface VoiceReplyDeps {
+  synthesize(text: string, options?: { language?: string }): Promise<Buffer>;
+  /** WAV to Telegram's Opus voice format; the converter from this module satisfies it. */
+  encode(wav: Buffer): Promise<Buffer | undefined>;
+  send(audio: Buffer): Promise<boolean>;
+  /** Answers longer than this are left as text only. */
+  maxChars?: number;
+}
+
+export const VOICE_REPLY_MAX_CHARS = 600;
+
+export function telegramVoiceReplier(deps: VoiceReplyDeps): (text: string) => Promise<boolean> {
+  const maxChars = positive(deps.maxChars, VOICE_REPLY_MAX_CHARS);
+  return async (text: string): Promise<boolean> => {
+    const trimmed = text.trim();
+    if (!trimmed || trimmed.length > maxChars) return false;
+    try {
+      const wav = await deps.synthesize(trimmed, { language: /[ऀ-ॿ]/u.test(trimmed) ? "hi" : "en" });
+      const opus = await deps.encode(wav);
+      if (!opus?.length) return false;
+      return await deps.send(opus);
+    } catch {
+      // The text answer is already delivered; a failed voice reply is not worth an error.
+      return false;
+    }
+  };
+}
