@@ -40,13 +40,20 @@ test("browser microphone capture, discard, keyboard controls and audible media p
     await page.goto(`http://127.0.0.1:${address.port}/voice`);
     assert.equal(await page.locator("#language").count(), 0, "language select must be removed");
     assert.equal(await page.getByText("Language", {exact:true}).count(), 0, "no leftover Language label");
+    assert.equal(await page.evaluate(() => typeof (window as any).KellyOrb?.mount), "function", "orb module is mounted on the page");
+    assert.equal(await page.locator("#record canvas").count(), 1, "the orb canvas lives inside the microphone button");
 
     await page.getByRole("button", {name:"Start recording",exact:true}).click();
     await page.waitForFunction(() => /^Recording \d+:\d{2}$/.test(document.querySelector("#state")?.textContent || ""));
+    assert.equal(await page.locator("#record").getAttribute("aria-pressed"), "true", "the orb reads as pressed while recording");
     // Wait for real MediaRecorder data rather than a fixed sleep or mocked callbacks.
     await page.waitForFunction(() => /[1-9]\d* bytes captured/.test(document.querySelector("#detail")?.textContent || ""));
     await page.getByRole("button", {name:"Stop recording",exact:true}).click();
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Transcript ready to review");
+    assert.equal(await page.locator("#record").getAttribute("aria-pressed"), "false");
+    assert.equal(await page.inputValue("#transcript"), "\u0926\u0938 \u092c\u0932\u094d\u092c \u091a\u093e\u0939\u093f\u090f", "the transcript lands in the composer");
+    assert.equal(await page.locator("#fromVoice").isVisible(), true, "a voice-originated draft is marked as such");
+    assert.equal(await page.locator("#send").isEnabled(), true, "the draft can be sent");
     assert.equal(uploads.length, 1, "exactly one transcribe upload after one start/stop press cycle");
     assert.ok(uploads[0].length > 44);
     assert.equal(uploads[0].subarray(0,4).toString(), "RIFF");
