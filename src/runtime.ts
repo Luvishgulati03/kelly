@@ -38,6 +38,7 @@ import { TelegramBridge, type BridgeVoice } from "./telegram/bridge.ts";
 import { TelegramVoiceIntake, ffmpegAudioConverter, httpTelegramFileFetcher, sendTelegramVoiceNote, telegramVoiceReplier } from "./telegram/voice.ts";
 import { LocalVoiceService, voiceConfigFromEnv } from "./voice/index.ts";
 import { VoiceTranscriptStore } from "./voice/transcripts.ts";
+import { toRomanHinglish } from "./voice/roman.ts";
 import { limitState } from "./providers/limits.ts";
 import { DraftRepliesService } from "./gmail-drafts/service.ts";
 import type { ProviderName, RunResult } from "./types.ts";
@@ -401,11 +402,14 @@ export class HenryRuntime {
         const started = Date.now();
         try {
           const result = await intake.transcribe(meta);
+          // Roman script for the Telegram preview and the brain alike; the original (pre-
+          // conversion) words are kept alongside only when they differ (see voice/roman.ts).
+          const roman = toRomanHinglish(result.text);
           const row = this.voiceTranscripts.record({
-            surface: "telegram", text: result.text, language: result.language,
+            surface: "telegram", text: roman, original: roman === result.text ? undefined : result.text, language: result.language,
             durationSeconds: result.durationSeconds, bytes: result.bytes, sttMs: Date.now() - started,
           });
-          return { ...result, id: row.id };
+          return { ...result, text: roman, id: row.id };
         } catch (error) {
           // A failure keeps no words, only the fact and the reason, so the owner can see it.
           this.voiceTranscripts.record({

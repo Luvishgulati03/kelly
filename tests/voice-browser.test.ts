@@ -38,13 +38,16 @@ test("browser microphone capture, discard, keyboard controls and audible media p
     await page.route("https://**/*", route => route.abort());
     const errors: string[] = []; page.on("pageerror", error => errors.push(error.message));
     await page.goto(`http://127.0.0.1:${address.port}/voice`);
+    assert.equal(await page.locator("#language").count(), 0, "language select must be removed");
+    assert.equal(await page.getByText("Language", {exact:true}).count(), 0, "no leftover Language label");
+
     await page.getByRole("button", {name:"Start recording",exact:true}).click();
-    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Recording");
+    await page.waitForFunction(() => /^Recording \d+:\d{2}$/.test(document.querySelector("#state")?.textContent || ""));
     // Wait for real MediaRecorder data rather than a fixed sleep or mocked callbacks.
     await page.waitForFunction(() => /[1-9]\d* bytes captured/.test(document.querySelector("#detail")?.textContent || ""));
     await page.getByRole("button", {name:"Stop recording",exact:true}).click();
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Transcript ready to review");
-    assert.equal(uploads.length, 1);
+    assert.equal(uploads.length, 1, "exactly one transcribe upload after one start/stop press cycle");
     assert.ok(uploads[0].length > 44);
     assert.equal(uploads[0].subarray(0,4).toString(), "RIFF");
     assert.equal(uploads[0].readUInt32LE(24), 16000);
@@ -52,19 +55,34 @@ test("browser microphone capture, discard, keyboard controls and audible media p
     assert.ok(uploads[0].subarray(44).some(byte => byte !== 0), "synthetic microphone audio is not silent");
     assert.equal(chatCalls, 0, "recording never sends an agent message");
 
+    // Enter toggles recording on a focused mic button, just like a click.
     await page.getByRole("button", {name:"Start recording",exact:true}).focus();
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Recording");
+    await page.waitForFunction(() => /^Recording \d+:\d{2}$/.test(document.querySelector("#state")?.textContent || ""));
     await page.getByRole("button", {name:"Discard recording"}).click();
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Recording discarded");
-    assert.equal(uploads.length, 1);
+    assert.equal(uploads.length, 1, "a discarded recording never uploads");
+
+    // Enter also stops recording, toggling back off.
+    await page.getByRole("button", {name:"Start recording",exact:true}).focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => /^Recording \d+:\d{2}$/.test(document.querySelector("#state")?.textContent || ""));
+    await page.waitForFunction(() => /[1-9]\d* bytes captured/.test(document.querySelector("#detail")?.textContent || ""));
+    await page.getByRole("button", {name:"Stop recording",exact:true}).focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Transcript ready to review");
+    assert.equal(uploads.length, 2);
 
     await page.getByRole("button", {name:"Speak transcript",exact:true}).click();
-    await page.waitForFunction(() => document.querySelector("audio")!.currentTime > 0.1, {timeout:5000}).catch(async error => {
-      console.error(await page.evaluate(() => { const audio=document.querySelector('audio')!; return {message:document.querySelector('#message')?.textContent,src:audio.getAttribute('src'),time:audio.currentTime,paused:audio.paused,error:audio.error?.message,readyState:audio.readyState}; }));
+    await page.waitForFunction(() => {
+      const audio = document.querySelector("audio");
+      return !!audio && !audio.hidden && !!audio.getAttribute("src") && audio.getAttribute("src")!.startsWith("blob:");
+    }, {timeout:5000}).catch(async error => {
+      console.error(await page.evaluate(() => { const audio=document.querySelector('audio')!; return {message:document.querySelector('#message')?.textContent,src:audio.getAttribute('src'),error:audio.error?.message,readyState:audio.readyState}; }));
       throw error;
     });
     assert.equal(await page.locator("audio").isVisible(), true);
+    assert.ok((await page.locator("audio").getAttribute("src"))?.startsWith("blob:"), "speak response blob was assigned to the player");
     await page.getByRole("button", {name:"Stop playback",exact:true}).click();
     assert.equal(await page.locator("audio").isVisible(), false);
 

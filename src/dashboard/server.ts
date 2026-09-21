@@ -17,6 +17,7 @@ import { domainPolicy, setDomainEnabled } from "../knowledge/gate.ts";
 import { executeExplicitApproval } from "../approval/explicit.ts";
 import { LocalVoiceService, VoiceError, voiceConfigFromEnv, type VoiceLanguage } from "../voice/index.ts";
 import { isTranscriptState, isTranscriptSurface, readVoiceSettings, updateVoiceSettings } from "../voice/transcripts.ts";
+import { toRomanHinglish } from "../voice/roman.ts";
 import { summarizeUsage } from "./usage.ts";
 import { limitState } from "../providers/limits.ts";
 import { ConversationStore, type ChatAttachmentRef } from "./conversations.ts";
@@ -956,7 +957,9 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           ...(url.searchParams.get("q") ? { q: url.searchParams.get("q") ?? undefined } : {}),
           ...(url.searchParams.get("sparse") === "true" ? { sparse: true } : {}),
           limit: Number(url.searchParams.get("limit")) || 100,
-        }).map((record) => ({ ...record, audioPath: undefined, audio: Boolean(record.audioPath) }));
+        // The original (pre-conversion) script is a detail-view field only; the list carries
+        // `mixed` so the UI can show a Hinglish/EN chip without shipping every hidden field.
+        }).map((record) => ({ ...record, original: undefined, audioPath: undefined, audio: Boolean(record.audioPath) }));
         json(response, 200, { transcripts, stats: runtime.voiceTranscripts.stats(), settings: readVoiceSettings(runtime.config.settingsPath) });
         return;
       }
@@ -1010,14 +1013,18 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
             throw error;
           }
           const sttMs = Date.now() - started;
-          const record = runtime.voiceTranscripts.record({ surface: "counter", text: result.text, language: result.language, durationSeconds, bytes: audio.length, sttMs });
+          // Whatever Whisper wrote is converted to Roman script for display; the original is
+          // kept alongside only when it actually differs (see src/voice/roman.ts).
+          const roman = toRomanHinglish(result.text);
+          const differs = roman !== result.text;
+          const record = runtime.voiceTranscripts.record({ surface: "counter", text: roman, original: differs ? result.text : undefined, language: result.language, durationSeconds, bytes: audio.length, sttMs });
           const audioKept = Boolean(runtime.voiceTranscripts.saveAudio(record.id, audio));
           // Timing and size only: the words stay in the transcript store, never in the log.
           await runtime.activity.record("voice.transcribed", "Counter voice note transcribed", {
-            voice: true, counter: true, chars: result.text.length, bytes: audio.length, sttMs, audioKept,
+            voice: true, counter: true, chars: roman.length, bytes: audio.length, sttMs, audioKept,
             ...(durationSeconds !== undefined ? { durationSeconds } : {}), ...(result.language ? { language: result.language } : {}),
           }).catch(() => undefined);
-          json(response, 200, { ...result, transcriptId: record.id, audioKept });
+          json(response, 200, { text: roman, original: differs ? result.text : undefined, transcriptId: record.id, audioKept, language: result.language });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Transcription is unavailable.";
           const status = message.includes("too large") ? 413 : error instanceof VoiceError && error.code === "timeout" ? 504 : 503;

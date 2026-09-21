@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import Database from "better-sqlite3";
 import { setActiveProfile } from "../src/profile.ts";
 import { HenryRuntime } from "../src/runtime.ts";
 import { startDashboard } from "../src/dashboard/server.ts";
@@ -137,6 +138,86 @@ test("audio is written only while recording is on, and vanishes when it is switc
   assert.equal(fs.existsSync(kept), false);
   assert.equal(store.audioPath(on.id), undefined);
   assert.equal(store.get(on.id)?.text, "do fan ka quote", "the words outlive the recording");
+  store.close();
+});
+
+/* ------------------------------------------------------------------ *
+ * 3b. Roman text, hidden original script, and the `mixed` flag
+ * ------------------------------------------------------------------ */
+
+test("original is kept only when it differs from the Roman text, and mixed reflects that", () => {
+  const { store } = storeIn(tempDir("kelly-to-"));
+
+  // Whisper wrote Devanagari; the caller (server/runtime) converts and passes both.
+  const converted = store.record({ surface: "counter", text: "Havells ke do ceiling fan ka quotation bana do", original: "हैवेल्स के दो सीलिंग फैन का कोटेशन बना दो" });
+  assert.equal(converted.mixed, true);
+  assert.equal(converted.original, "हैवेल्स के दो सीलिंग फैन का कोटेशन बना दो");
+  assert.equal(store.get(converted.id)?.original, "हैवेल्स के दो सीलिंग फैन का कोटेशन बना दो");
+  assert.equal(store.get(converted.id)?.mixed, true);
+
+  // Pure English: caller may pass the same string as both text and original (or omit it);
+  // either way nothing extra is stored.
+  const plain = store.record({ surface: "counter", text: "20 watt bulb please", original: "20 watt bulb please" });
+  assert.equal(plain.mixed, false);
+  assert.equal(plain.original, undefined);
+  assert.equal(store.get(plain.id)?.original, undefined);
+
+  const noOriginal = store.record({ surface: "counter", text: "20 watt bulb please" });
+  assert.equal(noOriginal.mixed, false);
+  assert.equal(noOriginal.original, undefined);
+
+  store.close();
+});
+
+test("entity extraction unions brands from the Roman text and the hidden original", () => {
+  const { store } = storeIn(tempDir("kelly-toe-"));
+  // A brand the Roman pass missed (simulated: Roman text drops the brand, original keeps it).
+  const row = store.record({ surface: "telegram", text: "ka do fan ka quotation bana do", original: "हैवेल्स का दो fan ka quotation bana do" });
+  assert.ok(row.entities.brands.includes("Havells"), `brands: ${row.entities.brands.join(",")}`);
+  store.close();
+});
+
+test("search over q matches the hidden original script as well as the Roman text", () => {
+  const { store } = storeIn(tempDir("kelly-tos-"));
+  const row = store.record({ surface: "counter", text: "Havells ke do fan", original: "हैवेल्स के दो fan" });
+  assert.deepEqual(store.list({ q: "havells" }).map((r) => r.id), [row.id], "matches the Roman text");
+  assert.deepEqual(store.list({ q: "हैवेल्स" }).map((r) => r.id), [row.id], "matches the hidden original script");
+  assert.deepEqual(store.list({ q: "nonsense" }).map((r) => r.id), []);
+  store.close();
+});
+
+test("a database created before the original column existed is migrated in place", () => {
+  const root = tempDir("kelly-tmig-");
+  const dataDir = path.join(root, "data");
+  const settingsPath = path.join(dataDir, "settings.json");
+  fs.mkdirSync(path.join(dataDir, "voice", "audio"), { recursive: true });
+  const dbPath = path.join(dataDir, "voice", "transcripts.db");
+
+  // Hand-build the pre-migration schema (no `original` column) and seed one row.
+  const legacy = new Database(dbPath);
+  legacy.exec(`CREATE TABLE transcripts (
+    id TEXT PRIMARY KEY, at TEXT NOT NULL, surface TEXT NOT NULL, language TEXT,
+    durationSeconds REAL, bytes INTEGER, sttMs INTEGER, text TEXT NOT NULL, entities TEXT NOT NULL,
+    state TEXT NOT NULL, conversationId TEXT, reply TEXT, replyAt TEXT, audioPath TEXT, error TEXT
+  )`);
+  legacy.prepare(`INSERT INTO transcripts (id, at, surface, language, durationSeconds, bytes, sttMs, text, entities, state, conversationId, reply, replyAt, audioPath, error)
+    VALUES ('legacy-1', '2026-01-01T00:00:00.000Z', 'counter', NULL, NULL, NULL, NULL, 'old row', '{"brands":[],"quantities":[],"units":[],"sparse":true}', 'transcribed', NULL, NULL, NULL, NULL, NULL)`).run();
+  legacy.close();
+
+  const store = new VoiceTranscriptStore(dataDir, settingsPath);
+  const inspector = new Database(dbPath);
+  const columns = inspector.prepare("PRAGMA table_info(transcripts)").all() as Array<{ name: string }>;
+  inspector.close();
+  assert.ok(columns.some((c) => c.name === "original"), "the column is added to the existing database");
+
+  const migrated = store.get("legacy-1");
+  assert.equal(migrated?.text, "old row", "the pre-existing row survives the migration");
+  assert.equal(migrated?.original, undefined);
+  assert.equal(migrated?.mixed, false);
+
+  const fresh = store.record({ surface: "counter", text: "Havells ka bulb", original: "हैवेल्स का bulb" });
+  assert.equal(fresh.mixed, true);
+  assert.equal(store.get(fresh.id)?.original, "हैवेल्स का bulb");
   store.close();
 });
 

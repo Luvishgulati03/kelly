@@ -124,6 +124,33 @@ State clearly what has not been tested. If every clip is synthetic, say so, beca
 numbers do not then describe counter conditions. If one speaker recorded everything, say so,
 because accent coverage is the most common blind spot in this kind of evaluation.
 
+## Roman script display
+
+Whisper sometimes writes Hindi words in Devanagari even inside an otherwise Hinglish
+sentence. Kelly always shows the owner Roman script — "mujhe das bulb chahiye", never
+"मुझे दस बल्ब चाहिए" and never an English translation — with English loanwords and brand
+names kept in their normal spelling (Havells, ceiling fan, quotation). The conversion lives in
+`src/voice/roman.ts` (`toRomanHinglish`, `hasDevanagari`) and runs on every transcript before
+it reaches the dashboard, the Telegram preview, or the brain.
+
+The converter is deterministic: no model, no network call, the same input always produces the
+same output. It works in three passes — a whole-word dictionary (brands, counter loanwords,
+and common Hindi words whose conventional Hinglish spelling is not what mechanical
+transliteration would produce), a couple of two-token/hyphenated brand spellings handled as a
+literal substring pass, and a syllable-by-syllable fallback for anything left over. Pure
+English input is returned completely untouched — `hasDevanagari` guards the whole function, so
+a transcript with no Devanagari in it never goes through the converter at all.
+
+The pre-conversion words are not discarded. They are kept alongside the Roman text as a hidden
+`original` field, only when they actually differ from the Roman form, so the owner (or anyone
+auditing entity preservation) can check a brand spelling or a model number against exactly what
+Whisper first wrote. Entity extraction (§ "What to measure" above) runs against the hidden
+original as well as the Roman text — a Devanagari brand mention that the Roman pass missed
+still counts, since the brand patterns in `src/voice/transcripts.ts` already match both scripts.
+When measuring entity preservation for this evaluation, always check it against the original
+script, not the Roman display text: the Roman conversion is a display convenience, and any bug
+in it must not be able to hide a transcription failure or invent an entity that was never heard.
+
 ## Deciding whether it is good enough
 
 Quality is a business judgement, not a threshold in a document. Frame it this way: a

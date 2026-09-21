@@ -10,24 +10,28 @@ import { createUser, resetLoginThrottleForTests } from "../src/dashboard/auth.ts
 /**
  * Harness for the remote-access role/throttle work: a loopback dashboard on a temp data
  * dir (so `createUser` never touches the real repo's `data/dashboard/dashboard.db`), with
- * one admin and one counter account already seeded. `opts.tunnelActive` swaps in a fake
+ * one admin and one counter account already seeded. `opts.tunnel` swaps in a fake
  * `runtime.tunnel` the same way the task spec's own snippet does, to exercise the bypass
- * turning off while a tunnel is up.
+ * turning off whenever a tunnel is CONFIGURED (`status().mode !== "off"`), not only while
+ * it is actively forwarding traffic. `KELLY_TUNNEL` is cleared for the whole test process so
+ * an operator's real environment variable never leaks into what these tests exercise.
  */
 async function withDashboard(
   run: (base: string, runtime: HenryRuntime) => Promise<void>,
-  opts: { tunnelActive?: boolean } = {},
+  opts: { tunnel?: { active: boolean; mode: string } } = {},
 ): Promise<void> {
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-remote-auth-"));
   const previousDataDir = process.env.HENRY_DATA_DIR;
+  const previousTunnelEnv = process.env.KELLY_TUNNEL;
   process.env.HENRY_DATA_DIR = path.join(tempRoot, "data");
+  delete process.env.KELLY_TUNNEL;
   resetLoginThrottleForTests();
   const runtime = await HenryRuntime.create(tempRoot);
   runtime.config.port = 0;
   runtime.config.host = "127.0.0.1";
-  if (opts.tunnelActive) {
+  if (opts.tunnel) {
     Object.defineProperty(runtime, "tunnel", {
-      value: { active: true, status: () => ({ mode: "tailscale", active: true, restarts: 0 }) },
+      value: { active: opts.tunnel.active, status: () => ({ mode: opts.tunnel!.mode, active: opts.tunnel!.active, restarts: 0 }) },
       configurable: true,
     });
   }
@@ -45,6 +49,8 @@ async function withDashboard(
     resetLoginThrottleForTests();
     if (previousDataDir === undefined) delete process.env.HENRY_DATA_DIR;
     else process.env.HENRY_DATA_DIR = previousDataDir;
+    if (previousTunnelEnv === undefined) delete process.env.KELLY_TUNNEL;
+    else process.env.KELLY_TUNNEL = previousTunnelEnv;
   }
 }
 
@@ -148,14 +154,23 @@ test("five bad passwords lock the account; a 6th correct attempt still gets 429;
   });
 });
 
-test("the loopback admin bypass turns off while a tunnel is active, and works when it is not", async () => {
+test("the loopback admin bypass turns off while a tunnel is active", async () => {
   await withDashboard(async (base) => {
     const response = await fetch(`${base}/api/status`);
     assert.equal(response.status, 401);
-  }, { tunnelActive: true });
+  }, { tunnel: { active: true, mode: "tailscale" } });
+});
 
+test("the loopback admin bypass works when no tunnel is configured", async () => {
   await withDashboard(async (base) => {
     const response = await fetch(`${base}/api/status`);
     assert.equal(response.status, 200);
-  });
+  }, { tunnel: { active: false, mode: "off" } });
+});
+
+test("the loopback admin bypass turns off when a tunnel is configured but not currently active", async () => {
+  await withDashboard(async (base) => {
+    const response = await fetch(`${base}/api/status`);
+    assert.equal(response.status, 401);
+  }, { tunnel: { active: false, mode: "tailscale" } });
 });

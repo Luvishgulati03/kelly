@@ -94,7 +94,14 @@ export interface TranscriptRecord {
   bytes?: number;
   /** Wall-clock transcription time, for latency and real-time factor. */
   sttMs?: number;
+  /** Always Roman script — see src/voice/roman.ts. What the owner reads. */
   text: string;
+  /** The words as Whisper first wrote them, kept only when they differ from `text` (i.e. Whisper
+   *  wrote some Devanagari and it was converted). Hidden field, for checking names and model
+   *  numbers against the original script. */
+  original?: string;
+  /** True when `original` is present — Whisper's own output contained Devanagari. */
+  mixed: boolean;
   entities: TranscriptEntities;
   state: TranscriptState;
   conversationId?: string;
@@ -198,13 +205,27 @@ export function extractEntities(text: string): TranscriptEntities {
   return { brands, quantities, units: [...units], sparse: brands.length === 0 && quantities.length === 0 };
 }
 
+/**
+ * Union of brands seen in the Roman text and the original (pre-conversion) script, so a
+ * Devanagari brand spelling that the Roman conversion missed still counts. Quantities and
+ * units come from the Roman text alone (that pass already reads the Devanagari number words
+ * directly); `sparse` is recomputed against the merged brand list.
+ */
+function mergeEntities(primary: TranscriptEntities, original?: string): TranscriptEntities {
+  if (!original) return primary;
+  const fromOriginal = extractEntities(original);
+  const brands = [...primary.brands];
+  for (const brand of fromOriginal.brands) if (!brands.includes(brand)) brands.push(brand);
+  return { brands, quantities: primary.quantities, units: primary.units, sparse: brands.length === 0 && primary.quantities.length === 0 };
+}
+
 /* ------------------------------------------------------------------ *
  * The store
  * ------------------------------------------------------------------ */
 
 interface Row {
   id: string; at: string; surface: string; language: string | null; durationSeconds: number | null;
-  bytes: number | null; sttMs: number | null; text: string; entities: string; state: string;
+  bytes: number | null; sttMs: number | null; text: string; original: string | null; entities: string; state: string;
   conversationId: string | null; reply: string | null; replyAt: string | null; audioPath: string | null; error: string | null;
 }
 
@@ -236,6 +257,7 @@ export class VoiceTranscriptStore {
       bytes INTEGER,
       sttMs INTEGER,
       text TEXT NOT NULL,
+      original TEXT,
       entities TEXT NOT NULL,
       state TEXT NOT NULL,
       conversationId TEXT,
@@ -244,6 +266,13 @@ export class VoiceTranscriptStore {
       audioPath TEXT,
       error TEXT
     )`);
+    // A database created before `original` existed: add the column rather than requiring a
+    // fresh one. PRAGMA table_info is the guard — CREATE TABLE IF NOT EXISTS above is a no-op
+    // against an existing table, so this is the only path an old database's schema is updated.
+    const columns = this.db.prepare("PRAGMA table_info(transcripts)").all() as Array<{ name: string }>;
+    if (!columns.some((column) => column.name === "original")) {
+      this.db.exec("ALTER TABLE transcripts ADD COLUMN original TEXT");
+    }
     this.db.exec("CREATE INDEX IF NOT EXISTS transcripts_at ON transcripts(at DESC)");
     try { fs.chmodSync(path.join(this.dir, "transcripts.db"), 0o600); } catch { /* best effort */ }
   }
@@ -252,9 +281,12 @@ export class VoiceTranscriptStore {
 
   /** Writes a transcript (or a failure with no words) and prunes what has aged out. */
   record(input: {
-    surface: TranscriptSurface; text: string; language?: string; durationSeconds?: number; bytes?: number;
+    surface: TranscriptSurface; text: string; original?: string; language?: string; durationSeconds?: number; bytes?: number;
     sttMs?: number; state?: TranscriptState; conversationId?: string; error?: string; at?: string;
   }): TranscriptRecord {
+    // `original` is kept only when it actually differs from the (Roman) text — a caller that
+    // always passes Whisper's raw output must not store a duplicate of unchanged English.
+    const original = input.original !== undefined && input.original !== input.text ? input.original : undefined;
     const record: TranscriptRecord = {
       id: randomUUID(),
       at: input.at ?? new Date().toISOString(),
@@ -264,16 +296,18 @@ export class VoiceTranscriptStore {
       ...(input.bytes !== undefined ? { bytes: input.bytes } : {}),
       ...(input.sttMs !== undefined ? { sttMs: input.sttMs } : {}),
       text: input.text,
-      entities: extractEntities(input.text),
+      ...(original ? { original } : {}),
+      mixed: Boolean(original),
+      entities: mergeEntities(extractEntities(input.text), original),
       state: input.state ?? (input.error ? "failed" : "transcribed"),
       ...(input.conversationId ? { conversationId: input.conversationId } : {}),
       ...(input.error ? { error: input.error } : {}),
     };
-    this.db.prepare(`INSERT INTO transcripts (id, at, surface, language, durationSeconds, bytes, sttMs, text, entities, state, conversationId, reply, replyAt, audioPath, error)
-      VALUES (@id, @at, @surface, @language, @durationSeconds, @bytes, @sttMs, @text, @entities, @state, @conversationId, NULL, NULL, NULL, @error)`).run({
+    this.db.prepare(`INSERT INTO transcripts (id, at, surface, language, durationSeconds, bytes, sttMs, text, original, entities, state, conversationId, reply, replyAt, audioPath, error)
+      VALUES (@id, @at, @surface, @language, @durationSeconds, @bytes, @sttMs, @text, @original, @entities, @state, @conversationId, NULL, NULL, NULL, @error)`).run({
       id: record.id, at: record.at, surface: record.surface, language: record.language ?? null,
       durationSeconds: record.durationSeconds ?? null, bytes: record.bytes ?? null, sttMs: record.sttMs ?? null,
-      text: record.text, entities: JSON.stringify(record.entities), state: record.state,
+      text: record.text, original: original ?? null, entities: JSON.stringify(record.entities), state: record.state,
       conversationId: record.conversationId ?? null, error: record.error ?? null,
     });
     this.prune();
@@ -303,7 +337,7 @@ export class VoiceTranscriptStore {
     if (filter.surface) { where.push("surface = @surface"); params.surface = filter.surface; }
     if (filter.state) { where.push("state = @state"); params.state = filter.state; }
     if (filter.language) { where.push("language = @language"); params.language = filter.language; }
-    if (filter.q?.trim()) { where.push("(lower(text) LIKE @q OR lower(coalesce(reply, '')) LIKE @q)"); params.q = `%${filter.q.trim().toLowerCase()}%`; }
+    if (filter.q?.trim()) { where.push("(lower(text) LIKE @q OR lower(coalesce(original, '')) LIKE @q OR lower(coalesce(reply, '')) LIKE @q)"); params.q = `%${filter.q.trim().toLowerCase()}%`; }
     const limit = Math.min(500, Math.max(1, Math.round(filter.limit ?? 100)));
     const rows = this.db.prepare(`SELECT * FROM transcripts ${where.length ? `WHERE ${where.join(" AND ")}` : ""} ORDER BY at DESC LIMIT ${limit}`).all(params) as Row[];
     const records = rows.map(fromRow);
@@ -383,7 +417,10 @@ function fromRow(row: Row): TranscriptRecord {
     ...(row.durationSeconds !== null ? { durationSeconds: row.durationSeconds } : {}),
     ...(row.bytes !== null ? { bytes: row.bytes } : {}),
     ...(row.sttMs !== null ? { sttMs: row.sttMs } : {}),
-    text: row.text, entities,
+    text: row.text,
+    ...(row.original ? { original: row.original } : {}),
+    mixed: Boolean(row.original),
+    entities,
     state: isTranscriptState(row.state) ? row.state : "transcribed",
     ...(row.conversationId ? { conversationId: row.conversationId } : {}),
     ...(row.reply !== null ? { reply: row.reply } : {}),
