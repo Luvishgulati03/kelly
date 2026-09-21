@@ -35,6 +35,7 @@ import { sharedAgentRegistry } from "./orchestration/agent-registry.ts";
 import { TelegramBridge, type BridgeVoice } from "./telegram/bridge.ts";
 import { TelegramVoiceIntake, ffmpegAudioConverter, httpTelegramFileFetcher, sendTelegramVoiceNote, telegramVoiceReplier } from "./telegram/voice.ts";
 import { LocalVoiceService, voiceConfigFromEnv } from "./voice/index.ts";
+import { VoiceTranscriptStore } from "./voice/transcripts.ts";
 import { limitState } from "./providers/limits.ts";
 import { DraftRepliesService } from "./gmail-drafts/service.ts";
 import type { ProviderName, RunResult } from "./types.ts";
@@ -78,6 +79,7 @@ export class HenryRuntime {
   private _standupPoller?: StandupPoller;
   private _telegramBridge?: TelegramBridge;
   private _telegramVoice?: TelegramVoiceIntake | null;
+  private _voiceTranscripts?: VoiceTranscriptStore;
   private _telegramPump?: TelegramPump;
   private _jobScout?: JobScoutService;
 
@@ -267,6 +269,15 @@ export class HenryRuntime {
   }
 
   /**
+   * What Kelly heard, kept on the owner's terms (see voice/transcripts.ts). Lazy: the
+   * database is opened the first time a surface transcribes or the dashboard asks.
+   */
+  get voiceTranscripts(): VoiceTranscriptStore {
+    this._voiceTranscripts ||= new VoiceTranscriptStore(this.config.dataDir, this.config.settingsPath);
+    return this._voiceTranscripts;
+  }
+
+  /**
    * Owner voice-note intake, or undefined when it cannot work.
    *
    * Everything is explicit and local: whisper.cpp through the existing voice adapter, an
@@ -325,7 +336,28 @@ export class HenryRuntime {
     // `enabled` stays a getter so the intake remains the single source of truth at call time.
     const base: BridgeVoice = {
       get enabled() { return intake.enabled; },
-      transcribe: (meta) => intake.transcribe(meta),
+      transcribe: async (meta) => {
+        const started = Date.now();
+        try {
+          const result = await intake.transcribe(meta);
+          const row = this.voiceTranscripts.record({
+            surface: "telegram", text: result.text, language: result.language,
+            durationSeconds: result.durationSeconds, bytes: result.bytes, sttMs: Date.now() - started,
+          });
+          return { ...result, id: row.id };
+        } catch (error) {
+          // A failure keeps no words, only the fact and the reason, so the owner can see it.
+          this.voiceTranscripts.record({
+            surface: "telegram", text: "", state: "failed", sttMs: Date.now() - started,
+            durationSeconds: meta.duration, bytes: meta.file_size,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
+      },
+      settle: (id, state, reply) => {
+        try { this.voiceTranscripts.update(id, { state, ...(reply !== undefined ? { reply } : {}) }); } catch { /* display data; never fail a turn over it */ }
+      },
     };
     const env = process.env;
     const token = this.config.telegramBotToken;
@@ -547,7 +579,7 @@ export class HenryRuntime {
   private closing?: Promise<void>;
 
   close(): void {
-    this.scheduler.stop(); this._workflowEngine?.stop(); this._telegramPump?.stop(); this._standupPoller?.stop(); this._standupStore?.close();
+    this.scheduler.stop(); this._workflowEngine?.stop(); this._telegramPump?.stop(); this._standupPoller?.stop(); this._standupStore?.close(); this._voiceTranscripts?.close();
     // Agent replies stream/return before durable conversation capture completes.
     // Defer only the memory close; shutting it immediately caused one-shot `ask`
     // commands to log "database connection is not open" and lose the memory.

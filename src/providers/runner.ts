@@ -82,6 +82,32 @@ function collectText(value: unknown, output: string[]): void {
   }
 }
 
+/** Token accounting for one run, as the CLI itself reported it. Absent when the CLI printed none. */
+export interface RunUsage { input: number; cached: number; output: number }
+
+/**
+ * Codex closes a turn with `{"type":"turn.completed","usage":{input_tokens,cached_input_tokens,
+ * output_tokens}}`; Claude's stream-json `result` event carries `usage` with
+ * `input_tokens`, `cache_read_input_tokens` and `output_tokens`. Neither CLI bills in money on a
+ * subscription, so tokens are the honest unit the dashboard can show.
+ */
+export function providerUsage(events: ProviderEvent[], provider: ProviderName): RunUsage | undefined {
+  const num = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const parsed = events[index]?.parsed;
+    if (!parsed) continue;
+    const usage = parsed.usage as Record<string, unknown> | undefined;
+    if (!usage || typeof usage !== "object") continue;
+    if (provider === "codex" && parsed.type === "turn.completed") {
+      return { input: num(usage.input_tokens), cached: num(usage.cached_input_tokens), output: num(usage.output_tokens) };
+    }
+    if (provider === "claude" && parsed.type === "result") {
+      return { input: num(usage.input_tokens), cached: num(usage.cache_read_input_tokens), output: num(usage.output_tokens) };
+    }
+  }
+  return undefined;
+}
+
 /** Codex JSONL can contain several commentary messages before its final schema-bound answer. */
 export function finalCodexAgentMessage(events: ProviderEvent[]): string | undefined {
   for (let index = events.length - 1; index >= 0; index -= 1) {
@@ -763,11 +789,14 @@ export class ProviderRunner {
           }
           this.sessions().markUsed(options.surface, provider);
         }
+        const usage = providerUsage(result.events, provider);
         await this.activity.record("run.completed", `${provider} completed`, {
           durationMs: result.durationMs,
           firstEventMs: result.firstEventMs ?? null,
           firstTextMs: result.firstTextMs ?? null,
           tier: options.tier,
+          model: route.model ?? null,
+          ...(usage ? { usage } : {}),
           promptBuildMs: options.promptBuildMs ?? null,
           promptChars: prompt.length,
           ...(handoff ? { failoverFrom: handoff.from } : {}),

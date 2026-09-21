@@ -41,7 +41,14 @@ export type ActivityKind =
   | "social.posted"
   | "gmail.drafted"
   /** A catalogue/knowledge source was indexed (Kelly: a supplier catalogue import). */
-  | "knowledge.indexed";
+  | "knowledge.indexed"
+  /** Voice: a note was transcribed, armed for a typed yes, confirmed, answered, dropped, or failed. */
+  | "voice.transcribed"
+  | "voice.pending"
+  | "voice.confirmed"
+  | "voice.answered"
+  | "voice.dropped"
+  | "voice.failed";
 
 export interface ActivityEvent {
   id: string;

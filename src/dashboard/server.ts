@@ -13,6 +13,9 @@ import { sharedAgentRegistry } from "../orchestration/agent-registry.ts";
 import { domainPolicy, setDomainEnabled } from "../knowledge/gate.ts";
 import { executeExplicitApproval } from "../approval/explicit.ts";
 import { LocalVoiceService, VoiceError, voiceConfigFromEnv, type VoiceLanguage } from "../voice/index.ts";
+import { isTranscriptState, isTranscriptSurface, readVoiceSettings, updateVoiceSettings } from "../voice/transcripts.ts";
+import { summarizeUsage } from "./usage.ts";
+import { limitState } from "../providers/limits.ts";
 import { ConversationStore, type ChatAttachmentRef } from "./conversations.ts";
 import { listSkills, loadSkill, skillGuidanceBlock } from "./skills.ts";
 import {
@@ -43,6 +46,21 @@ function serializeConversationRun<T>(conversationId: string, operation: () => Pr
     if (conversationRunChains.get(conversationId) === settled) conversationRunChains.delete(conversationId);
   });
   return run;
+}
+
+/** Seconds of audio in a RIFF/WAVE buffer, from its own fmt/data chunks; undefined when unreadable. */
+function wavDurationSeconds(audio: Buffer): number | undefined {
+  try {
+    let offset = 12; let byteRate = 0; let dataLength = 0;
+    while (offset + 8 <= audio.length) {
+      const name = audio.toString("ascii", offset, offset + 4);
+      const size = audio.readUInt32LE(offset + 4);
+      if (name === "fmt " && size >= 16) byteRate = audio.readUInt32LE(offset + 16);
+      if (name === "data") dataLength = Math.min(size, audio.length - offset - 8);
+      offset += 8 + size + (size & 1);
+    }
+    return byteRate > 0 && dataLength > 0 ? Math.round((dataLength / byteRate) * 10) / 10 : undefined;
+  } catch { return undefined; }
 }
 
 function sseWrite(response: http.ServerResponse, event: string, data: unknown): void {
@@ -138,12 +156,6 @@ async function observatoryHtml(): Promise<string> {
   return observatoryHtmlCache;
 }
 
-const LOGS_HTML_PATH = fileURLToPath(new URL("./logs.html", import.meta.url));
-let logsHtmlCache: string | null = null;
-async function logsHtml(): Promise<string> {
-  logsHtmlCache ??= await fs.readFile(LOGS_HTML_PATH, "utf8");
-  return logsHtmlCache;
-}
 
 // The chat page ships as a standalone .html for the same escaping-safety reason
 // as the observatory above.
@@ -579,8 +591,8 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         return;
       }
       if (request.method === "GET" && (url.pathname === "/logs" || url.pathname === "/logs/")) {
-        response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
-        response.end(await logsHtml());
+        // The log is a pane of the switchboard now; the hash is the route.
+        redirect(response, "/#logs");
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/logs") {
@@ -829,6 +841,61 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       if (!localOrigin(request)) { json(response, 403, { error: "cross-origin request rejected" }); return; }
       // Below the CSRF line with every other mutating route: the login form posts
       // same-origin, so the localOrigin check above is exactly the protection it wants.
+      if (request.method === "GET" && route === "/api/voice/settings") {
+        json(response, 200, { settings: readVoiceSettings(runtime.config.settingsPath), stats: runtime.voiceTranscripts.stats() });
+        return;
+      }
+      if (request.method === "POST" && route === "/api/voice/settings") {
+        const input = await body(request);
+        const before = readVoiceSettings(runtime.config.settingsPath);
+        const settings = updateVoiceSettings(runtime.config.settingsPath, {
+          ...(typeof input.retentionDays === "number" ? { retentionDays: input.retentionDays } : {}),
+          ...(typeof input.recordAudio === "boolean" ? { recordAudio: input.recordAudio } : {}),
+          ...(typeof input.audioRetentionDays === "number" ? { audioRetentionDays: input.audioRetentionDays } : {}),
+        });
+        // "Recording off" must mean nothing on disk, not just nothing new.
+        const discarded = before.recordAudio && !settings.recordAudio ? runtime.voiceTranscripts.discardAllAudio() : 0;
+        const pruned = runtime.voiceTranscripts.prune();
+        await runtime.activity.record("workflow.completed", `Voice retention updated: text ${settings.retentionDays}d, audio ${settings.recordAudio ? `on, ${settings.audioRetentionDays}d` : "off"}`, { voice: true, settings, discarded, pruned });
+        json(response, 200, { settings, discarded, pruned, stats: runtime.voiceTranscripts.stats() });
+        return;
+      }
+      if (request.method === "GET" && route === "/api/voice/transcripts") {
+        const surface = url.searchParams.get("surface");
+        const state = url.searchParams.get("state");
+        const language = url.searchParams.get("language");
+        const transcripts = runtime.voiceTranscripts.list({
+          ...(isTranscriptSurface(surface) ? { surface } : {}),
+          ...(isTranscriptState(state) ? { state } : {}),
+          ...(language ? { language } : {}),
+          ...(url.searchParams.get("q") ? { q: url.searchParams.get("q") ?? undefined } : {}),
+          ...(url.searchParams.get("sparse") === "true" ? { sparse: true } : {}),
+          limit: Number(url.searchParams.get("limit")) || 100,
+        }).map((record) => ({ ...record, audioPath: undefined, audio: Boolean(record.audioPath) }));
+        json(response, 200, { transcripts, stats: runtime.voiceTranscripts.stats(), settings: readVoiceSettings(runtime.config.settingsPath) });
+        return;
+      }
+      const transcriptRoute = route.match(/^\/api\/voice\/transcripts\/([A-Za-z0-9-]{1,64})$/);
+      if (request.method === "GET" && transcriptRoute) {
+        const record = runtime.voiceTranscripts.get(transcriptRoute[1]);
+        if (!record) { json(response, 404, { error: "transcript not found" }); return; }
+        json(response, 200, { ...record, audioPath: undefined, audio: Boolean(runtime.voiceTranscripts.audioPath(record.id)) });
+        return;
+      }
+      const audioRoute = route.match(/^\/api\/voice\/audio\/([A-Za-z0-9-]{1,64})$/);
+      if (request.method === "GET" && audioRoute) {
+        const audioPath = runtime.voiceTranscripts.audioPath(audioRoute[1]);
+        if (!audioPath) { json(response, 404, { error: "no recording is kept for this transcript" }); return; }
+        const audio = await fs.readFile(audioPath);
+        response.writeHead(200, { "content-type": "audio/wav", "content-length": audio.length, "cache-control": "no-store", "x-content-type-options": "nosniff" });
+        response.end(audio);
+        return;
+      }
+      if (request.method === "GET" && route === "/api/usage") {
+        const events = await runtime.activity.list(5000).catch(() => []);
+        json(response, 200, summarizeUsage(events, limitState()));
+        return;
+      }
       if (request.method === "POST" && route === "/api/voice/transcribe") {
         if (voiceBusy) { json(response, 429, { error: "Another voice operation is in progress. Please wait." }); return; }
         const mime = (request.headers["content-type"] || "").split(";")[0].trim().toLowerCase();
@@ -844,8 +911,28 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           let language: VoiceLanguage = "hi-en";
           const languageHeader = request.headers["x-kelly-voice-language"];
           if (typeof languageHeader === "string" && ["auto", "hi", "en", "hi-en"].includes(languageHeader)) language = languageHeader;
-          const result = await voice.transcribe(audio, { language });
-          json(response, 200, result);
+          const started = Date.now();
+          const durationSeconds = wavDurationSeconds(audio);
+          let result: { text: string; language?: string };
+          try {
+            result = await voice.transcribe(audio, { language });
+          } catch (error) {
+            // A disabled adapter is configuration, not a failed interaction: nothing to keep.
+            if (!(error instanceof VoiceError && error.code === "disabled")) {
+              runtime.voiceTranscripts.record({ surface: "counter", text: "", state: "failed", durationSeconds, bytes: audio.length, sttMs: Date.now() - started, error: error instanceof Error ? error.message : String(error) });
+              await runtime.activity.record("voice.failed", "Counter voice note could not be transcribed", { voice: true, counter: true, code: error instanceof VoiceError ? error.code : undefined }).catch(() => undefined);
+            }
+            throw error;
+          }
+          const sttMs = Date.now() - started;
+          const record = runtime.voiceTranscripts.record({ surface: "counter", text: result.text, language: result.language, durationSeconds, bytes: audio.length, sttMs });
+          const audioKept = Boolean(runtime.voiceTranscripts.saveAudio(record.id, audio));
+          // Timing and size only: the words stay in the transcript store, never in the log.
+          await runtime.activity.record("voice.transcribed", "Counter voice note transcribed", {
+            voice: true, counter: true, chars: result.text.length, bytes: audio.length, sttMs, audioKept,
+            ...(durationSeconds !== undefined ? { durationSeconds } : {}), ...(result.language ? { language: result.language } : {}),
+          }).catch(() => undefined);
+          json(response, 200, { ...result, transcriptId: record.id, audioKept });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Transcription is unavailable.";
           const status = message.includes("too large") ? 413 : error instanceof VoiceError && error.code === "timeout" ? 504 : 503;
@@ -938,6 +1025,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         if (!prompt && !attachmentRefs.length) { json(response, 400, { error: "prompt is required" }); return; }
         const requestedSkill = typeof input.skill === "string" ? input.skill.trim() : "";
         const voiceMode = input.voice === true;
+        const transcriptId = voiceMode && typeof input.transcriptId === "string" && /^[A-Za-z0-9-]{1,64}$/.test(input.transcriptId) ? input.transcriptId : undefined;
         const skill = requestedSkill ? await loadSkill(runtime.config.rootDir, requestedSkill) : undefined;
         if (requestedSkill && !skill) { json(response, 400, { error: `Unknown skill: ${requestedSkill}` }); return; }
         const requestedConversation = typeof input.conversationId === "string" ? input.conversationId.trim() : "";
@@ -946,6 +1034,11 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           : await store.ensureActive();
         if (!conversation) { json(response, 404, { error: "conversation not found" }); return; }
         const generation = store.generation(conversation.id);
+        // A counter voice turn names its transcript so the history shows what became of the words.
+        const settleTranscript = (state: "confirmed" | "answered", reply?: string): void => {
+          if (!transcriptId) return;
+          try { runtime.voiceTranscripts.update(transcriptId, { state, conversationId: conversation.id, ...(reply !== undefined ? { reply } : {}) }); } catch { /* history is display data */ }
+        };
         const userMessage = {
           role: "user",
           text: prompt,
@@ -967,6 +1060,9 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           // write after writeHead made the outer catch call json() on a headers-sent
           // response, and that second throw killed the whole process (repl included).
           await store.append(conversation.id, [userMessage], { ifGeneration: generation });
+          // The owner reviewed the words and pressed send: that is the counter's typed confirmation.
+          settleTranscript("confirmed");
+          if (transcriptId) void runtime.activity.record("voice.confirmed", "Counter transcript reviewed and sent to Kelly", { voice: true, counter: true }).catch(() => undefined);
           return store.generation(conversation.id) === generation;
         };
         const composed = [
@@ -1061,6 +1157,8 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
               ...(turn.delegated ? [{ role: "henry" as const, text: turn.acknowledgement, at: new Date().toISOString() }] : []),
               { role: "henry", text: result.response, at: new Date().toISOString() },
             ], { ifGeneration: generation });
+            settleTranscript("answered", result.response);
+            if (transcriptId) void runtime.activity.record("voice.answered", "Kelly answered a counter voice note", { voice: true, counter: true, chars: result.response.length }).catch(() => undefined);
             sseWrite(response, "done", { response: result.response, provider: result.provider, durationMs: result.durationMs, conversationId: conversation.id });
           } catch (error) {
             sseWrite(response, "error", { error: error instanceof Error ? error.message : String(error) });

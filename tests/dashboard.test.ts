@@ -266,9 +266,11 @@ test("logs page serves and /api/logs returns the activity journal newest-first",
 
   const page = await fetch(`${base}/logs`);
   assert.equal(page.status, 200);
+  assert.match(page.url, /\/#logs$|\/$/, "the log is a pane of the switchboard; /logs lands on it");
   const pageText = await page.text();
-  assert.match(pageText, /Henry \/ event log/);
-  assert.match(pageText, /data-cat="telegram"/);
+  assert.match(pageText, /switchboard/);
+  assert.match(pageText, /data-f="telegram"/);
+  assert.match(pageText, /id="pane-logs"/);
 
   const logs = await (await fetch(`${base}/api/logs?limit=50`)).json() as { events: Array<{ kind: string; message: string }> };
   assert.ok(logs.events.length >= 2);

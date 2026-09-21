@@ -196,7 +196,9 @@ export interface BridgeStats {
 export interface BridgeVoice {
   /** False when local transcription is not configured; voice notes are then declined politely. */
   readonly enabled: boolean;
-  transcribe(meta: TelegramAudioMeta): Promise<{ text: string; language?: string; bytes: number; durationSeconds?: number }>;
+  transcribe(meta: TelegramAudioMeta): Promise<{ text: string; language?: string; bytes: number; durationSeconds?: number; id?: string }>;
+  /** Optional: what became of a kept transcript, so the owner's history stays truthful. */
+  settle?: (id: string, state: "confirmed" | "answered" | "dropped" | "expired", reply?: string) => void;
   /**
    * Optional spoken reply, used ONLY for a turn the owner spoke. Best effort: it resolves
    * false rather than throwing, because the text answer has already been delivered.
@@ -239,7 +241,7 @@ export interface BridgeDeps {
  * A legacy deferred row carries no `kind` and is read back as text.
  */
 type Pending =
-  | { kind?: "text"; updateId: number; text: string; spoken?: boolean }
+  | { kind?: "text"; updateId: number; text: string; spoken?: boolean; voiceId?: string }
   | { kind: "voice"; updateId: number; meta: TelegramAudioMeta };
 
 export class TelegramBridge implements PumpConsumer {
@@ -328,11 +330,15 @@ export class TelegramBridge implements PumpConsumer {
       if (pendingVoice !== undefined) {
         if (VOICE_CONFIRM.test(text)) {
           this.counters.voiceConfirmed += 1;
+          this.settleVoice(pendingVoice.id, "confirmed");
+          void this.activity.record("voice.confirmed", "Telegram transcript confirmed by a typed yes", { telegram: true, voice: true }).catch(() => undefined);
           this.resumeDeferred();
-          this.enqueue({ updateId: update.update_id, text: pendingVoice, spoken: true });
+          this.enqueue({ updateId: update.update_id, text: pendingVoice.text, spoken: true, voiceId: pendingVoice.id });
           continue;
         }
         this.counters.voiceDiscarded += 1;
+        this.settleVoice(pendingVoice.id, "dropped");
+        void this.activity.record("voice.dropped", "Telegram transcript dropped by a typed reply", { telegram: true, voice: true }).catch(() => undefined);
         const cancelled = VOICE_CANCEL.test(text);
         this.notice(cancelled
           ? "Dropped that transcript. Nothing from the voice note ran."
@@ -428,6 +434,7 @@ export class TelegramBridge implements PumpConsumer {
 
     const stopTyping = this.startTyping();
     this.thinking = true;
+    const started = this.deps.now?.() ?? Date.now();
     let result: Awaited<ReturnType<BridgeVoice["transcribe"]>>;
     try {
       result = await voice.transcribe(item.meta);
@@ -439,7 +446,7 @@ export class TelegramBridge implements PumpConsumer {
       const sentence = safeSentence(error);
       await this.reply(`${note}${sentence} Send it as text and I will pick it up from there.`);
       // The transcript, the file id, the token and the download URL are all absent on purpose.
-      await this.activity.record("run.failed", "Telegram voice note could not be transcribed", { telegram: true, voice: true, code: code || undefined }).catch(() => undefined);
+      await this.activity.record("voice.failed", "Telegram voice note could not be transcribed", { telegram: true, voice: true, code: code || undefined }).catch(() => undefined);
       return;
     } finally {
       this.thinking = false;
@@ -447,7 +454,8 @@ export class TelegramBridge implements PumpConsumer {
     }
 
     this.counters.voiceTranscribed += 1;
-    this.storePendingVoice(result.text);
+    const sttMs = (this.deps.now?.() ?? Date.now()) - started;
+    this.storePendingVoice(result.text, result.id);
     await this.reply([
       `${note}🎤 I heard:`,
       "",
@@ -455,12 +463,18 @@ export class TelegramBridge implements PumpConsumer {
       "",
       'Reply "yes" to run that, or just type what you meant instead. I will not act on a voice note until you confirm it in text.',
     ].join("\n"));
-    // Length and size only: the words themselves stay out of the activity log.
-    await this.activity.record("run.completed", "Telegram bridge transcribed a voice note", {
-      telegram: true, voice: true, chars: result.text.length, bytes: result.bytes,
+    // Length, size and timing only: the words themselves stay out of the activity log.
+    await this.activity.record("voice.transcribed", "Telegram bridge transcribed a voice note", {
+      telegram: true, voice: true, chars: result.text.length, bytes: result.bytes, sttMs,
       ...(result.durationSeconds !== undefined ? { durationSeconds: result.durationSeconds } : {}),
       ...(result.language ? { language: result.language } : {}),
     });
+    await this.activity.record("voice.pending", "Telegram transcript armed, waiting for a typed yes", { telegram: true, voice: true }).catch(() => undefined);
+  }
+
+  private settleVoice(id: string | undefined, state: "confirmed" | "answered" | "dropped" | "expired", reply?: string): void {
+    if (!id || !this.deps.voice?.settle) return;
+    try { this.deps.voice.settle(id, state, reply); } catch { /* history is display data; never fail a turn over it */ }
   }
 
   /**
@@ -479,9 +493,9 @@ export class TelegramBridge implements PumpConsumer {
   }
 
   /** Arms one transcript for confirmation, replacing any older one. */
-  private storePendingVoice(text: string): void {
+  private storePendingVoice(text: string, id?: string): void {
     try {
-      this.store.setMeta(PENDING_VOICE_KEY, JSON.stringify({ text, createdAt: this.deps.now?.() ?? Date.now() }));
+      this.store.setMeta(PENDING_VOICE_KEY, JSON.stringify({ text, createdAt: this.deps.now?.() ?? Date.now(), ...(id ? { id } : {}) }));
     } catch { /* best effort: without the row the transcript simply expires unconfirmed */ }
   }
 
@@ -489,18 +503,19 @@ export class TelegramBridge implements PumpConsumer {
    * Takes the armed transcript, if any, and always clears it. An expired one is returned as
    * `undefined` so a stale transcript can never be run by a much later "yes".
    */
-  private takePendingVoice(): string | undefined {
+  private takePendingVoice(): { text: string; id?: string } | undefined {
     const raw = this.store.getMeta(PENDING_VOICE_KEY);
     if (!raw) return undefined;
     this.store.deleteMeta(PENDING_VOICE_KEY);
     try {
-      const parsed = JSON.parse(raw) as { text?: unknown; createdAt?: unknown };
+      const parsed = JSON.parse(raw) as { text?: unknown; createdAt?: unknown; id?: unknown };
       const text = typeof parsed.text === "string" ? parsed.text.trim() : "";
       const createdAt = typeof parsed.createdAt === "number" ? parsed.createdAt : 0;
+      const id = typeof parsed.id === "string" ? parsed.id : undefined;
       if (!text) return undefined;
       const now = this.deps.now?.() ?? Date.now();
-      if (now - createdAt > VOICE_CONFIRM_TTL_MS) return undefined;
-      return text;
+      if (now - createdAt > VOICE_CONFIRM_TTL_MS) { this.settleVoice(id, "expired"); return undefined; }
+      return { text, ...(id ? { id } : {}) };
     } catch { return undefined; }
   }
 
@@ -600,6 +615,10 @@ export class TelegramBridge implements PumpConsumer {
     // Spoken reply: only for a turn the owner actually spoke, only after the text is
     // delivered, and never allowed to fail the turn.
     if (sent && item.spoken && this.deps.voice?.speak) this.speakAnswer(answer);
+    if (item.voiceId) {
+      this.settleVoice(item.voiceId, "answered", answer);
+      void this.activity.record("voice.answered", "Kelly answered a confirmed voice note", { telegram: true, voice: true, chars: answer.length }).catch(() => undefined);
+    }
     await this.activity.record(sent ? "run.completed" : "run.failed", `Telegram bridge ${sent ? "replied to" : "failed to reach"} Luvish`, {
       telegram: true, chars: answer.length,
     });

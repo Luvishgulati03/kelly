@@ -170,7 +170,7 @@
       const audio = toWav(parts,rate);
       const response = await fetch('/api/voice/transcribe',{method:'POST',credentials:'same-origin',headers:{'content-type':'audio/wav','x-kelly-voice-language':language.value},body:audio});
       const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Transcription failed.');
-      transcript.value = data.text || ''; transcript.focus(); state.textContent = 'Transcript ready to review'; detail.textContent = 'Edit it here; it has not been sent.'; updateDraftButtons();
+      transcript.value = data.text || ''; transcript.dataset.transcriptId = data.transcriptId || ''; transcript.focus(); state.textContent = 'Transcript ready to review'; detail.textContent = data.audioKept ? 'Edit it here; it has not been sent. The recording was kept, as you have recording switched on.' : 'Edit it here; it has not been sent.'; updateDraftButtons();
       if (!transcript.value) say('No words detected. You can try recording again.');
     } catch (error) { state.textContent = 'Transcription failed'; detail.textContent = error.message || 'Please try again.'; say(error.message || 'Transcription failed.',true); }
     finally { setBusy(false); }
@@ -194,7 +194,8 @@
     if (!window.confirm('This reviewed text will be added to the owner’s regular chat and memory context (not an isolated customer thread). Continue?')) return;
     setBusy(true); say('Sending this reviewed text to your regular chat…');
     try {
-      const response = await fetch('/api/chat/send',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({prompt,voice:true})});
+      const transcriptId = transcript.dataset.transcriptId || undefined;
+      const response = await fetch('/api/chat/send',{method:'POST',credentials:'same-origin',headers:{'content-type':'application/json'},body:JSON.stringify({prompt,voice:true,...(transcriptId?{transcriptId}:{})})});
       if (!response.ok) { let data={}; try { data=await response.json(); } catch {} throw new Error(data.error || 'Chat request failed.'); }
       const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = '', finalText = '';
       while (true) { const {value,done}=await reader.read(); if(done) break; pending += decoder.decode(value,{stream:true}); const blocks=pending.split('\n\n'); pending=blocks.pop(); for(const block of blocks) { const ev=block.match(/^event: (.+)$/m)?.[1], raw=block.match(/^data: (.+)$/m)?.[1]; if(!raw) continue; const data=JSON.parse(raw); if(ev==='token') finalText += data.text || ''; if(ev==='done' && data.response) finalText=data.response; if(ev==='error') throw new Error(data.error || 'Chat failed.'); } }

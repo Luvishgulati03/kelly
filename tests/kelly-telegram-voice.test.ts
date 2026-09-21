@@ -281,7 +281,7 @@ test("a failed transcription replies once and never reaches the brain", async ()
   assert.match(h.sent[0], /could not convert that audio/);
   assert.deepEqual(h.asked, []);
   assert.equal(h.bridge.stats().voiceRejected, 1);
-  const failure = (await h.activity.list(50)).find((event) => event.kind === "run.failed");
+  const failure = (await h.activity.list(50)).find((event) => event.kind === "voice.failed");
   assert.ok(failure, "the failure is recorded");
   assert.equal(failure?.metadata?.code, "conversion_failed");
 });
