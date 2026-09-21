@@ -3,25 +3,27 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Henry — Chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@400;600&display=swap">
+<title>Henry · chat</title>
 <style>
   :root {
-    --bg: #1f1e1b;
-    --surface: #262522;
-    --surface-2: #2d2c28;
-    --composer: #30302a;
-    --border: #3d3c36;
-    --border-soft: #34332e;
-    --text: #eceae2;
-    --text-dim: #a8a69b;
-    --text-faint: #7d7b71;
-    --accent: #34d399;
-    --accent-dim: #1d5c44;
-    --danger: #f87171;
-    --code-bg: #191813;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    --serif: ui-serif, "New York", Georgia, "Times New Roman", serif;
-    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --bg: #141516;
+    --surface: #1b1e20;
+    --surface-2: #22262a;
+    --composer: #1b1e20;
+    --border: #3c4348;
+    --border-soft: #2f3539;
+    --text: #f3efe6;
+    --text-dim: #c0bab0;
+    --text-faint: #847e75;
+    --accent: #d08a4b;
+    --accent-dim: #7a4f2a;
+    --danger: #f0616d;
+    --code-bg: #0f1011;
+    --sans: "Atkinson Hyperlegible", "Helvetica Neue", Arial, sans-serif;
+    --serif: "Big Shoulders Display", "Arial Narrow", Impact, sans-serif;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
@@ -78,7 +80,7 @@
   .composer { position: relative; }
   #slash {
     position: absolute; left: 8px; right: 8px; bottom: calc(100% + 8px);
-    background: var(--surface); border: 1px solid var(--border); border-radius: 14px;
+    background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
     box-shadow: 0 10px 30px rgba(0,0,0,.45); overflow: hidden; max-height: 260px; overflow-y: auto; z-index: 20;
   }
   #slash[hidden] { display: none; }
@@ -92,7 +94,7 @@
   .composer-top:empty { display: none; }
   .skillchip {
     display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-family: var(--mono);
-    color: var(--accent); border: 1px solid var(--accent-dim); background: rgba(52,211,153,.08);
+    color: var(--accent); border: 1px solid var(--accent-dim); background: rgba(208,138,75,.10);
     padding: 3px 6px 3px 10px; border-radius: 999px;
   }
   .skillchip button { border: none; background: none; color: inherit; cursor: pointer; font-size: 13px; line-height: 1; }
@@ -128,16 +130,16 @@
     flex: 0 0 auto;
   }
   .brand { display: flex; align-items: center; gap: 10px; font-weight: 600; letter-spacing: .2px; }
-  .brand .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .brand .dot { width: 22px; height: 22px; border-radius: 6px; background: linear-gradient(160deg,#f0b072,var(--accent) 70%); display: inline-grid; place-items: center; font: 800 13px var(--serif); color: #1a1108; }
   .brand small { color: var(--text-faint); font-weight: 400; }
   .header-right { display: flex; align-items: center; gap: 10px; }
   .chip {
     font-size: 11.5px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px;
-    padding: 3px 10px; background: var(--surface); font-family: var(--mono);
+    padding: 3px 10px; background: var(--surface); font-family: var(--mono); text-decoration: none;
   }
   .btn {
     appearance: none; border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
-    border-radius: 10px; padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: var(--sans);
+    border-radius: 6px; padding: 6px 12px; font-size: 13px; cursor: pointer; font-family: var(--sans);
     transition: color .15s, border-color .15s, background .15s;
   }
   .btn:hover { color: var(--text); border-color: var(--text-faint); }
@@ -152,12 +154,12 @@
     margin-top: 16vh; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 14px;
     animation: rise .5s ease both;
   }
-  .empty h1 { font-family: var(--serif); font-weight: 500; font-size: 34px; }
+  .empty h1 { font-family: var(--serif); font-weight: 800; text-transform: uppercase; letter-spacing: .01em; font-size: 34px; }
   .empty p { color: var(--text-dim); font-size: 15px; }
   .suggestions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-top: 10px; max-width: 560px; }
   .suggestion {
     border: 1px solid var(--border); background: var(--surface); color: var(--text-dim);
-    padding: 9px 14px; border-radius: 14px; font-size: 13.5px; cursor: pointer; transition: all .15s;
+    padding: 9px 14px; border-radius: 10px; font-size: 13.5px; cursor: pointer; transition: all .15s;
   }
   .suggestion:hover { color: var(--text); border-color: var(--accent-dim); background: var(--surface-2); transform: translateY(-1px); }
 
@@ -168,21 +170,21 @@
   .row.user { align-items: flex-end; }
   .row.user .bubble {
     background: var(--composer); border: 1px solid var(--border-soft);
-    padding: 11px 16px; border-radius: 18px 18px 4px 18px; max-width: 82%;
+    padding: 11px 16px; border-radius: 10px 10px 4px 10px; max-width: 82%;
     font-size: 15px; line-height: 1.55; white-space: pre-wrap; word-wrap: break-word;
   }
 
   .row.henry { align-items: stretch; }
   .henry-head { display: flex; align-items: center; gap: 9px; }
   .avatar {
-    width: 26px; height: 26px; border-radius: 50%; flex: 0 0 auto;
-    background: radial-gradient(circle at 30% 30%, #4ade80, #15803d);
+    width: 22px; height: 22px; border-radius: 6px; flex: 0 0 auto;
+    background: linear-gradient(160deg, #f0b072, var(--accent) 70%);
     display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 700; color: #052e16;
+    font: 800 13px var(--serif); color: #1a1108;
   }
   .henry-name { font-size: 12.5px; color: var(--text-faint); }
   .prose {
-    font-family: var(--serif); font-size: 16.5px; line-height: 1.68; color: var(--text);
+    font-family: var(--sans), "Noto Sans Devanagari"; font-size: 16.5px; line-height: 1.68; color: var(--text);
     padding-left: 35px; word-wrap: break-word;
   }
   .prose > * + * { margin-top: .85em; }
@@ -198,7 +200,7 @@
   .codeblock-bar button { border: none; background: none; color: var(--text-faint); font-size: 11.5px; cursor: pointer; font-family: var(--sans); }
   .codeblock-bar button:hover { color: var(--text); }
   .codeblock pre { padding: 13px 14px; overflow-x: auto; }
-  .codeblock code { font-family: var(--mono); font-size: 13px; line-height: 1.55; background: none; border: none; padding: 0; color: #d5f5e3; }
+  .codeblock code { font-family: var(--mono); font-size: 13px; line-height: 1.55; background: none; border: none; padding: 0; color: var(--text); }
 
   .thinking { display: flex; align-items: center; gap: 10px; padding-left: 35px; color: var(--text-faint); font-size: 14px; }
   .thinking .pulse { display: inline-flex; gap: 4px; }
@@ -214,7 +216,7 @@
   .composer-zone { flex: 0 0 auto; padding: 0 20px 18px; background: linear-gradient(transparent, var(--bg) 38%); }
   .composer {
     max-width: 768px; margin: 0 auto; background: var(--composer);
-    border: 1px solid var(--border); border-radius: 22px; padding: 12px 14px 10px;
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px 10px;
     box-shadow: 0 8px 28px rgba(0,0,0,.35);
     transition: border-color .2s;
   }
@@ -228,12 +230,12 @@
   .hint { font-size: 11.5px; color: var(--text-faint); }
   #send {
     width: 34px; height: 34px; border-radius: 50%; border: none; cursor: pointer;
-    background: var(--accent); color: #052e16; display: flex; align-items: center; justify-content: center;
+    background: var(--accent); color: #1a1108; display: flex; align-items: center; justify-content: center;
     transition: transform .12s, background .15s, opacity .15s;
   }
   #send:hover { transform: scale(1.06); }
   #send:disabled { background: var(--surface-2); color: var(--text-faint); cursor: default; transform: none; }
-  #send.stop { background: var(--danger); color: #450a0a; }
+  #send.stop { background: var(--danger); color: #2a0b0f; }
   #send svg { width: 17px; height: 17px; }
 
   #jump {
@@ -278,6 +280,7 @@
     <span class="dot"></span>Henry <small>· chat</small>
   </div>
   <div class="header-right">
+    <a href="/" class="chip">Switchboard</a>
     <span class="chip" id="provider">…</span>
     <a class="btn" href="/" title="Mission control">Dashboard</a>
   </div>
@@ -456,7 +459,7 @@
   function addHenryShell() {
     var row = document.createElement("div");
     row.className = "row henry";
-    row.innerHTML = '<div class="henry-head"><div class="avatar">H</div><span class="henry-name">Henry</span></div>' +
+    row.innerHTML = '<div class="henry-head"><div class="avatar">' + 'Henry'.charAt(0) + '</div><span class="henry-name">Henry</span></div>' +
       '<div class="thinking"><span class="pulse"><i></i><i></i><i></i></span> Henry is thinking…</div>' +
       '<div class="prose" style="display:none"></div>';
     thread.appendChild(row);

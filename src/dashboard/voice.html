@@ -4,28 +4,30 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="dark">
-<title>Kelly — Voice</title>
+<title>Kelly · speak</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@400;600&display=swap">
 <style>
-  :root { --bg:#1f1e1b; --surface:#262522; --surface2:#2d2c28; --border:#3d3c36; --borderSoft:#34332e; --text:#eceae2; --dim:#a8a69b; --faint:#7d7b71; --accent:#34d399; --accentDim:#1d5c44; --danger:#f87171; --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; --mono:ui-monospace,"SF Mono",Menlo,monospace; }
+  :root { --bg:#141516; --surface:#1b1e20; --surface2:#22262a; --border:#3c4348; --borderSoft:#2f3539; --text:#f3efe6; --dim:#c0bab0; --faint:#847e75; --accent:#d08a4b; --accentDim:#7a4f2a; --danger:#f0616d; --sans:"Atkinson Hyperlegible","Helvetica Neue",Arial,sans-serif; --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace; --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif; --hindi:"Noto Sans Devanagari","Atkinson Hyperlegible",sans-serif; }
   * { box-sizing:border-box; }
   body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font:15px/1.55 var(--sans); }
   header { height:60px; border-bottom:1px solid var(--borderSoft); display:flex; align-items:center; justify-content:space-between; padding:0 max(20px,calc((100vw - 1000px)/2)); }
   .brand { display:flex; align-items:center; gap:10px; font-weight:650; }
-  .dot { width:8px; height:8px; border-radius:50%; background:var(--accent); }
+  .dot { width:22px; height:22px; border-radius:6px; background:linear-gradient(160deg,#f0b072,var(--accent) 70%); display:inline-grid; place-items:center; font:800 13px var(--display); color:#1a1108; }
   a { color:var(--dim); text-decoration:none; } a:hover { color:var(--text); }
   main { width:min(760px,100%); margin:0 auto; padding:48px 22px 60px; }
   .eyebrow { color:var(--faint); font:11px var(--mono); letter-spacing:.12em; text-transform:uppercase; }
-  h1 { margin:8px 0 5px; font-size:clamp(28px,5vw,38px); letter-spacing:-.04em; line-height:1.15; }
+  h1 { margin:8px 0 5px; font:800 clamp(30px,5vw,40px)/1.05 var(--display); text-transform:uppercase; letter-spacing:.01em; }
   .intro { color:var(--dim); margin:0 0 26px; }
-  .panel { background:var(--surface); border:1px solid var(--borderSoft); border-radius:18px; padding:22px; }
+  .panel { background:var(--surface); border:1px solid var(--borderSoft); border-radius:10px; padding:22px; }
   .controls { display:flex; align-items:center; gap:16px; flex-wrap:wrap; }
   button { font:inherit; cursor:pointer; }
   button:focus-visible, textarea:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
-  .mic { flex:0 0 108px; width:108px; height:108px; border-radius:50%; border:1px solid #42886d; color:#052e16; background:var(--accent); font-size:14px; font-weight:700; touch-action:none; user-select:none; }
+  .mic { flex:0 0 108px; width:108px; height:108px; border-radius:50%; border:1px solid #b8783e; color:#1a1108; background:linear-gradient(160deg,#f0b072,var(--accent) 70%); font:700 14px var(--sans); touch-action:none; user-select:none; box-shadow:0 10px 30px -14px rgba(208,138,75,.9); }
   .mic:hover { filter:brightness(1.08); }
-  .mic[aria-pressed="true"] { background:var(--danger); border-color:#b94e4e; color:#260909; animation:pulse 1.5s ease-in-out infinite; }
+  .mic[aria-pressed="true"] { background:var(--danger); border-color:#c24b57; color:#2a0b0f; animation:pulse 1.5s ease-in-out infinite; }
   .mic:disabled { opacity:.45; cursor:not-allowed; animation:none; }
-  @keyframes pulse { 50% { box-shadow:0 0 0 12px #f8717120; } }
+  @keyframes pulse { 50% { box-shadow:0 0 0 12px rgba(240,97,109,.16); } }
   .status { color:var(--dim); min-width:180px; }
   .status strong { display:block; color:var(--text); font-size:16px; }
   .status small { display:block; color:var(--faint); margin-top:3px; }
@@ -34,13 +36,13 @@
   .section-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; margin:28px 0 9px; }
   label { font-weight:650; }
   .hint { color:var(--faint); font-size:12px; }
-  textarea { display:block; width:100%; min-height:150px; resize:vertical; background:#191813; color:var(--text); border:1px solid var(--border); border-radius:12px; padding:14px; font:16px/1.6 var(--sans); }
+  textarea { display:block; width:100%; min-height:150px; resize:vertical; background:#0f1011; color:var(--text); border:1px solid var(--border); border-radius:8px; padding:14px; font:16px/1.6 var(--hindi); }
   .actions { display:flex; flex-wrap:wrap; gap:9px; margin-top:12px; }
-  .action { min-height:40px; padding:8px 14px; border-radius:10px; border:1px solid var(--border); color:var(--text); background:var(--surface2); }
+  .action { min-height:40px; padding:8px 14px; border-radius:6px; border:1px solid var(--border); color:var(--text); background:var(--surface2); font-weight:700; }
   .action:hover:not(:disabled) { border-color:var(--faint); }
-  .action.primary { background:var(--accent); border-color:var(--accent); color:#052e16; font-weight:700; }
+  .action.primary { background:var(--accent); border-color:var(--accent); color:#1a1108; font-weight:700; }
   .action:disabled { opacity:.45; cursor:not-allowed; }
-  .warning { margin:20px 0 0; border-left:2px solid #c58e48; padding:8px 12px; color:var(--dim); background:#c58e480d; font-size:13px; }
+  .warning { margin:20px 0 0; border-left:3px solid #f0b429; padding:8px 12px; color:var(--dim); background:rgba(240,180,41,.10); font-size:13px; border-radius:0 6px 6px 0; }
   .reply { margin-top:26px; padding-top:18px; border-top:1px solid var(--borderSoft); }
   .reply-text { min-height:54px; margin:8px 0 10px; color:var(--text); white-space:pre-wrap; overflow-wrap:anywhere; }
   #message { min-height:24px; margin:10px 0 0; color:var(--dim); font-size:13px; }
@@ -51,7 +53,7 @@
 </style>
 </head>
 <body>
-<header><div class="brand"><span class="dot" aria-hidden="true"></span><span>Kelly <span style="color:var(--faint);font-weight:400">/ Voice</span></span></div><a href="/chat">Open chat →</a></header>
+<header><div class="brand"><span class="dot" aria-hidden="true">K</span><span>Kelly <span style="color:var(--faint);font-weight:400">/ speak</span></span></div><nav style="display:flex;gap:16px"><a href="/">Switchboard</a><a href="/#voice">Transcripts</a><a href="/chat">Open chat →</a></nav></header>
 <main>
   <div class="eyebrow">Owner voice workspace</div>
   <h1>Speak naturally.</h1>
@@ -64,7 +66,7 @@
     </div>
     <div class="bar" aria-hidden="true"><span id="meter"></span></div>
     <div class="section-head"><label for="transcript">Transcript draft</label><label class="hint" for="language">Language</label></div>
-    <select id="language" aria-label="Speech language" style="background:#191813;color:var(--text);border:1px solid var(--border);border-radius:8px;padding:8px;margin:0 0 10px;font:inherit">
+    <select id="language" aria-label="Speech language" style="background:#0f1011;color:var(--text);border:1px solid var(--border);border-radius:6px;padding:8px;margin:0 0 10px;font:inherit">
       <option value="hi-en" selected>Hindi + English mix</option><option value="auto">Auto-detect</option><option value="hi">Hindi</option><option value="en">English</option>
     </select>
     <textarea id="transcript" lang="hi-Latn" placeholder="Your transcription will appear here. You can edit it before sending."></textarea>
