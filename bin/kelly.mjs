@@ -27,4 +27,12 @@ register();
 const { setActiveProfile } = await import("../src/profile.ts");
 setActiveProfile("kelly");
 
-await import("../src/cli.ts");
+if (process.argv[2] === "start") {
+  const { startKelly } = await import("./start.mjs");
+  await startKelly(process.argv.slice(3)).catch((error) => {
+    console.error(`Kelly startup failed: ${error.message}`);
+    process.exitCode = 1;
+  });
+} else {
+  await import("../src/cli.ts");
+}

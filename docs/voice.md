@@ -56,6 +56,21 @@ conditions must be checked before use.
 
 ## Configuration and operation
 
+For one-command startup, run `kelly start`. On macOS it opens a Terminal window
+for the dashboard and local speech worker. Run `kelly start --foreground` to
+keep them in the current terminal. Ctrl+C stops both, including the Python
+worker. The launcher loads this repository's `.env` from any working directory,
+checks model files and ports, and prints the URLs after both services respond.
+It recognizes already-installed models under `data/voice/models/` and
+`whisper-cli` on PATH. If no worker token is configured, it generates a temporary
+secret shared only by the two child processes, without writing it to `.env`.
+It does not install models or enable a remote tunnel. An occupied port is an
+error rather than permission to kill or replace an existing service.
+
+For the fictional catalogue, see `examples/demo/README.md` and run
+`kelly start --demo`. Demo state and memory are separate; its dashboard uses
+port 7338. Voice recognition quality still needs testing with your own samples.
+
 Copy only the settings needed for the chosen local services into Kelly's private
 `.env`; do not commit real endpoints with credentials, tokens, or customer data.
 The Kokoro worker's URL should be loopback and `KELLY_KOKORO_TOKEN` must be a

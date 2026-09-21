@@ -1,0 +1,17 @@
+SKU,Brand,Name,Category,Unit,Price,GST
+DEMO-A-LED9,DemoAster,LED bulb 9W,Lighting,piece,100,18
+DEMO-B-LED9,DemoBirch,LED bulb 9W,Lighting,piece,120,18
+DEMO-A-FAN,DemoAster,Ceiling fan 1200mm,Appliances,piece,2000,18
+DEMO-B-FAN,DemoBirch,Ceiling fan 1200mm,Appliances,piece,2400,18
+DEMO-A-MCB,DemoAster,MCB 16A,Electrical,piece,250,18
+DEMO-B-MCB,DemoBirch,MCB 16A,Electrical,piece,300,18
+DEMO-A-CABLE,DemoAster,Cable 2.5 sq mm,Electrical,metre,50,18
+DEMO-B-CABLE,DemoBirch,Cable 2.5 sq mm,Electrical,metre,60,18
+DEMO-A-CHAIR,DemoAster,Office chair,Furniture,piece,3000,18
+DEMO-B-CHAIR,DemoBirch,Office chair,Furniture,piece,3500,18
+DEMO-A-DESK,DemoAster,Office desk,Furniture,piece,5000,18
+DEMO-B-DESK,DemoBirch,Office desk,Furniture,piece,5500,18
+DEMO-A-KETTLE,DemoAster,Kettle 1.5L,Appliances,piece,1000,18
+DEMO-B-KETTLE,DemoBirch,Kettle 1.5L,Appliances,piece,1250,18
+DEMO-A-PAPER,DemoAster,A4 paper 500 sheets,Stationery,pack,300,18
+DEMO-B-PAPER,DemoBirch,A4 paper 500 sheets,Stationery,pack,350,18
