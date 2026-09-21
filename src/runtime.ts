@@ -379,7 +379,10 @@ export class HenryRuntime {
    */
   get telegramPump(): TelegramPump {
     if (!this._telegramPump) {
-      this._telegramPump = new TelegramPump(this.config, this.activity, this.standupStore, [this.telegramBridge, this.standupPoller]);
+      // The standup poller is a consumer only where the profile loads it. Kelly excludes it,
+      // and reaching for the getter here threw, which took `kelly dashboard` down with it.
+      const consumers = isServiceExcluded("standupPoller") ? [this.telegramBridge] : [this.telegramBridge, this.standupPoller];
+      this._telegramPump = new TelegramPump(this.config, this.activity, this.standupStore, consumers);
     }
     return this._telegramPump;
   }

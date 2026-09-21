@@ -147,3 +147,19 @@ test("runtime: henry config has profileId", async () => {
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test("kelly profile: the Telegram pump and dashboard command survive the excluded standup poller", async () => {
+  setActiveProfile("kelly");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-pump-"));
+  const runtime = await HenryRuntime.create(root);
+  try {
+    // Reaching the pump used to throw "standupPoller service is not available in this
+    // profile", which crashed `kelly dashboard` before it listened on anything.
+    const state = runtime.startTelegramPump();
+    assert.equal(state.armed, false, "unconfigured Telegram arms nothing");
+    assert.equal(state.standup, false);
+  } finally {
+    runtime.close();
+    setActiveProfile("henry");
+  }
+});
