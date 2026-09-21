@@ -83,8 +83,8 @@ speech recognition and an explicit ffmpeg are configured, and it never installs 
 | `KELLY_TELEGRAM_VOICE_LANGUAGE` | `auto` | Transcription hint. Leave on auto for mixed Hindi and English speech. |
 | `KELLY_TELEGRAM_VOICE_REPLIES` | off | Set to `1` to also receive short answers as a voice note. Needs local synthesis configured. |
 
-These belong in `KELLY.env.example` alongside the other voice settings; that file is owned by
-the main developer, so they are documented here until it is updated.
+The same settings are included in `KELLY.env.example` alongside the other local voice
+configuration.
 
 A transcript is never acted on by itself. Kelly reads it back and waits for a typed yes, so a
 spoken "approve" or "send" cannot authorize anything. Spoken replies are text-first: the
