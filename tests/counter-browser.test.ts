@@ -132,6 +132,13 @@ test("counter page: conversational capture, typing reply, chunked speech, mute a
     assert.equal(uploads[0].readUInt32LE(24), 16000, "16 kHz");
     assert.equal(await page.locator("#heard").textContent(), TRANSCRIPT);
 
+    // The CURRENT reply must be full ink the entire time it is typing, never faded in; only a
+    // PREVIOUS exchange (none exists yet on this first turn) is ever allowed to fade.
+    await page.waitForFunction(() => (document.querySelector("#reply")?.textContent || "").length > 0, { timeout: 15000 });
+    let replyStyle = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById("reply")!); return { opacity: cs.opacity, color: cs.color }; });
+    assert.equal(replyStyle.opacity, "1", "reply is full opacity while streaming, not fading/dimmed");
+    assert.equal(replyStyle.color, "rgb(243, 239, 230)", "reply renders in the ink token while streaming");
+
     await page.waitForFunction((full) => document.querySelector("#reply")?.textContent === full, TOKENS.join(""), { timeout: 15000 });
     assert.equal(chatCalls.length, 1);
     assert.equal(chatCalls[0].voice, true, "voice-originated turn is marked voice:true");
@@ -139,6 +146,12 @@ test("counter page: conversational capture, typing reply, chunked speech, mute a
 
     assert.equal(speakCalls.length, 1, "the spoken preview triggered exactly one speech request");
     assert.equal(speakCalls[0].chunk, true, "speech was requested in chunked mode");
+
+    await page.waitForFunction(() => (window as any).__srcLog.length >= 1, { timeout: 15000 });
+    assert.equal(await page.locator("#audioPlayback").isHidden(), true, "the native player stays hidden during normal chunked playback");
+    replyStyle = await page.evaluate(() => { const cs = getComputedStyle(document.getElementById("reply")!); return { opacity: cs.opacity, color: cs.color }; });
+    assert.equal(replyStyle.opacity, "1", "reply stays full opacity while Kelly speaks it");
+    assert.equal(replyStyle.color, "rgb(243, 239, 230)", "reply stays ink colored while Kelly speaks it");
 
     await page.waitForFunction(() => (window as any).__srcLog.length >= 2, { timeout: 15000 });
     const srcLog: string[] = await page.evaluate(() => (window as any).__srcLog);
@@ -148,6 +161,7 @@ test("counter page: conversational capture, typing reply, chunked speech, mute a
 
     await page.waitForFunction(() => document.querySelector("#stop")?.hasAttribute("hidden"), { timeout: 15000 });
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Tap to talk", { timeout: 5000 });
+    assert.equal(await page.locator("#audioPlayback").isHidden(), true, "the native player is still hidden once normal chunked playback finishes");
 
     // --- Mute prevents a speak request on the next voiced turn ---
     await page.getByRole("button", { name: "Mute Kelly's voice", exact: true }).click();
@@ -177,6 +191,27 @@ test("counter page: conversational capture, typing reply, chunked speech, mute a
     assert.equal(chatCalls[2].voice, false, "typed turns are sent as voice:false");
     assert.equal(chatCalls[2].prompt, "do you have blue thread");
     assert.equal(speakCalls.length, 1, "the typed fallback never triggers a speak request, muted or not");
+
+    // --- The native player is revealed only when the browser refuses autoplay ---
+    const page3 = await browser.newPage();
+    await page3.route("https://**/*", route => route.abort());
+    await page3.addInitScript(() => {
+      HTMLMediaElement.prototype.play = () => Promise.reject(new DOMException("blocked", "NotAllowedError"));
+    });
+    await page3.goto(`${base}/counter`);
+    await page3.waitForFunction(() => document.querySelector("#state")?.textContent === "Tap to talk");
+    assert.equal(await page3.locator("#audioPlayback").isHidden(), true, "player starts hidden");
+    await page3.evaluate(() => {
+      const t = (window as any).KellyCounter.testing;
+      t.speechMs = 50; t.silenceMs = 5000; t.levelOverride = 0.9;
+    });
+    await page3.getByRole("button", { name: "Start talking", exact: true }).click();
+    await page3.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening…");
+    await page3.waitForTimeout(400);
+    await page3.evaluate(() => { const t = (window as any).KellyCounter.testing; t.silenceMs = 80; t.levelOverride = 0; });
+    await page3.waitForFunction(() => (document.querySelector("#message")?.textContent || "").includes("Press Play"), { timeout: 15000 });
+    assert.equal(await page3.locator("#audioPlayback").isVisible(), true, "the player is revealed once autoplay is refused, matching voice.html");
+    await page3.close();
 
     assert.deepEqual(errors, [], "no uncaught page errors");
     assert.deepEqual(consoleErrors, [], "no console.error output");
