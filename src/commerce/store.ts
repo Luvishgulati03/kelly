@@ -81,9 +81,9 @@ export class CommerceStore {
     const needle = `%${query.toLowerCase()}%`;
     const rows = this.db.prepare(`SELECT p.* FROM products p WHERE (? OR p.status='published')
       AND (? IS NULL OR lower(p.brand)=lower(?))
-      AND (lower(p.sku)=lower(?) OR lower(p.sku) LIKE ? OR lower(p.name) LIKE ? OR lower(p.category) LIKE ? OR lower(p.specification) LIKE ?)
+      AND (lower(p.sku)=lower(?) OR lower(p.sku) LIKE ? OR lower(p.brand) LIKE ? OR lower(p.name) LIKE ? OR lower(p.category) LIKE ? OR lower(p.specification) LIKE ?)
       ORDER BY CASE WHEN lower(p.sku)=lower(?) THEN 0 ELSE 1 END, p.brand, p.name LIMIT 25`)
-      .all(includePending ? 1 : 0, brand ?? null, brand ?? null, query, needle, needle, needle, needle, query) as Record<string, unknown>[];
+      .all(includePending ? 1 : 0, brand ?? null, brand ?? null, query, needle, needle, needle, needle, needle, query) as Record<string, unknown>[];
     return rows.map((row) => ({
       id: String(row.id), documentId: String(row.document_id), sku: String(row.sku), brand: String(row.brand),
       name: String(row.name), category: String(row.category), specification: String(row.specification),

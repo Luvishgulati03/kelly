@@ -22,7 +22,7 @@ import { isTranscriptState, isTranscriptSurface, readVoiceSettings, updateVoiceS
 // import { toRomanHinglish } from "../voice/roman.ts";
 import { summarizeUsage } from "./usage.ts";
 import { limitState } from "../providers/limits.ts";
-import { ConversationStore, type ChatAttachmentRef } from "./conversations.ts";
+import { ConversationStore, catalogueQueryFromMessages, type ChatAttachmentRef } from "./conversations.ts";
 import { listSkills, loadSkill, skillGuidanceBlock } from "./skills.ts";
 import {
   ALLOWED_IMAGE_TYPES, MAX_ATTACHMENT_BYTES, attachmentPath, attachmentPromptBlock,
@@ -1245,9 +1245,10 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
             // Same surface-session model as the REPL, one surface PER CONVERSATION:
             // provider-side context persists across messages in a thread and never
             // bleeds between threads.
+            const catalogueQuery = catalogueQueryFromMessages(await store.messages(conversation.id), prompt);
             const runOptions = {
                 surface: conversation.surface,
-                catalogueQuery: prompt,
+                catalogueQuery,
                 onEvent: (event: ProviderEvent) => {
                   const text = event.parsed && typeof (event.parsed as Record<string, unknown>).text === "string"
                     ? String((event.parsed as Record<string, unknown>).text)
@@ -1261,7 +1262,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
                 : { delegated: false as const, completion: runtime.agent.run(composed, runOptions) }
               : { delegated: false as const, completion: runtime.agent.run(composed, {
               surface: conversation.surface,
-              catalogueQuery: prompt,
+              catalogueQuery,
               provider: runtime.config.profileId === "kelly" ? "codex" as const : "claude" as const,
               onEvent: (event) => {
                 const text = event.parsed && typeof (event.parsed as Record<string, unknown>).text === "string"

@@ -1,8 +1,10 @@
 import type { ProviderName } from "../types.ts";
+import { getActiveProfile } from "../profile.ts";
 
 // USER is required by claude's keychain-backed auth — without it the CLI reports
 // "Not logged in" even with a valid session (bisected 2026-08-07).
 const BASE_KEYS = ["PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "TERM", "CI", "CODEX_HOME", "GH_HOST", "GH_TOKEN", "GITHUB_TOKEN", "NODE_PATH"];
+const PROFILE_LOCATION_KEYS = ["DATA_DIR", "MEMORY_DIR", "KNOWLEDGE_DIR", "TRADE", "SHOP_NAME", "PROVIDER", "PORT"];
 
 export function safeEnvironment(provider?: ProviderName, extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const keys = [...BASE_KEYS];
@@ -10,6 +12,15 @@ export function safeEnvironment(provider?: ProviderName, extra: Record<string, s
   if (provider === "claude") keys.push("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN");
   const env: NodeJS.ProcessEnv = {};
   for (const key of keys) if (process.env[key] !== undefined) env[key] = process.env[key];
+  if (process.env.AGENT_PROFILE !== undefined) env.AGENT_PROFILE = process.env.AGENT_PROFILE;
+  // A provider may invoke Kelly's CLI as a child process. Pass only profile identity and
+  // local store locations so that command opens the same data as the dashboard. Credentials,
+  // dashboard tokens, Telegram tokens, and speech-worker secrets remain unavailable.
+  const prefix = getActiveProfile().envPrefix;
+  for (const suffix of PROFILE_LOCATION_KEYS) {
+    const key = `${prefix}${suffix}`;
+    if (process.env[key] !== undefined) env[key] = process.env[key];
+  }
   for (const [key, value] of Object.entries(extra)) if (value !== undefined) env[key] = value;
   return env;
 }
