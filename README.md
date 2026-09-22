@@ -43,7 +43,8 @@ adapted for:
 - order intake and follow-up
 - service booking and status updates
 - stock and catalogue questions
-- voice conversations in English, Hindi, or a business-specific language mix
+- voice input in English, Hindi, Hinglish, or a business-specific language mix,
+  with Kelly's answers returned in clear English
 
 These are extension paths, not claims about the current release. The present build
 has the deepest support for catalogue search, quotations, spreadsheets, and local
@@ -133,7 +134,7 @@ to ask for a quote, compare alternatives, answer a customer, or update a routine
 record without learning a new back-office tool. The same workflow remains
 available through web, Telegram, and terminal for review and control. The local
 speech baseline under evaluation is quantized multilingual Whisper for
-Hindi/English transcription and Kokoro-82M for speech output; Hinglish shop-audio
+Hindi/English transcription and Kokoro-82M for English speech output; Hinglish shop-audio
 quality has not yet been benchmarked. See [Voice](docs/voice.md) for model,
 privacy, hardware, and setup notes.
 The desktop's built-in Codex voice feature is not verified as an embeddable

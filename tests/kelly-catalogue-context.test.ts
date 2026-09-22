@@ -49,3 +49,24 @@ test("specific requests retrieve structured product rows despite conversational 
   assert.match(context, /FAN-12/); assert.match(context, /₹2400\.00/); assert.match(context, /source sheet1!2:2/);
   commerce.close();
 });
+
+test("Kelly requires English answers for fresh, resumed, and lightweight turns", async () => {
+  setActiveProfile("kelly");
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "kelly-language-policy-"));
+  const config = loadConfig(root); config.dataDir = path.join(root, "data");
+  await fs.writeFile(path.join(root, "soul.md"), "test soul");
+  await fs.writeFile(path.join(root, "personality.md"), "test personality");
+  const activity = new ActivityLog(config.activityPath); await activity.init();
+  const memory = { context: async () => "" } as unknown as HenryMemory;
+  const agent = new HenryAgent(config, activity, memory);
+
+  const fresh = await agent.buildPrompt("Mujhe catalogue dikhao", "fresh", true, "codex");
+  const resumed = await agent.buildPrompt("Mujhe catalogue dikhao", "resumed", false, "codex");
+  const lightweight = await agent.buildPrompt("namaste", "lightweight", true, "codex");
+
+  for (const prompt of [fresh, resumed, lightweight]) {
+    assert.match(prompt, /always answer in clear English/i);
+  }
+  assert.match(fresh, /reviewed speech transcript may remain Roman Hinglish/i);
+  await agent.flushMemoryCaptures();
+});
