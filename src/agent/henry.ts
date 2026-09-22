@@ -61,7 +61,7 @@ export class HenryAgent {
    * reduction: a resumed provider session already holds those static blocks, so
    * it receives a safety header + dynamic context + the request.
    */
-  async buildPrompt(prompt: string, runId: string, fresh = true, provider: ProviderName = "claude", conversationScope: ConversationScope = "owner"): Promise<string> {
+  async buildPrompt(prompt: string, runId: string, fresh = true, provider: ProviderName = "claude", conversationScope: ConversationScope = "owner", catalogueQuery = prompt): Promise<string> {
     // Trivial chatter (t0) gets a pocket prompt: tiny persona line + 2 memories for
     // continuity, none of the 14KB capability/soul sheets. A greeting was shipping
     // the full deck to haiku for no reason (2026-08-08 "hi took 100s" investigation —
@@ -119,7 +119,7 @@ export class HenryAgent {
       ? hotCache.getOrSet(`kelly-qa:${conversationScope}:${prompt.trim().toLowerCase()}`, 30_000, () => this.conversationRag!.context(prompt, conversationScope))
       : Promise.resolve("");
     const cataloguePromise = this.config.profileId === "kelly" && this.catalogueContextProvider
-      ? this.catalogueContextProvider(prompt)
+      ? this.catalogueContextProvider(catalogueQuery)
       : Promise.resolve("");
     const [soul, persona, memoryResult, knowledgeResult, conversationResult, catalogueResult] = await Promise.allSettled([
       soulPromise, personaPromise, memoryPromise, knowledgePromise, conversationPromise, cataloguePromise,
@@ -280,7 +280,7 @@ export class HenryAgent {
     try {
     const session = surface ? this.runner.acquireSession(surface, options.provider) : undefined;
     const promptStartedAt = Date.now();
-    const fullPrompt = await this.buildPrompt(prompt, runId, session ? session.fresh : true, preferredProvider, conversationScope);
+    const fullPrompt = await this.buildPrompt(prompt, runId, session ? session.fresh : true, preferredProvider, conversationScope, options.catalogueQuery ?? prompt);
     let result = await this.runner.run(fullPrompt, {
       ...options, surface, tier, session, promptBuildMs: Date.now() - promptStartedAt,
       onEvent: (event) => options.onEvent?.(event),
@@ -289,7 +289,7 @@ export class HenryAgent {
       // Provider evicted the session mid-stream: rebuild fresh once with the full prompt.
       const retrySession = this.runner.acquireSession(surface, options.provider);
       const retryPromptStartedAt = Date.now();
-      const retryPrompt = await this.buildPrompt(prompt, runId, true, preferredProvider, conversationScope);
+      const retryPrompt = await this.buildPrompt(prompt, runId, true, preferredProvider, conversationScope, options.catalogueQuery ?? prompt);
       result = await this.runner.run(retryPrompt, {
         ...options, surface, tier, session: retrySession, promptBuildMs: Date.now() - retryPromptStartedAt,
         onEvent: (event) => options.onEvent?.(event),

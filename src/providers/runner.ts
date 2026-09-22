@@ -42,6 +42,8 @@ export interface RunOptions {
   timeoutMs?: number;
   /** Codex structured-output schema. Unsupported providers ignore this option. */
   outputSchemaPath?: string;
+  /** Raw human request used by Kelly's catalogue retriever when the provider prompt has wrappers. */
+  catalogueQuery?: string;
   onEvent?: (event: ProviderEvent) => void;
 }
 

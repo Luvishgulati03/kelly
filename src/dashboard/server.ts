@@ -1417,6 +1417,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
             // bleeds between threads.
             const runOptions = {
                 surface: conversation.surface,
+                catalogueQuery: prompt,
                 onEvent: (event: ProviderEvent) => {
                   const text = event.parsed && typeof (event.parsed as Record<string, unknown>).text === "string"
                     ? String((event.parsed as Record<string, unknown>).text)
@@ -1430,6 +1431,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
                 : { delegated: false as const, completion: runtime.agent.run(composed, runOptions) }
               : { delegated: false as const, completion: runtime.agent.run(composed, {
               surface: conversation.surface,
+              catalogueQuery: prompt,
               provider: runtime.config.profileId === "kelly" ? "codex" as const : "claude" as const,
               onEvent: (event) => {
                 const text = event.parsed && typeof (event.parsed as Record<string, unknown>).text === "string"

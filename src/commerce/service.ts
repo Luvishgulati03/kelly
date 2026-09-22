@@ -86,8 +86,13 @@ export class CommerceService {
     else {
       add(this.store.search(clean, undefined, false));
       const terms = clean.toLowerCase().match(/[a-z0-9][a-z0-9.-]{1,}/g) ?? [];
-      const ignored = new Set(["what", "which", "show", "list", "have", "need", "want", "with", "from", "same", "available", "product", "products", "item", "items", "quotation", "quote", "please"]);
-      for (const term of terms.filter((value) => !ignored.has(value)).slice(0, 8)) add(this.store.search(term, undefined, false));
+      const ignored = new Set([
+        "what", "which", "show", "list", "have", "need", "want", "would", "with", "from", "same",
+        "available", "product", "products", "item", "items", "quotation", "quote", "please", "one",
+        "each", "that", "this", "and", "how", "much", "cost", "could", "should", "the", "for", "me",
+      ]);
+      const usefulTerms = [...new Set(terms.filter((value) => !ignored.has(value)))];
+      for (const term of usefulTerms.slice(0, 16)) add(this.store.search(term, undefined, false));
     }
     const products = [...candidates.values()].slice(0, limit);
     if (!products.length) return [
@@ -99,6 +104,7 @@ export class CommerceService {
     return [
       "--- Published catalogue (AUTHORITATIVE CURRENT DATA) ---",
       "Use only these structured rows for product, SKU, price, tax, unit and source claims. Similar-conversation RAG is secondary and cannot override them.",
+      "If more than one brand matches and the customer did not choose a brand, ask which brand they want before calculating a final quotation. If a requested line or quantity is duplicated or ambiguous, clarify it instead of declaring the products unavailable.",
       ...(categories.length ? [`Available categories: ${categories.join(", ")}.`] : []),
       ...products.map((item) => `- ${item.brand} | ${item.sku} | ${item.name} | category ${item.category} | unit ${item.unit || "unit"} | ₹${(item.pricePaise / 100).toFixed(2)} before configured tax | GST ${(item.gstBasisPoints || 0) / 100}% | source ${item.sourceLocation}`),
       allPublished.length > products.length ? `Showing ${products.length} of ${allPublished.length} published products.` : `Matched ${products.length} published product${products.length === 1 ? "" : "s"}.`,
