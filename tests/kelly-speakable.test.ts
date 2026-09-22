@@ -82,3 +82,29 @@ test("extractQuoteIdFromReply parses phrase and JSON forms", () => {
   assert.equal(extractQuoteIdFromReply('{"id": "8b1e6e0a-1234-4abc-9def-0123456789ab", "totalPaise": 100}'), "8b1e6e0a-1234-4abc-9def-0123456789ab");
   assert.equal(extractQuoteIdFromReply("no id here"), undefined);
 });
+
+test("extractQuoteIdFromReply tolerates a backtick-wrapped markdown label", () => {
+  const reply = "- Quote ID: `7df0ff17-7f2e-44aa-a78a-5cd8c2ff827e`";
+  assert.equal(extractQuoteIdFromReply(reply), "7df0ff17-7f2e-44aa-a78a-5cd8c2ff827e");
+});
+
+test("extractQuoteIdFromReply tolerates a bold markdown label with a #Q reference", () => {
+  const reply = "**Quotation** #Q: 7df0ff17-7f2e-44aa-a78a-5cd8c2ff827e";
+  assert.equal(extractQuoteIdFromReply(reply), "7df0ff17-7f2e-44aa-a78a-5cd8c2ff827e");
+});
+
+test("extractQuoteIdFromReply parses the CLI's JSON output shape", () => {
+  const reply = 'Created it:\n{\n  "id": "7df0ff17-7f2e-44aa-a78a-5cd8c2ff827e",\n  "totalPaise": 605340\n}';
+  assert.equal(extractQuoteIdFromReply(reply), "7df0ff17-7f2e-44aa-a78a-5cd8c2ff827e");
+});
+
+test("extractQuoteIdFromReply ignores a conversation id with no quote label", () => {
+  const reply = "Conversation id: 3f2504e0-4f89-11d3-9a0c-0305e82c3301. How can I help?";
+  assert.equal(extractQuoteIdFromReply(reply), undefined);
+});
+
+test("extractQuoteIdFromReply returns the first of two quote ids", () => {
+  const reply =
+    "Original quote id 8b1e6e0a-1234-4abc-9def-0123456789ab was revised; new quote id 7df0ff17-7f2e-44aa-a78a-5cd8c2ff827e replaces it.";
+  assert.equal(extractQuoteIdFromReply(reply), "8b1e6e0a-1234-4abc-9def-0123456789ab");
+});

@@ -111,17 +111,22 @@ export function speakableSummary(input: SpeakableSummaryInput): string {
 
 /**
  * Best-effort extraction of a quote id from a chat reply. There is no structured tool-result
- * hook between the CLI and the dashboard chat route, so this parses either the phrase
- * "quote id <uuid>" or a raw `"id": "<uuid>"` field from JSON the model may have echoed back
- * (e.g. `kelly quote create` output). If neither pattern is present, no quote is attached and
- * the spoken summary falls back to prose; this is a known limitation, not a guarantee.
+ * hook between the CLI and the dashboard chat route, so this tolerantly parses prose labels
+ * ("quote id", "quotation id", "quote", "quotation") — optionally wrapped in backticks,
+ * asterisks, or quotes from markdown formatting, and separated from the uuid by any short run
+ * of punctuation/whitespace (e.g. `: `, ` #Q: `) — as well as a raw `"id": "<uuid>"` field from
+ * JSON the model may have echoed back (e.g. `kelly quote create` output). A bare, unquoted "id"
+ * is deliberately NOT treated as a label on its own: it would also match unrelated labels like
+ * "conversation id", so only the quoted JSON key form counts as an "id" label. Only the first
+ * uuid found immediately after one of these labels is returned; uuids elsewhere in the reply
+ * (e.g. a conversation id) are ignored. If no label is present, no quote is attached and the
+ * spoken summary falls back to prose; this is a known limitation, not a guarantee.
  */
 export function extractQuoteIdFromReply(reply: string): string | undefined {
   const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-  const phrase = new RegExp(`quote\\s*(?:id)?[:\\s]+(${uuid})`, "i").exec(reply);
-  if (phrase) return phrase[1];
-  const json = new RegExp(`"id"\\s*:\\s*"(${uuid})"`, "i").exec(reply);
-  return json?.[1];
+  const label = String.raw`(?:\b(?:quotation\s*id|quote\s*id|quotation|quote)\b|"id")`;
+  const match = new RegExp(`${label}[^\\n]{0,20}?(${uuid})`, "i").exec(reply);
+  return match?.[1];
 }
 
 /**
