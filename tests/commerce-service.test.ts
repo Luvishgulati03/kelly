@@ -47,6 +47,17 @@ test("duplicate source import is idempotent and missing brand stays incomplete",
   } finally { service.close(); }
 });
 
+test("published products are discoverable by brand in free-text catalogue search", async () => {
+  const { service, csv } = await fixture();
+  try {
+    const imported = await service.importCatalogue(csv) as { documentId: string };
+    await service.publish(imported.documentId);
+    const result = await service.search("acme") as { products: Array<{ brand: string }> };
+    assert.ok(result.products.length > 0);
+    assert.ok(result.products.every((product) => product.brand === "Acme"));
+  } finally { service.close(); }
+});
+
 test("workbook navigation, versioned edit and quote export work", async () => {
   const { root, service, csv } = await fixture();
   try {

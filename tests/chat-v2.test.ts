@@ -7,7 +7,7 @@ import path from "node:path";
 import http from "node:http";
 import { HenryRuntime } from "../src/runtime.ts";
 import { startDashboard } from "../src/dashboard/server.ts";
-import { ConversationStore, LEGACY_CONVERSATION_ID, titleFromMessages } from "../src/dashboard/conversations.ts";
+import { ConversationStore, LEGACY_CONVERSATION_ID, catalogueQueryFromMessages, titleFromMessages } from "../src/dashboard/conversations.ts";
 import { CHAT_COMMANDS, helpMessage, parseCommand, unescapeMessage, unknownCommandMessage } from "../src/dashboard/chat-commands.ts";
 import { describeSkill, listSkills, loadSkill, parseFrontmatter, skillGuidanceBlock } from "../src/dashboard/skills.ts";
 import {
@@ -130,6 +130,19 @@ test("conversation store: create, append, rename, clear, delete", async () => {
   assert.equal(await store.remove(second.id), false, "deleting twice is not an error, just false");
   assert.deepEqual((await store.list()).map((item) => item.id), [first.id]);
   assert.equal(fs.existsSync(path.join(dataDir, "chats", `${second.id}.json`)), false, "the transcript file goes with it");
+});
+
+test("catalogue query carries recent requirements into a brand-only follow-up", () => {
+  const messages = [
+    { role: "user" as const, text: "I need one fan, kettle, cable, MCB, chair and desk", at: "1" },
+    { role: "henry" as const, text: "Which brand?", at: "2" },
+    { role: "user" as const, text: "DemoAster", at: "3" },
+  ];
+  assert.equal(
+    catalogueQueryFromMessages(messages, "DemoAster"),
+    "I need one fan, kettle, cable, MCB, chair and desk\nDemoAster",
+  );
+  assert.equal(catalogueQueryFromMessages(messages, "DemoBirch", 1), "DemoBirch");
 });
 
 test("a reply that lands after its conversation was cleared or deleted is dropped", async () => {

@@ -47,6 +47,22 @@ export interface ConversationMeta {
   surface: string;
 }
 
+/**
+ * Catalogue requests are often completed over several turns: products, quantity, then brand.
+ * Keep that narrow context independent of provider-session memory without searching the whole
+ * conversation and dragging stale requests into the current quotation.
+ */
+export function catalogueQueryFromMessages(messages: ChatMessage[], currentPrompt: string, maxUserTurns = 3): string {
+  const limit = Math.max(1, maxUserTurns);
+  const turns = messages
+    .filter((message) => message.role === "user" && message.text.trim())
+    .slice(-limit)
+    .map((message) => message.text.trim());
+  const current = currentPrompt.trim();
+  if (current && turns[turns.length - 1] !== current) turns.push(current);
+  return turns.slice(-limit).join("\n");
+}
+
 /** The id the legacy single-thread transcript is adopted under. */
 export const LEGACY_CONVERSATION_ID = "web-chat";
 /** Per-conversation transcript cap — same reasoning (and number) as the old single transcript. */

@@ -23,7 +23,7 @@ import { isCounterMode, isCounterTier, isTranscriptState, isTranscriptSurface, r
 // import { toRomanHinglish } from "../voice/roman.ts";
 import { summarizeUsage } from "./usage.ts";
 import { limitState } from "../providers/limits.ts";
-import { ConversationStore, type ChatAttachmentRef } from "./conversations.ts";
+import { ConversationStore, catalogueQueryFromMessages, type ChatAttachmentRef } from "./conversations.ts";
 import { listSkills, loadSkill, skillGuidanceBlock } from "./skills.ts";
 import {
   ALLOWED_IMAGE_TYPES, MAX_ATTACHMENT_BYTES, attachmentPath, attachmentPromptBlock,
@@ -1608,9 +1608,10 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
             // Same surface-session model as the REPL, one surface PER CONVERSATION:
             // provider-side context persists across messages in a thread and never
             // bleeds between threads.
+            const catalogueQuery = catalogueQueryFromMessages(await store.messages(conversation.id), prompt);
             const runOptions = {
                 surface: conversation.surface,
-                catalogueQuery: prompt,
+                catalogueQuery,
                 ...(voiceMode && counterTier !== "auto" ? { tier: counterTier } : {}),
                 // Claude's stream-json carries a top-level `text` per token (handled by
                 // `emitToken` above, unchanged). Codex's `--json` JSONL never has that; its
@@ -1646,7 +1647,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
                 : { delegated: false as const, completion: runtime.agent.run(composed, runOptions) }
               : { delegated: false as const, completion: runtime.agent.run(composed, {
               surface: conversation.surface,
-              catalogueQuery: prompt,
+              catalogueQuery,
               provider: runtime.config.profileId === "kelly" ? "codex" as const : "claude" as const,
               // Same Codex `item.completed` agent_message handling as the non-attachment
               // onEvent above (see comment there); this path is the attachment/vision turn.
