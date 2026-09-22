@@ -27,11 +27,20 @@ existing quotation.
    site constraint. Ask about the missing ones rather than assuming.
 2. Search the catalogue (`kelly catalogue search "<text>" --brand <brand>`) and show the
    candidate matches with their published prices and source document.
-3. Build the quote from a JSON request so the inputs stay reproducible
-   (`kelly quote create --from ./quote-request.json`), then show it with `kelly quote show <id>`.
+3. Build the quote inline, without writing a temp file, using `--lines`:
+   `kelly quote create --lines "SUIT-LINING x2, SUIT-EMB-NECK x1, URGENT-48H x2" [--brand Havells]
+   [--customer "Sharma Traders"] [--valid-days 7]`. Grammar is comma-separated
+   `<sku or free text> x<qty>` (also accepts `<qty> x <sku>` or `<qty>x<sku>`; quantities may be
+   decimal). An item that is not a recognized SKU becomes a free-text `query` line, resolved the
+   same way an unmatched `--from` line is, and surfaces in `unresolved` if it does not match
+   exactly one published product. Then show it with `kelly quote show <id>`.
+   For a reproducible or scripted request, build it from JSON instead
+   (`kelly quote create --from ./quote-request.json`, shaped
+   `{"customerName?":"","brand?":"","lines":[{"sku?":"","query?":"","quantity":1}],"validDays?":7}`).
 4. For a brand comparison, keep the same requirements and vary only the brand
-   (`kelly quote compare --from ./requirements.json --brands A,B`). Note where an equivalent
-   does not exist instead of substituting silently.
+   (`kelly quote compare --lines "..." --brands A,B` or `kelly quote compare --from
+   ./requirements.json --brands A,B`). Note where an equivalent does not exist instead of
+   substituting silently.
 5. Export only when asked: `kelly quote export <id> --out ./customer-quote.xlsx`. Verify the
    exported totals match the stored quote before reporting success.
 
@@ -56,4 +65,5 @@ brand is not a required input and `createQuote` defaults it to the shop name.
 3. Generate a starter rate card with `kelly catalogue template` (writes
    `data/templates/boutique-ratecard.xlsx` with the pack's example garments, work types, and
    GST rates) when the shop has nothing digitized yet.
-4. Quote the same way as electrical, just without a `brand` field in the request JSON.
+4. Quote the same way as electrical: `kelly quote create --lines "..."` needs no `--brand` (it
+   defaults to the shop name), and the JSON form needs no `brand` field either.

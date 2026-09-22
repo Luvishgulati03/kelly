@@ -9,7 +9,8 @@ import { setActiveProfile } from "../src/profile.ts";
 import { ActivityLog } from "../src/activity.ts";
 import { CommerceService, type CatalogueRagPort } from "../src/commerce/service.ts";
 import { generateCatalogueTemplate } from "../src/commerce/template.ts";
-import type { CatalogueProduct } from "../src/commerce/types.ts";
+import type { CatalogueProduct, QuoteRequest } from "../src/commerce/types.ts";
+import { parseLinesOption, runCommerceCommand } from "../src/commerce/commands.ts";
 
 const noopRag: CatalogueRagPort = { index: async (products: CatalogueProduct[]) => products.length, search: async () => [], close: () => undefined };
 
@@ -127,6 +128,32 @@ test("createQuote without a brand prices a boutique stitching job correctly in p
   });
 });
 
+test("inline --lines create for boutique with no brand produces the same total as the --from path for the same lines", async () => {
+  await withTrade("boutique", async (config, root) => {
+    const activity = new ActivityLog(config.activityPath); await activity.init();
+    const service = new CommerceService(config, activity, noopRag);
+    try {
+      const templatePath = await generateCatalogueTemplate("boutique", undefined, root);
+      const imported = await service.importCatalogue(templatePath) as { documentId: string };
+      await service.publish(imported.documentId);
+      const fromQuote = service.createQuote({
+        lines: [
+          { sku: "SUIT-LINING", quantity: 2 },
+          { sku: "SUIT-EMB-NECK", quantity: 1 },
+          { sku: "URGENT-48H", quantity: 2 },
+        ],
+      });
+      const inlineRequest: QuoteRequest = { lines: parseLinesOption("SUIT-LINING x2, SUIT-EMB-NECK x1, URGENT-48H x2") };
+      const inlineQuote = service.createQuote(inlineRequest);
+      assert.equal(inlineQuote.complete, true);
+      assert.equal(inlineQuote.brand, "She Fashion House");
+      assert.equal(inlineQuote.subtotalPaise, fromQuote.subtotalPaise);
+      assert.equal(inlineQuote.taxPaise, fromQuote.taxPaise);
+      assert.equal(inlineQuote.totalPaise, fromQuote.totalPaise);
+    } finally { service.close(); }
+  });
+});
+
 test("electrical still requires a brand for createQuote", async () => {
   await withTrade("electrical", async (config, root) => {
     const activity = new ActivityLog(config.activityPath); await activity.init();
@@ -136,6 +163,24 @@ test("electrical still requires a brand for createQuote", async () => {
       const imported = await service.importCatalogue(templatePath) as { documentId: string };
       await service.publish(imported.documentId);
       assert.throws(() => service.createQuote({ lines: [{ sku: "ELEC-MCB-16A", quantity: 1 }] }), /A brand is required/);
+    } finally { service.close(); }
+  });
+});
+
+test("electrical inline --lines create requires --brand", async () => {
+  await withTrade("electrical", async (config, root) => {
+    const activity = new ActivityLog(config.activityPath); await activity.init();
+    const service = new CommerceService(config, activity, noopRag);
+    try {
+      const templatePath = await generateCatalogueTemplate("electrical", undefined, root);
+      const imported = await service.importCatalogue(templatePath) as { documentId: string };
+      await service.publish(imported.documentId);
+      await assert.rejects(
+        runCommerceCommand(service, "quote", ["create", "--lines", "ELEC-MCB-16A x1"]),
+        /A brand is required/,
+      );
+      const quote = await runCommerceCommand(service, "quote", ["create", "--lines", "ELEC-MCB-16A x1", "--brand", "Havells"]) as { complete: boolean; brand: string };
+      assert.equal(quote.brand, "Havells");
     } finally { service.close(); }
   });
 });
