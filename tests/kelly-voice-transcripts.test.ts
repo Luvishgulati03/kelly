@@ -142,10 +142,10 @@ test("audio is written only while recording is on, and vanishes when it is switc
 });
 
 /* ------------------------------------------------------------------ *
- * 3b. Roman text, hidden original script, and the `mixed` flag
+ * 3b. Legacy Roman text, hidden original script, and the `mixed` flag
  * ------------------------------------------------------------------ */
 
-test("original is kept only when it differs from the Roman text, and mixed reflects that", () => {
+test("legacy original is kept only when it differs from Roman text, and mixed reflects that", () => {
   const { store } = storeIn(tempDir("kelly-to-"));
 
   // Whisper wrote Devanagari; the caller (server/runtime) converts and passes both.
@@ -169,7 +169,7 @@ test("original is kept only when it differs from the Roman text, and mixed refle
   store.close();
 });
 
-test("entity extraction unions brands from the Roman text and the hidden original", () => {
+test("legacy entity extraction unions brands from Roman text and the hidden original", () => {
   const { store } = storeIn(tempDir("kelly-toe-"));
   // A brand the Roman pass missed (simulated: Roman text drops the brand, original keeps it).
   const row = store.record({ surface: "telegram", text: "ka do fan ka quotation bana do", original: "हैवेल्स का दो fan ka quotation bana do" });
@@ -186,7 +186,7 @@ test("counter transcript principal survives storage without changing legacy reco
   store.close();
 });
 
-test("search over q matches the hidden original script as well as the Roman text", () => {
+test("legacy search matches the hidden original script as well as Roman text", () => {
   const { store } = storeIn(tempDir("kelly-tos-"));
   const row = store.record({ surface: "counter", text: "Havells ke do fan", original: "हैवेल्स के दो fan" });
   assert.deepEqual(store.list({ q: "havells" }).map((r) => r.id), [row.id], "matches the Roman text");

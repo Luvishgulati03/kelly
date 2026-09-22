@@ -67,6 +67,6 @@ test("Kelly requires English answers for fresh, resumed, and lightweight turns",
   for (const prompt of [fresh, resumed, lightweight]) {
     assert.match(prompt, /always answer in clear English/i);
   }
-  assert.match(fresh, /reviewed speech transcript may remain Roman Hinglish/i);
+  assert.match(fresh, /preserve Whisper's native script/i);
   await agent.flushMemoryCaptures();
 });

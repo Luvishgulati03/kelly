@@ -16,9 +16,9 @@ and 28 MB voices file). The worker's Python environment belongs under the local
 `data/voice/venv`; dependencies and model assets stay out of the repository.
 Whisper's multilingual model can be asked to recognize
 automatically or with Hindi/English hints. Transcription is recognition only:
-Kelly must not translate the words or silently rewrite Hinglish into another
-language. Keep the recognized text visible for correction before consequential
-actions.
+Kelly must not translate or transliterate the words. Keep Whisper's native output,
+including Devanagari and mixed Latin technical terms, visible for correction before
+consequential actions.
 
 Kokoro-82M is Apache-2.0 and its official voice catalogue lists four Hindi voices,
 including `hf_alpha`. The catalogue also notes that Hindi voice data is limited

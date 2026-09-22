@@ -151,7 +151,7 @@ export class HenryAgent {
       ].join("\n");
     }
     const isKelly = this.config.profileId === "kelly";
-    const kellyLanguageRule = "OUTPUT LANGUAGE: Understand English, Hindi, Hinglish and Roman Hindi as input, but always answer in clear English, even when the user speaks or writes in Hindi. Keep brand names, SKUs, quantities and units unchanged. The reviewed speech transcript may remain Roman Hinglish so the owner can verify what was heard; the answer itself must be English.";
+    const kellyLanguageRule = "OUTPUT LANGUAGE: Understand English, native Hindi in Devanagari, Hinglish and Roman Hindi as input, but always answer in clear English, even when the user speaks or writes in Hindi. Keep brand names, SKUs, quantities and units unchanged. Speech transcripts preserve Whisper's native script so the owner can verify what was heard; the answer itself must be English.";
     const slimHeader = [
       isKelly ? "You are Kelly (session resumed). You are a Codex-only custom voice and quotation agent for small businesses." : "You are Henry (session resumed — your soul, personality, and operating rules from earlier in this session still apply).",
       "Never send anything outbound without Luvish's explicit approval; stage it instead.",

@@ -94,11 +94,10 @@ export interface TranscriptRecord {
   bytes?: number;
   /** Wall-clock transcription time, for latency and real-time factor. */
   sttMs?: number;
-  /** Always Roman script — see src/voice/roman.ts. What the owner reads. */
+  /** Whisper's native transcript, including Devanagari and Latin text. What the owner reads. */
   text: string;
-  /** The words as Whisper first wrote them, kept only when they differ from `text` (i.e. Whisper
-   *  wrote some Devanagari and it was converted). Hidden field, for checking names and model
-   *  numbers against the original script. */
+  /** Legacy pre-conversion words from records created while Roman Hinglish conversion was active.
+   *  New records preserve Whisper's native output directly and leave this field empty. */
   original?: string;
   /** True when `original` is present — Whisper's own output contained Devanagari. */
   mixed: boolean;
