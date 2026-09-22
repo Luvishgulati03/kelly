@@ -57,17 +57,52 @@ export class DesignService {
     return this.rag;
   }
 
+  /**
+   * A customer's words carry structure: "trending sarees" is the tag `trending` plus the
+   * category `saree`, not a caption to match. So the query is read first for tags, category
+   * words (singular or plural), and the latest/trending intents; only what is left is free
+   * text. Free text narrows the structured result when it matches something, and is dropped
+   * (with the semantic lane as a last try) when it does not, so "red sarees" with no red
+   * saree still shows sarees rather than nothing.
+   */
   async find(query: string, filter: DesignFilter = {}): Promise<DesignRecord[]> {
-    const sqlResults = this.store.list({ ...filter, text: query || filter.text });
-    const cleanQuery = query.trim();
-    if (sqlResults.length >= 3 || !cleanQuery) return sqlResults;
-    const ids = await (await this.semantic()).search(cleanQuery, 8);
-    const seen = new Set(sqlResults.map((design) => design.id));
+    const parsed = this.parseQuery(query, filter);
+    const base = this.store.list({ ...filter, category: parsed.category, tags: parsed.tags, latest: parsed.latest, trending: parsed.trending, text: undefined });
+    let results = base;
+    if (parsed.words.length) {
+      const narrowed = base.filter((design) => {
+        const hay = [design.caption, design.colours.join(" "), design.fabric, design.occasion].join(" ").toLowerCase();
+        return parsed.words.some((word) => hay.includes(word));
+      });
+      if (narrowed.length) results = narrowed;
+    }
+    if (results.length >= 3 || !parsed.words.length) return results;
+    const ids = await (await this.semantic()).search(parsed.words.join(" "), 8);
+    const seen = new Set(results.map((design) => design.id));
     const extra = ids
       .map((id) => this.store.get(id))
       .filter((design): design is DesignRecord => Boolean(design) && design!.status === "active" && !seen.has(design!.id))
-      .filter((design) => !filter.category || design.category === filter.category);
-    return [...sqlResults, ...extra];
+      .filter((design) => !parsed.category || design.category === parsed.category);
+    return [...results, ...extra];
+  }
+
+  private parseQuery(query: string, filter: DesignFilter): { category?: string; tags: string[]; latest: boolean; trending: boolean; words: string[] } {
+    const tags = new Set(filter.tags ?? []);
+    let category = filter.category;
+    let latest = Boolean(filter.latest);
+    let trending = Boolean(filter.trending);
+    const words: string[] = [];
+    const stop = new Set(["show", "me", "some", "any", "the", "of", "for", "in", "please", "designs", "design", "photos", "pictures", "images", "want", "see", "with", "and"]);
+    const { categoryNames, tagNames } = this.store;
+    for (const raw of (query.toLowerCase().match(/[a-z][a-z-]*/g) ?? [])) {
+      const singular = raw.endsWith("s") ? raw.slice(0, -1) : raw;
+      if (categoryNames.includes(raw) || categoryNames.includes(singular)) { category ??= categoryNames.includes(raw) ? raw : singular; continue; }
+      if (raw === "trending" || raw === "popular") { trending = true; continue; }
+      if (raw === "latest" || raw === "newest" || raw === "recent" || raw === "new") { latest = true; continue; }
+      if (tagNames.includes(raw)) { tags.add(raw); continue; }
+      if (!stop.has(raw) && raw.length > 2) words.push(raw);
+    }
+    return { category, tags: [...tags], latest, trending, words };
   }
 
   async index(design: DesignRecord): Promise<void> {

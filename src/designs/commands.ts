@@ -59,6 +59,9 @@ export async function runDesignsCommand(service: DesignService, args: string[]):
     const query = args[1] && !args[1].startsWith("--") ? args[1] : "";
     const results = await service.find(query, {
       category: option(args, "--category"),
+      tags: csv(option(args, "--tags")),
+      latest: args.includes("--latest"),
+      trending: args.includes("--trending"),
       limit: Number(option(args, "--limit")) || 8,
     });
     return { designs: results.map(toJson) };

@@ -25,9 +25,18 @@ import {
   prompt as promptFor, spinnerStart, spinnerTick,
 } from "./tui/panel.ts";
 import { isLongResearchAsk } from "./orchestration/luna.ts";
-import { getActiveProfile, isServiceExcluded } from "./profile.ts";
+import { getActiveProfile, isServiceExcluded, setActiveProfile } from "./profile.ts";
 import { runCommerceCommand } from "./commerce/commands.ts";
 import { runDesignsCommand } from "./designs/commands.ts";
+
+// `node bin/kelly.mjs` sets the process's active profile before importing this module. But
+// Kelly's own agent prompt tells the model to run commands as `npx tsx src/cli.ts <cmd>`
+// directly (no launcher) — and Codex's shell tool inherits the running server's environment,
+// including AGENT_PROFILE=kelly, when it does. Without this, that direct invocation silently
+// keeps the default "henry" profile, config.ts reads HENRY_* env vars instead of KELLY_*, and
+// the CLI resolves a different (usually empty) data directory than the server it was spawned
+// from — e.g. `designs search`/`designs stats` seeing zero rows while the dashboard sees many.
+if (process.env.AGENT_PROFILE === "kelly") setActiveProfile("kelly");
 
 const args = process.argv.slice(2);
 

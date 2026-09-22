@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFile as execFileCallback } from "node:child_process";
+import { promisify } from "node:util";
 import { setActiveProfile } from "../src/profile.ts";
 import { HenryRuntime } from "../src/runtime.ts";
 import { startDashboard } from "../src/dashboard/server.ts";
@@ -18,6 +20,20 @@ const TAGS = ["trending", "latest", "bridal", "party", "festive", "casual", "cus
 
 function tempDir(): string { return fs.mkdtempSync(path.join(os.tmpdir(), "kelly-designs-")); }
 function png(r = 200, g = 100, b = 100): Buffer { return encodeSolidPng(40, 50, { r, g, b }); }
+
+const execFile = promisify(execFileCallback);
+const repoRoot = process.cwd();
+const cliEntry = path.join(repoRoot, "src/cli.ts");
+
+async function runCli(args: string[], env: NodeJS.ProcessEnv) {
+  try {
+    const result = await execFile(process.execPath, ["--import", "tsx/esm", cliEntry, ...args], { cwd: repoRoot, env, timeout: 20_000, maxBuffer: 1024 * 1024 });
+    return { code: 0, stdout: result.stdout, stderr: result.stderr };
+  } catch (error) {
+    const result = error as Error & { code?: number; stdout?: string; stderr?: string };
+    return { code: result.code ?? 1, stdout: result.stdout ?? "", stderr: result.stderr ?? "" };
+  }
+}
 
 /* ------------------------------------------------------------------ store ------------------------------------------------------------------ */
 
@@ -116,6 +132,86 @@ test("kelly designs list --json and stats", async () => {
     assert.equal(stats.categories.blouse, 2);
     assert.equal(stats.total, 2);
   } finally { service.close(); }
+});
+
+/* ------------------------------------------------------------------ DesignService.find ------------------------------------------------------------------ */
+
+test('find("trending sarees") returns the trending saree and no other category', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS);
+  try {
+    const { design: trendingSaree } = service.store.add({ bytes: png(1, 1, 1), category: "saree", tags: ["trending"], caption: "Banarasi silk saree" });
+    service.store.add({ bytes: png(2, 2, 2), category: "saree", tags: ["casual"], caption: "Cotton saree, everyday wear" });
+    service.store.add({ bytes: png(3, 3, 3), category: "lehenga", tags: ["trending"], caption: "Trending bridal lehenga" });
+
+    const results = await service.find("trending sarees");
+    assert.ok(results.some((d) => d.id === trendingSaree.id), "the trending saree is returned");
+    assert.ok(results.every((d) => d.category === "saree"), "only sarees come back, never the trending lehenga");
+  } finally { service.close(); }
+});
+
+test('find("show me bridal lehengas") returns lehengas tagged bridal', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS);
+  try {
+    const { design: bridalLehenga } = service.store.add({ bytes: png(1, 1, 1), category: "lehenga", tags: ["bridal"], caption: "Bridal lehenga, heavy work" });
+    service.store.add({ bytes: png(2, 2, 2), category: "lehenga", tags: ["party"], caption: "Party lehenga" });
+    service.store.add({ bytes: png(3, 3, 3), category: "saree", tags: ["bridal"], caption: "Bridal saree" });
+
+    const results = await service.find("show me bridal lehengas");
+    assert.ok(results.some((d) => d.id === bridalLehenga.id));
+    assert.ok(results.every((d) => d.category === "lehenga" && d.tags.includes("bridal")));
+  } finally { service.close(); }
+});
+
+test('find("red saree") with no red saree returns the sarees (widened, not empty)', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS);
+  try {
+    const { design: blueSaree } = service.store.add({ bytes: png(1, 1, 1), category: "saree", tags: ["casual"], caption: "Blue cotton saree", colours: ["blue"] });
+    service.store.add({ bytes: png(2, 2, 2), category: "saree", tags: ["festive"], caption: "Green silk saree", colours: ["green"] });
+    service.store.add({ bytes: png(3, 3, 3), category: "kurti", tags: ["casual"], caption: "Printed kurti" });
+
+    const results = await service.find("red saree");
+    assert.ok(results.length > 0, "no red saree exists, but the category still widens instead of coming back empty");
+    assert.ok(results.some((d) => d.id === blueSaree.id));
+    assert.ok(results.every((d) => d.category === "saree"));
+  } finally { service.close(); }
+});
+
+test('find("latest kurtis") honours the 30-day window', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS);
+  try {
+    const { design: freshKurti } = service.store.add({ bytes: png(1, 1, 1), category: "kurti", tags: ["latest"], caption: "New printed kurti" });
+    // Backdate a second kurti past the 30-day latest window directly in the DB.
+    const old = service.store.add({ bytes: png(2, 2, 2), category: "kurti", tags: ["casual"], caption: "Old kurti design" }).design;
+    const db = (service.store as unknown as { db: { prepare: (sql: string) => { run: (...args: unknown[]) => unknown } } }).db;
+    const oldDate = new Date(Date.now() - 40 * 24 * 60 * 60 * 1000).toISOString();
+    db.prepare("UPDATE designs SET added_at = ? WHERE id = ?").run(oldDate, old.id);
+
+    const results = await service.find("latest kurtis");
+    assert.ok(results.some((d) => d.id === freshKurti.id));
+    assert.ok(results.every((d) => d.id !== old.id), "a 40-day-old kurti falls outside the 30-day latest window");
+  } finally { service.close(); }
+});
+
+test("designs stats against an explicit absolute KELLY_DATA_DIR sees rows written by a DesignStore opened on the same dir (guards the CLI/server data-dir split)", async () => {
+  const dataDir = tempDir();
+  const store = new DesignStore(dataDir, CATEGORIES, TAGS);
+  try {
+    store.add({ bytes: png(1, 1, 1), category: "saree", tags: ["trending"], caption: "Banarasi silk saree" });
+    store.add({ bytes: png(2, 2, 2), category: "lehenga", tags: ["bridal"], caption: "Bridal lehenga" });
+  } finally { store.close(); }
+
+  // Same env shape the runtime's own spawned shell inherits: AGENT_PROFILE=kelly plus an
+  // explicit absolute KELLY_DATA_DIR — not the launcher (bin/kelly.mjs), which would set the
+  // profile itself. Without src/cli.ts setting the active profile from AGENT_PROFILE, the CLI
+  // silently falls back to the "henry" profile, reads HENRY_DATA_DIR instead of KELLY_DATA_DIR,
+  // and reports an empty store even though the dashboard/server sees every row.
+  const env: NodeJS.ProcessEnv = { ...process.env, AGENT_PROFILE: "kelly", KELLY_TRADE: "boutique", KELLY_DATA_DIR: dataDir };
+  const result = await runCli(["designs", "stats"], env);
+  assert.equal(result.code, 0, result.stderr);
+  const stats = JSON.parse(result.stdout) as { total: number; categories: Record<string, number> };
+  assert.equal(stats.total, 2, "the CLI process sees the same store the DesignStore wrote to");
+  assert.equal(stats.categories.saree, 1);
+  assert.equal(stats.categories.lehenga, 1);
 });
 
 /* ------------------------------------------------------------------ block parsing ------------------------------------------------------------------ */

@@ -76,10 +76,15 @@ function row2record(row: Record<string, unknown>): DesignRecord {
 const LATEST_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
 
 export class DesignStore {
+  /** The vocabulary the query parser in DesignService reads customer words against. */
+  readonly categoryNames: string[];
+  readonly tagNames: string[];
   private readonly db: Database.Database;
   readonly filesDir: string;
 
   constructor(readonly dataDir: string, private readonly categories: string[], private readonly validTags: string[]) {
+    this.categoryNames = categories;
+    this.tagNames = validTags;
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 });
     this.filesDir = path.join(dataDir, "designs");
     fs.mkdirSync(this.filesDir, { recursive: true, mode: 0o700 });
