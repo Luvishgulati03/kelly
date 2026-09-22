@@ -7,6 +7,18 @@
 > Claude provider steps, and its profile never loads Gmail, jobs, meetings,
 > screenshots, social posting, mailwatch, launch, or standups. Kelly's product
 > guide is [KELLY_README.md](KELLY_README.md).
+>
+> **Trade step.** Early in setup, right after the problem statement, ask which
+> trade this install is for: an electrical shop or a ladies' boutique. The trade
+> is fixed for the life of the install (`KELLY_TRADE=electrical` or `boutique`),
+> not a runtime toggle. Then ask that pack's own setup questions from
+> `src/trade/electrical.ts` or `src/trade/boutique.ts` (`setupQuestions`) and set
+> `KELLY_TRADE` and `KELLY_SHOP_NAME` in `.env` from the answers. For a boutique
+> install, also run `kelly catalogue template`, have the owner fill in the rate
+> card, then `kelly catalogue import` and `kelly catalogue publish` it, and
+> explain that design photos go in with `kelly designs add` or the Designs pane
+> on the switchboard. Full detail: [SETUP-PROMPT.md](SETUP-PROMPT.md) and
+> [docs/modules/trade-packs.md](docs/modules/trade-packs.md).
 
 Two ways through this document.
 

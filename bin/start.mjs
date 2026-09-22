@@ -149,7 +149,7 @@ export async function startKelly(args) {
       KELLY_DATA_DIR: path.join(demoRoot, "data"),
       KELLY_MEMORY_DIR: path.join(demoRoot, "memory"),
       KELLY_KNOWLEDGE_DIR: path.join(demoRoot, "knowledge"),
-      KELLY_PORT: "7338",
+      KELLY_PORT: process.env.KELLY_PORT || "7338",
       KELLY_TRADE: isBoutique ? "boutique" : "electrical",
     });
     if (isBoutique) process.env.KELLY_SHOP_NAME = "She Fashion House";

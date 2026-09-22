@@ -40,8 +40,12 @@ export async function seedBoutiqueDesigns(service: DesignService): Promise<{ see
   let seeded = 0;
   for (let i = 0; i < SEED_PLAN.length; i++) {
     const plan = SEED_PLAN[i];
+    // Two 7-entry cycles reuse the same PALETTE colours; shift the accent offset on the
+    // second cycle so no two of the 14 seed images render identical pixels (which the
+    // store's sha256 dedup would otherwise collapse into fewer than 14 designs).
     const colour = PALETTE[i % PALETTE.length];
-    const accent = PALETTE[(i + 3) % PALETTE.length];
+    const accentShift = i >= PALETTE.length ? 4 : 3;
+    const accent = PALETTE[(i + accentShift) % PALETTE.length];
     const bytes = encodeSolidPng(480, 600, colour, accent);
     const result = service.store.add({ bytes, category: plan.category, tags: plan.tags, caption: plan.caption });
     if (!result.duplicate) {

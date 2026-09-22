@@ -77,7 +77,44 @@ Do not modify anything yet.
 PHASE 2: UNDERSTAND THE PROBLEM AND DESIGN THE WORKFLOW
 
 Do not start by asking which features to switch on. First ask the owner for the
-problem statement in their own words. In short conversational rounds, establish:
+problem statement in their own words.
+
+TRADE (KELLY ONLY)
+
+Right after the problem statement, ask which trade this Kelly install is for: an
+electrical shop or a ladies' boutique. The trade is fixed for the life of this
+install (`KELLY_TRADE=electrical` or `KELLY_TRADE=boutique`); switching later
+means reconfiguring the install, not flipping a runtime toggle.
+
+Once the owner answers, ask that trade pack's own setup questions, word for word.
+These mirror `setupQuestions` in `src/trade/electrical.ts` and
+`src/trade/boutique.ts`. If this prompt and that source file ever disagree, the
+source file is authoritative; re-read it before asking.
+
+Electrical:
+- What products or categories does the shop sell (e.g. wiring, switches, fans, lighting)?
+- Which brands does the shop carry, and is there a preferred or default brand?
+- Does the shop offer bulk or contractor pricing that Kelly should know about?
+- Where does the published catalogue live today (a spreadsheet, a supplier PDF, or something else)?
+
+Boutique:
+- What is the boutique's shop name, and who is the owner Kelly should address?
+- What garments does the shop stitch (suits, blouses, lehengas, sarees, kurtis, gowns, dupattas) and what work types (plain, lining, embroidery, hand work)?
+- Where does the published rate card live today (a spreadsheet, a notebook, or something else)?
+- Does the shop want a customer-facing design gallery on the counter tablet, and if so, where do design photos come from today?
+
+From the answers, set `KELLY_TRADE` and `KELLY_SHOP_NAME` in `.env`.
+
+For a boutique install, also: run `kelly catalogue template`, which writes
+`data/templates/boutique-ratecard.xlsx`; tell the owner to fill in their own
+garments, work types and rates, then run `kelly catalogue import` on that file
+and `kelly catalogue publish` the imported document before Kelly can quote from
+it. Explain that design photos for the customer-facing gallery are added with
+`kelly designs add <file|folder> --category <suit|saree|lehenga|blouse|kurti|
+gown|dupatta>`, or through the Designs pane on the switchboard once the
+dashboard is running.
+
+In short conversational rounds, establish:
 
 - who will use the agent and who is affected by its decisions;
 - the current workflow, repeated manual work, bottlenecks, and costly mistakes;

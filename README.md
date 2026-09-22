@@ -19,6 +19,24 @@ Kelly runs locally, learns from approved business material, and separates facts
 from generated language. It can search a catalogue conversationally, but totals,
 discounts, taxes, and final quotation values are calculated in code.
 
+Kelly serves two trades today, an electrical shop and a ladies' boutique, one
+trade per install. The trade is chosen once at setup (`KELLY_TRADE`) and does
+not switch at runtime; each deployment stays one shop, one line of business.
+
+### Try the boutique demo
+
+```bash
+kelly start --demo --trade boutique
+```
+
+This seeds an isolated demo rate card and 14 placeholder design photos for "She
+Fashion House," a fictional ladies' boutique, and never touches real owner
+data. Open the dashboard it prints, then look at the switchboard, the Designs
+pane, and the Counter page. Try asking:
+
+- "show me trending sarees"
+- "how much for two salwar suits with lining, my own fabric, needed by Friday"
+
 ## What works today
 
 - Import supplier catalogues from PDF, XLSX, and CSV files
