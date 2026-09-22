@@ -152,7 +152,7 @@ test("voiceMode instruction answers in clear English and never asks for a Hindi/
     });
     assert.equal(response.status, 200);
     await response.text();
-    assert.match(providerPrompt, /clear, simple English even when the speaker uses Hindi or Hinglish/);
+    assert.match(providerPrompt, /always answer in clear, simple English/);
     assert.doesNotMatch(providerPrompt, /Hindi\/English mix/);
     assert.match(providerPrompt, /published rate card and deterministic commerce calculations/);
   });
