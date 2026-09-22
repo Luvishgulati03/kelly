@@ -8,9 +8,10 @@ import { ActivityLog } from "../src/activity.ts";
 import { TelegramBridge, VOICE_CONFIRM_TTL_MS } from "../src/telegram/bridge.ts";
 import type { PumpMetaStore, TelegramAudioMeta, TelegramUpdate } from "../src/telegram/pump.ts";
 import {
-  TelegramVoiceIntake, VoiceIntakeError,
+  TelegramVoiceIntake, VoiceIntakeError, telegramVoiceReplier,
   type AudioConverter, type TelegramFileFetcher, type TelegramFileInfo, type VoiceTranscriber,
 } from "../src/telegram/voice.ts";
+import { speakableSummary } from "../src/voice/speakable.ts";
 
 /**
  * OWNER VOICE NOTES.
@@ -362,7 +363,7 @@ test("a confirmed voice turn is answered in text and then spoken", async () => {
 
   const answer = h.sent.find((text) => text.startsWith("answered:"));
   assert.ok(answer, "the text answer is always sent");
-  assert.deepEqual(h.spoken, [answer], "and the same answer is offered as speech");
+  assert.deepEqual(h.spoken, [speakableSummary({ reply: answer! })], "a short TTS summary is spoken, not the full text answer");
   assert.equal(h.bridge.stats().voiceSpoken, 1);
 });
 
@@ -528,4 +529,16 @@ test("a second voice note replaces the first, which is settled dropped instead o
   await h.bridge.settled();
   assert.equal(h.asked.length, 1);
   assert.match(h.asked[0], /<voice_transcript>\ndo Havells ke pankhe ka quote banao\n<\/voice_transcript>/);
+});
+
+test("telegramVoiceReplier always pins language 'en', even for Devanagari text", async () => {
+  const calls: Array<{ text: string; language?: string }> = [];
+  const speak = telegramVoiceReplier({
+    synthesize: async (text, options) => { calls.push({ text, language: options?.language }); return Buffer.from("wav"); },
+    encode: async (wav) => wav,
+    send: async () => true,
+  });
+  assert.equal(await speak("Two suits, total 1700 rupees."), true);
+  assert.equal(await speak("दो सूट, कुल 1700 रुपये।"), true);
+  assert.deepEqual(calls.map((call) => call.language), ["en", "en"]);
 });

@@ -119,6 +119,7 @@ details.tbl{margin-top:10px}details.tbl summary{cursor:pointer;color:var(--coppe
       <button class="tab" role="tab" aria-selected="false" data-pane="logs">Logs <span class="cnt" id="cnt-logs">–</span></button>
       <button class="tab" role="tab" aria-selected="false" data-pane="usage">Usage &amp; quota</button>
       <button class="tab" role="tab" aria-selected="false" data-pane="catalogue">Catalogue</button>
+      <button class="tab" role="tab" aria-selected="false" data-pane="designs" id="tab-designs" hidden>Designs <span class="cnt" id="cnt-designs">–</span></button>
       <a class="tab" href="/chat">Chat ↗</a>
       <a class="tab" href="/voice" id="openCounter">Counter ↗</a>
       <a class="tab" href="/memory">Memory ↗</a>
@@ -196,6 +197,30 @@ details.tbl{margin-top:10px}details.tbl summary{cursor:pointer;color:var(--coppe
     <div class="cols"><div class="card"><h3>Results</h3><div id="cat-results"><div class="empty">Published products will appear here.</div></div></div><div class="card"><h3>Supplier files</h3><div class="stats" id="cat-stats"></div><div id="cat-docs" class="list" style="margin-top:8px"></div><p style="margin-top:10px;font-size:12.5px;color:var(--ink-3)">Import with <span class="mono">kelly catalogue import &lt;file&gt;</span>, review, then publish. Quotations: <span class="mono">kelly quote create --from request.json</span>.</p></div></div>
   </div>
 
+  <div class="pane" id="pane-designs">
+    <div class="topline"><div><h2>Designs</h2><div class="sub">Photos customers can be shown at the counter. Kelly picks from these when someone asks to see designs.</div></div><span class="pill" id="dsg-pill"><i></i>–</span></div>
+    <div class="stats" id="dsg-stats" style="margin-bottom:14px"></div>
+    <div class="card" style="margin-bottom:12px"><h3>Add designs</h3>
+      <div class="filters" style="margin-bottom:10px">
+        <select class="input" id="dsg-add-category"></select>
+        <input class="input" id="dsg-add-tags" type="text" placeholder="tags (comma separated)">
+        <input class="input" id="dsg-add-caption" type="text" placeholder="caption">
+      </div>
+      <div id="dsg-drop" style="border:1px dashed var(--line-2);border-radius:var(--r-lg);padding:22px;text-align:center;color:var(--ink-3);cursor:pointer">
+        Drop image files here, or <button class="button" type="button" id="dsg-pick">choose files</button>
+        <input type="file" id="dsg-file" accept="image/png,image/jpeg,image/webp,image/gif" multiple hidden>
+      </div>
+      <div id="dsg-add-note" class="mono" style="font-size:12px;color:var(--ink-3);margin-top:8px"></div>
+    </div>
+    <div class="filters" id="dsg-filters">
+      <button class="chip" aria-pressed="true" data-f="">All categories</button>
+      <button class="chip" aria-pressed="false" data-t="latest">Latest</button>
+      <button class="chip" aria-pressed="false" data-t="trending">Trending</button>
+      <input class="input" id="dsg-search" type="search" placeholder="search caption, fabric, occasion">
+    </div>
+    <div id="dsg-grid" class="cols" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))"></div>
+  </div>
+
   </div>
 </div></div>
 <div class="tip" id="tip"></div>
@@ -216,14 +241,14 @@ function fmtUntil(iso){var d=new Date(iso);return isNaN(d)?'–':d.toLocaleTimeS
 
 /* ---- panes: the hash is the route, so /#logs and /#voice are shareable and reloadable ---- */
 var tabs=document.querySelectorAll('.tab[data-pane]');
-function go(name,push){var known=['overview','voice','logs','usage','catalogue'];if(known.indexOf(name)<0)name='overview';tabs.forEach(function(t){t.setAttribute('aria-selected',String(t.dataset.pane===name))});document.querySelectorAll('.pane').forEach(function(p){p.classList.toggle('on',p.id==='pane-'+name)});if(push!==false&&location.hash!=='#'+name)history.replaceState(null,'','#'+name);if(name==='voice')loadTranscripts();if(name==='logs')loadLogs();if(name==='usage')loadUsage();if(name==='catalogue')loadCatalogue()}
+function go(name,push){var known=['overview','voice','logs','usage','catalogue','designs'];if(known.indexOf(name)<0)name='overview';tabs.forEach(function(t){t.setAttribute('aria-selected',String(t.dataset.pane===name))});document.querySelectorAll('.pane').forEach(function(p){p.classList.toggle('on',p.id==='pane-'+name)});if(push!==false&&location.hash!=='#'+name)history.replaceState(null,'','#'+name);if(name==='voice')loadTranscripts();if(name==='logs')loadLogs();if(name==='usage')loadUsage();if(name==='catalogue')loadCatalogue();if(name==='designs')loadDesigns()}
 tabs.forEach(function(t){t.addEventListener('click',function(){go(t.dataset.pane)})});
 addEventListener('hashchange',function(){go(location.hash.slice(1)||'overview',false)});
 document.addEventListener('click',function(e){var a=e.target.closest&&e.target.closest('a[href^="#"]');if(a){e.preventDefault();go(a.getAttribute('href').slice(1))}});
 
 /* ---- status + footer ---- */
 var status={};
-function refreshStatus(){return get('/api/status').then(function(s){status=s;var k=String(s.name||'').toLowerCase()==='kelly';var shop=(s.trade&&s.trade.shopName)||s.name||'Kelly';ids('brand-name').textContent=shop;ids('brand-sub').textContent=k?'switchboard':'control room';document.title=shop+' · switchboard';var markEl=document.querySelector('.brand .k');if(markEl)markEl.textContent=(shop.trim()[0]||'K').toUpperCase();ids('foot-provider').textContent=s.provider||'–';ids('foot-bound').textContent=(s.dashboard||'').replace(/^https?:\\/\\//,'')}).catch(function(){})}
+function refreshStatus(){return get('/api/status').then(function(s){status=s;var k=String(s.name||'').toLowerCase()==='kelly';var shop=(s.trade&&s.trade.shopName)||s.name||'Kelly';ids('brand-name').textContent=shop;ids('brand-sub').textContent=k?'switchboard':'control room';document.title=shop+' · switchboard';var markEl=document.querySelector('.brand .k');if(markEl)markEl.textContent=(shop.trim()[0]||'K').toUpperCase();ids('foot-provider').textContent=s.provider||'–';ids('foot-bound').textContent=(s.dashboard||'').replace(/^https?:\\/\\//,'');var cats=(s.trade&&s.trade.galleryCategories)||[];ids('tab-designs').hidden=!cats.length;if(cats.length){var sel=ids('dsg-add-category');if(sel&&!sel.options.length)sel.innerHTML=cats.map(function(c){return'<option value="'+esc(c)+'">'+esc(c)+'</option>'}).join('')}}).catch(function(){})}
 function refreshVoiceStatus(){return get('/api/voice/status').then(function(v){ids('foot-stt').textContent=v.sttEnabled?'configured':'off';ids('foot-tts').textContent=v.ttsEnabled?'configured':'off'}).catch(function(){})}
 
 /* ---- heartbeat: one spike per REAL event ---- */
@@ -316,6 +341,34 @@ function productRow(p){return'<div class="row"><b>'+esc(p.name)+'</b> <span clas
 function loadCatalogue(){return get('/api/catalogue/documents').then(function(d){var list=Array.isArray(d)?d:[];var pub=list.filter(function(x){return x.status==='published'}).length;ids('cat-stats').innerHTML='<span class="stat"><b>'+pub+'</b><span>published files</span></span><span class="stat"><b>'+(list.length-pub)+'</b><span>awaiting review</span></span>';ids('cat-pill').innerHTML='<i></i>'+list.length+' supplier file'+(list.length===1?'':'s');ids('cat-docs').innerHTML=list.length?list.slice(0,12).map(function(x){return'<div class="row"><b>'+esc(x.fileName||x.name||x.id)+'</b><div class="dim">'+esc(x.status)+(x.brand?' · '+esc(x.brand):'')+(x.productCount!=null?' · '+esc(x.productCount)+' products':'')+'</div></div>'}).join(''):'<div class="empty">No supplier files imported yet.</div>'}).catch(function(e){ids('cat-docs').innerHTML='<div class="empty">'+esc(e.message.indexOf('503')>=0?'Catalogue is not available in this profile.':'Could not load the catalogue: '+e.message)+'</div>'})}
 function searchCatalogue(){var q=ids('cat-q').value.trim();if(!q)return;ids('cat-results').innerHTML='<div class="empty">searching the published catalogue…</div>';get('/api/catalogue/search?q='+encodeURIComponent(q)).then(function(r){var list=Array.isArray(r)?r:(r.results||[]);ids('cat-results').innerHTML=list.length?list.map(productRow).join(''):'<div class="empty">No published product matches. Unpublished imports are not searchable until you publish them.</div>'}).catch(function(e){ids('cat-results').innerHTML='<div class="empty">'+esc(e.message)+'</div>'})}
 ids('cat-go').addEventListener('click',searchCatalogue);ids('cat-q').addEventListener('keydown',function(e){if(e.key==='Enter')searchCatalogue()});
+
+/* ---- designs ---- */
+var dsgCategory='',dsgToggle='',dsgQuery='';
+function designCard(d){return'<div class="card" data-id="'+esc(d.id)+'" style="padding:0;overflow:hidden">'
+  +'<img src="'+esc(d.thumb)+'" alt="'+esc(d.caption||d.category)+'" loading="lazy" style="width:100%;aspect-ratio:4/5;object-fit:cover;display:block">'
+  +'<div style="padding:8px 10px"><div style="font-size:12.5px;color:var(--ink-2)"><span class="pill copper" style="padding:1px 7px"><i></i>'+esc(d.category)+'</span></div>'
+  +'<div style="font-size:12.5px;margin-top:6px;color:var(--ink-2)">'+esc(d.caption||'')+'</div>'
+  +'<div style="font-size:11px;color:var(--ink-3);margin-top:4px">'+esc((d.tags||[]).join(', '))+' · shown '+(d.shownCount||0)+'×</div>'
+  +'<div style="display:flex;gap:6px;margin-top:8px"><button class="button" type="button" data-hide="'+esc(d.id)+'" style="font-size:11px;padding:4px 8px">Hide</button></div></div></div>'}
+function loadDesigns(){var qs=[];if(dsgCategory)qs.push('category='+encodeURIComponent(dsgCategory));if(dsgToggle==='latest')qs.push('latest=1');if(dsgToggle==='trending')qs.push('trending=1');if(dsgQuery)qs.push('text='+encodeURIComponent(dsgQuery));qs.push('limit=100');
+  return Promise.all([get('/api/designs?'+qs.join('&')),get('/api/designs/stats')]).then(function(r){var list=r[0].designs||[];var stats=r[1]||{categories:{},tags:{},total:0};
+    ids('cnt-designs').textContent=stats.total||0;
+    ids('dsg-pill').innerHTML='<i></i>'+(stats.total||0)+' design'+(stats.total===1?'':'s');
+    ids('dsg-stats').innerHTML=Object.keys(stats.categories||{}).map(function(c){return'<span class="stat"><b>'+stats.categories[c]+'</b><span>'+esc(c)+'</span></span>'}).join('')||'<div class="empty">No designs yet.</div>';
+    if(!ids('dsg-filters').dataset.built){var cats=Object.keys(stats.categories||{});var extra=cats.map(function(c){return'<button class="chip" aria-pressed="false" data-f="'+esc(c)+'">'+esc(c)+'</button>'}).join('');ids('dsg-filters').querySelector('[data-f=""]').insertAdjacentHTML('afterend',extra);ids('dsg-filters').dataset.built='1'}
+    ids('dsg-grid').innerHTML=list.length?list.map(designCard).join(''):'<div class="empty">No designs match these filters.</div>'
+  }).catch(function(e){ids('dsg-grid').innerHTML='<div class="empty">Could not load designs: '+esc(e.message)+'</div>'})}
+ids('dsg-filters').addEventListener('click',function(e){var chip=e.target.closest('.chip');if(!chip)return;if(chip.dataset.f!==undefined){ids('dsg-filters').querySelectorAll('[data-f]').forEach(function(o){o.setAttribute('aria-pressed','false')});chip.setAttribute('aria-pressed','true');dsgCategory=chip.dataset.f||''}else if(chip.dataset.t){var was=chip.getAttribute('aria-pressed')==='true';ids('dsg-filters').querySelectorAll('[data-t]').forEach(function(o){o.setAttribute('aria-pressed','false')});chip.setAttribute('aria-pressed',String(!was));dsgToggle=was?'':chip.dataset.t}loadDesigns()});
+var dst=null;ids('dsg-search').addEventListener('input',function(){if(dst)clearTimeout(dst);dst=setTimeout(function(){dsgQuery=ids('dsg-search').value.trim();loadDesigns()},250)});
+ids('dsg-grid').addEventListener('click',function(e){var btn=e.target.closest('[data-hide]');if(!btn)return;if(!confirm('Hide this design from the gallery?'))return;fetch('/api/designs/'+encodeURIComponent(btn.dataset.hide),{method:'DELETE',credentials:'same-origin'}).then(function(){loadDesigns()})});
+function uploadDesignFile(file){var category=ids('dsg-add-category').value;if(!category){ids('dsg-add-note').textContent='Choose a category first.';return Promise.resolve()}var tags=ids('dsg-add-tags').value.trim();var caption=ids('dsg-add-caption').value.trim();
+  return file.arrayBuffer().then(function(buf){return fetch('/api/designs',{method:'POST',credentials:'same-origin',headers:Object.assign({'content-type':file.type||'application/octet-stream','x-kelly-design-category':encodeURIComponent(category)},tags?{'x-kelly-design-tags':encodeURIComponent(tags)}:{},caption?{'x-kelly-design-caption':encodeURIComponent(caption)}:{}),body:buf})}).then(function(r){return r.json()}).then(function(r){if(r.error)throw new Error(r.error)})}
+function uploadDesignFiles(files){ids('dsg-add-note').textContent='uploading '+files.length+'…';var chain=Promise.resolve();var ok=0,fail=0;Array.prototype.forEach.call(files,function(f){chain=chain.then(function(){return uploadDesignFile(f).then(function(){ok++},function(){fail++})})});return chain.then(function(){ids('dsg-add-note').textContent=ok+' added'+(fail?', '+fail+' failed':'');loadDesigns()})}
+ids('dsg-pick').addEventListener('click',function(){ids('dsg-file').click()});
+ids('dsg-file').addEventListener('change',function(){if(ids('dsg-file').files.length)uploadDesignFiles(ids('dsg-file').files)});
+ids('dsg-drop').addEventListener('click',function(e){if(e.target===ids('dsg-pick'))return;ids('dsg-file').click()});
+ids('dsg-drop').addEventListener('dragover',function(e){e.preventDefault()});
+ids('dsg-drop').addEventListener('drop',function(e){e.preventDefault();if(e.dataTransfer.files.length)uploadDesignFiles(e.dataTransfer.files)});
 
 /* ---- boot ---- */
 refreshStatus().then(refreshVoiceStatus).then(refreshOverview);

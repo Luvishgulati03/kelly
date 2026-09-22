@@ -83,13 +83,29 @@ export async function editWorkbook(filePath: string, edits: WorkbookEdit[], outp
 
 function normalizeHeader(value: unknown): string { return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, ""); }
 const HEADERS: Record<string, string[]> = {
-  sku: ["sku", "itemcode", "productcode", "catalogueno", "catno"], brand: ["brand", "make", "company"],
-  name: ["name", "product", "description", "itemdescription"], category: ["category", "group", "productcategory"],
-  specification: ["specification", "spec", "rating"], unit: ["unit", "uom"], packSize: ["packsize", "pack", "qtyperpack"],
-  price: ["price", "mrp", "rate", "unitprice"], gst: ["gst", "gstrate", "tax"], taxInclusive: ["taxinclusive", "inclusive"],
+  sku: ["sku", "itemcode", "productcode", "catalogueno", "catno", "code"], brand: ["brand", "make", "company"],
+  name: ["name", "product", "description", "itemdescription", "item", "service", "garment"],
+  category: ["category", "group", "productcategory", "garment", "type"],
+  specification: ["specification", "spec", "rating"], unit: ["unit", "uom", "per", "basis"], packSize: ["packsize", "pack", "qtyperpack"],
+  price: ["price", "mrp", "rate", "unitprice", "charge", "stitching"], gst: ["gst", "gstrate", "tax"], taxInclusive: ["taxinclusive", "inclusive"],
 };
 
-export async function extractCatalogueRows(filePath: string, sheetName?: string): Promise<CatalogueProductInput[]> {
+/** Uppercase, hyphenated, deduplicated (SUIT-PLAIN, SUIT-PLAIN-2, ...) stable code for
+ * rate-card rows that have no code/SKU column of their own. */
+function deriveCode(category: string, name: string, used: Set<string>): string {
+  const base = `${category}-${name}`.toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "ROW";
+  let candidate = base; let suffix = 2;
+  while (used.has(candidate)) { candidate = `${base}-${suffix}`; suffix += 1; }
+  used.add(candidate);
+  return candidate;
+}
+
+export interface ExtractCatalogueRowsOptions {
+  /** Used as the row's brand when the sheet has no brand column ("house" if omitted). */
+  shopName?: string;
+}
+
+export async function extractCatalogueRows(filePath: string, sheetName?: string, options: ExtractCatalogueRowsOptions = {}): Promise<CatalogueProductInput[]> {
   const workbook = await loadWorkbook(filePath); const sheet = sheetName ? workbook.getWorksheet(sheetName) : workbook.worksheets[0];
   if (!sheet) throw new Error("Workbook has no readable sheet");
   const indexes: Record<string, number> = {};
@@ -97,20 +113,30 @@ export async function extractCatalogueRows(filePath: string, sheetName?: string)
     const normalized = normalizeHeader(displayed(cell.value));
     for (const [field, aliases] of Object.entries(HEADERS)) if (aliases.includes(normalized)) indexes[field] = col;
   });
-  for (const required of ["sku", "brand", "name", "price"]) if (!indexes[required]) throw new Error(`Missing required catalogue column: ${required}`);
+  for (const required of ["name", "price"]) if (!indexes[required]) throw new Error(`Missing required catalogue column: ${required}`);
+  const defaultBrand = (options.shopName || "").trim() || "house";
+  const usedCodes = new Set<string>();
   const rows: CatalogueProductInput[] = [];
   for (let rowNo = 2; rowNo <= sheet.rowCount; rowNo++) {
-    const row = sheet.getRow(rowNo); const sku = String(displayed(row.getCell(indexes.sku).value) ?? "").trim(); if (!sku) continue;
-    const price = Number(displayed(row.getCell(indexes.price).value)); if (!Number.isFinite(price) || price < 0) throw new Error(`Invalid price at ${sheet.name}!${row.getCell(indexes.price).address}`);
+    const row = sheet.getRow(rowNo);
+    const price = indexes.price ? Number(displayed(row.getCell(indexes.price).value)) : NaN;
+    const name = String(displayed(row.getCell(indexes.name).value) ?? "").trim();
+    if (!name && !Number.isFinite(price)) continue;
+    if (!Number.isFinite(price) || price < 0) throw new Error(`Invalid price at ${sheet.name}!${row.getCell(indexes.price).address}`);
+    const category = indexes.category ? String(displayed(row.getCell(indexes.category).value) ?? "general").trim() || "general" : "general";
+    let sku = indexes.sku ? String(displayed(row.getCell(indexes.sku).value) ?? "").trim() : "";
+    let derivedSource = `${sheet.name}!${rowNo}:${rowNo}`;
+    if (!sku) { sku = deriveCode(category, name, usedCodes); derivedSource = `${sheet.name}!${rowNo}:${rowNo} (code derived from category+name)`; }
+    const brand = indexes.brand ? (String(displayed(row.getCell(indexes.brand).value) ?? "").trim() || defaultBrand) : defaultBrand;
     const gstValue = indexes.gst ? Number(displayed(row.getCell(indexes.gst).value) || 0) : 0;
-    rows.push({ sku, brand: String(displayed(row.getCell(indexes.brand).value) ?? "").trim(), name: String(displayed(row.getCell(indexes.name).value) ?? "").trim(),
-      category: indexes.category ? String(displayed(row.getCell(indexes.category).value) ?? "general") : "general",
+    rows.push({ sku, brand, name,
+      category,
       specification: indexes.specification ? String(displayed(row.getCell(indexes.specification).value) ?? "") : "",
       unit: indexes.unit ? String(displayed(row.getCell(indexes.unit).value) ?? "unit") : "unit",
       packSize: indexes.packSize ? Number(displayed(row.getCell(indexes.packSize).value) || 1) : 1,
       pricePaise: Math.round(price * 100), gstBasisPoints: Math.round(gstValue * 100),
       taxInclusive: indexes.taxInclusive ? /^(yes|true|1|inclusive)$/i.test(String(displayed(row.getCell(indexes.taxInclusive).value))) : false,
-      sourceLocation: `${sheet.name}!${rowNo}:${rowNo}` });
+      sourceLocation: derivedSource });
   }
   return rows;
 }

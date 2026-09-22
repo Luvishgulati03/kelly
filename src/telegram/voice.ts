@@ -418,7 +418,9 @@ export function telegramVoiceReplier(deps: VoiceReplyDeps): (text: string) => Pr
     const trimmed = text.trim();
     if (!trimmed || trimmed.length > maxChars) return false;
     try {
-      const wav = await deps.synthesize(trimmed, { language: /[ऀ-ॿ]/u.test(trimmed) ? "hi" : "en" });
+      // Telegram voice replies are always spoken in English (speakableSummary output is
+      // English prose); pin the language rather than auto-detecting per reply.
+      const wav = await deps.synthesize(trimmed, { language: "en" });
       const opus = await deps.encode(wav);
       if (!opus?.length) return false;
       return await deps.send(opus);

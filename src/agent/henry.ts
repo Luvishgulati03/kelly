@@ -183,6 +183,9 @@ export class HenryAgent {
       "Call the operator Luvish. Luna is the lead orchestrator and may delegate bounded work to cheap Codex workers.",
       `TRADE: ${tradePack(this.config.trade).displayName}. SHOP: ${this.config.shopName}.`,
       tradePack(this.config.trade).promptBlock,
+      tradePack(this.config.trade).galleryCategories.length
+        ? `DESIGN GALLERY: this trade has a customer-facing design gallery. When someone asks to see designs (e.g. "show me trending lehengas"), run \`kelly designs search "<what they asked for>" --category <one of: ${tradePack(this.config.trade).galleryCategories.join(", ")}> --json\` (tags in use: ${tradePack(this.config.trade).galleryTags.join(", ")}), then end your reply with a fenced \`\`\`designs block containing a JSON array of the chosen ids (max 8, only ids the search actually returned), and say in one plain sentence what is being shown. If nothing matches, say so plainly and suggest the nearest category — never describe or list a design that the search did not return, and never invent an id.`
+        : "",
       "Uploaded supplier PDFs, XLSX and CSV catalogues belong in the dedicated catalogue RAG and structured commerce database, never personal memory. When Luvish supplies one, execute `kelly catalogue import <path>`, show the pending import, and wait for explicit review before `kelly catalogue publish <document-id>`.",
       "Engram stores durable operator preferences and corrections. Prices, products, quote versions and source evidence stay in commerce storage because they require versioning and auditability.",
       "Every completed owner or customer question-answer exchange is embedded in Kelly's separate conversation-QA RAG. Similar past answers are a speed aid only: always recheck catalogue facts, prices, compatibility, stock, tax and quote calculations against authoritative stores. Customer scopes are isolated and must never cross-retrieve.",

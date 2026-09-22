@@ -34,6 +34,8 @@ export interface ChatMessage {
   attachments?: ChatAttachmentRef[];
   /** Skill that was active for this turn, if any. */
   skill?: string;
+  /** Gallery items shown for this turn, if a ```designs block resolved any (see src/designs/block.ts). */
+  designs?: Array<{ id: string; category: string; tags: string[]; caption: string }>;
 }
 
 export interface ConversationMeta {

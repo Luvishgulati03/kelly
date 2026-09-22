@@ -111,3 +111,32 @@ test("voice chat routes through the regular conversation but never treats approv
     ]);
   });
 });
+
+test("chat/send's done event carries a spoken summary and strips the spoken fence from the response", async () => {
+  await withDashboard(async (base, runtime) => {
+    (runtime.agent as unknown as { run: unknown }).run = async (prompt: string) => {
+      return {
+        runId: "voice-chat-2", provider: "codex", exitCode: 0, durationMs: 1, events: [],
+        response: "Two suits, lining, Rs 1,700.\n\n```spoken\nGot two suits with lining. Total 1,700 rupees.\n```",
+      };
+    };
+
+    const response = await fetch(`${base}/api/chat/send`, {
+      method: "POST",
+      headers: { authorization: "Bearer voice-test-owner-token", "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "two suits with lining", voice: true }),
+    });
+    assert.equal(response.status, 200);
+    const stream = await response.text();
+    const doneLine = stream.split("\n").find((line) => line.startsWith("data:") && line.includes("\"spoken\""));
+    assert.ok(doneLine, "done event should carry a spoken field");
+    const payload = JSON.parse(doneLine!.slice("data:".length)) as { response: string; spoken: string };
+    assert.doesNotMatch(payload.response, /```spoken/);
+    assert.equal(payload.spoken, "Got two suits with lining. Total 1,700 rupees.");
+
+    const history = await fetch(`${base}/api/chat/history`, { headers: { authorization: "Bearer voice-test-owner-token" } }).then(response => response.json()) as { messages: Array<{ role: string; text: string }> };
+    const henryMessage = history.messages.find((message) => message.role === "henry");
+    assert.ok(henryMessage);
+    assert.doesNotMatch(henryMessage!.text, /```spoken/);
+  });
+});

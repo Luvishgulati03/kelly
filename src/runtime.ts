@@ -50,6 +50,7 @@ import { isLongResearchAsk, type DispatchReportHandle } from "./orchestration/lu
 import type { ReflexSnapshot } from "./reflex.ts";
 import { isServiceExcluded, getActiveProfile } from "./profile.ts";
 import { CommerceService } from "./commerce/service.ts";
+import { DesignService } from "./designs/rag.ts";
 import { TunnelManager, type TunnelConfig, type TunnelMode, type TunnelStatus } from "./remote/tunnel.ts";
 import { hasUserWithRole } from "./dashboard/auth.ts";
 
@@ -129,6 +130,7 @@ export class HenryRuntime {
   readonly draftReplies?: DraftRepliesService;
   readonly commerce?: CommerceService;
   private _knowledge?: KnowledgeBase;
+  private _designs?: DesignService;
   private _workflowEngine?: WorkflowEngine;
   private _standupStore?: StandupStore;
   private _standup?: StandupService;
@@ -243,6 +245,17 @@ export class HenryRuntime {
   }
 
   /**
+   * The customer-facing design gallery, lazily opened. Only meaningful for a trade pack
+   * that declares gallery categories (boutique); electrical still gets a working (empty)
+   * instance because DesignStore.add validates against an empty category list and refuses
+   * everything, which is the correct behavior for a trade with no gallery.
+   */
+  get designs(): DesignService {
+    if (!this._designs) this._designs = new DesignService(this.config, this.trade.galleryCategories, this.trade.galleryTags);
+    return this._designs;
+  }
+
+  /**
    * Markdown workflow engine (`workflows/*.workflow.md`). Constructed on first use and
    * inert until `start()` — only the workflow/schedule daemons watch files and arm crons.
    */
@@ -333,9 +346,37 @@ export class HenryRuntime {
         // the dispatch registry and the approval queue instead of costing a provider run
         // and waiting behind whatever turn is already in flight.
         snapshot: () => this.reflexSnapshot(),
+        // Design gallery photo album: only meaningful when this trade has a gallery and a
+        // bot token + chat id are configured. Best effort — TelegramBridge already swallows
+        // its failures (src/telegram/bridge.ts), so nothing here needs to.
+        ...(this.trade.galleryCategories.length && this.config.telegramBotToken && this.config.telegramChatId
+          ? { photos: (ids: string[]) => this.sendDesignAlbum(ids) }
+          : {}),
       });
     }
     return this._telegramBridge;
+  }
+
+  /** Resolves design ids to bytes and sends them as one Telegram album to the owner's chat. */
+  private async sendDesignAlbum(ids: string[]): Promise<boolean> {
+    const token = this.config.telegramBotToken;
+    const chatId = this.config.telegramChatId;
+    if (!token || !chatId) return false;
+    const { sendTelegramPhotoAlbum } = await import("./telegram/media.ts");
+    const photos: Array<{ id: string; bytes: Buffer; mime: string; caption?: string }> = [];
+    for (const id of ids) {
+      const design = this.designs.store.get(id);
+      if (!design || design.status !== "active") continue;
+      const filePath = this.designs.store.imagePath(id);
+      if (!filePath) continue;
+      try {
+        const bytes = await fs.readFile(filePath);
+        const mime = design.ext === "jpg" ? "image/jpeg" : design.ext === "png" ? "image/png" : design.ext === "webp" ? "image/webp" : "image/gif";
+        photos.push({ id, bytes, mime, caption: design.caption });
+      } catch { /* file vanished; skip it rather than fail the whole album */ }
+    }
+    if (!photos.length) return false;
+    return sendTelegramPhotoAlbum({ token, chatId, photos });
   }
 
   /**
@@ -696,6 +737,8 @@ export class HenryRuntime {
         displayName: this.trade.displayName,
         shopName: this.config.shopName,
         accent: this.trade.accent,
+        galleryCategories: this.trade.galleryCategories,
+        galleryTags: this.trade.galleryTags,
       },
     };
     // Only include jobs status if jobs service is available
@@ -715,6 +758,7 @@ export class HenryRuntime {
       this.memory.close();
       this._knowledge?.close();
       this.commerce?.close();
+      this._designs?.close();
     });
   }
 }

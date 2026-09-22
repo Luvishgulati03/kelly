@@ -13,7 +13,8 @@ export async function runCommerceCommand(service: CommerceService, command: stri
     if (sub === "publish") { if (!args[1]) throw new Error("Usage: kelly catalogue publish <document-id>"); return await service.publish(args[1]); }
     if (sub === "review") return service.documents();
     if (sub === "search") return await service.search(args[1] || "", option(args, "--brand"), args.includes("--pending"));
-    throw new Error("Usage: kelly catalogue import|publish|review|search");
+    if (sub === "template") return { outputPath: await service.catalogueTemplate(option(args, "--out")) };
+    throw new Error("Usage: kelly catalogue import|publish|review|search|template");
   }
   if (command === "quote") {
     const sub = args[0];

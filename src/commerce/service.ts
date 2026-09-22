@@ -7,6 +7,7 @@ import type { ActivityLog } from "../activity.ts";
 import { runCommand } from "../util/command.ts";
 import { calculateLine } from "./money.ts";
 import { CommerceStore } from "./store.ts";
+import { tradePack } from "../trade/index.ts";
 import type { CalculatedQuote, CatalogueProductInput, QuoteRequest, SourceKind } from "./types.ts";
 import { editWorkbook, exportQuoteWorkbook, extractCatalogueRows, inspectWorkbook, readRange, searchWorkbook, type WorkbookEdit } from "./workbooks.ts";
 
@@ -31,7 +32,7 @@ export class CommerceService {
   async importCatalogue(filePath: string, options: { sheet?: string } = {}): Promise<unknown> {
     const absolute = path.resolve(filePath); const bytes = await fs.readFile(absolute); const ext = path.extname(absolute).toLowerCase();
     let products: CatalogueProductInput[]; let kind: SourceKind;
-    if (ext === ".xlsx" || ext === ".csv") { products = await extractCatalogueRows(absolute, options.sheet); kind = ext.slice(1) as SourceKind; }
+    if (ext === ".xlsx" || ext === ".csv") { products = await extractCatalogueRows(absolute, options.sheet, { shopName: this.config.shopName }); kind = ext.slice(1) as SourceKind; }
     else if (ext === ".pdf") { products = await this.extractPdfCandidates(absolute); kind = "pdf"; }
     else throw new Error("Catalogue import supports PDF, XLSX and CSV files");
     if (!products.length) throw new Error("No product rows were detected. Nothing was imported.");
@@ -104,19 +105,28 @@ export class CommerceService {
     ].join("\n");
   }
   documents(): unknown { return this.store.listDocuments(); }
+  async catalogueTemplate(outPath?: string): Promise<string> {
+    const { generateCatalogueTemplate } = await import("./template.ts");
+    return generateCatalogueTemplate(this.config.trade, outPath, this.config.rootDir);
+  }
 
   createQuote(request: QuoteRequest, save = true): CalculatedQuote {
-    if (!request.brand?.trim()) throw new Error("A brand is required");
+    const pack = tradePack(this.config.trade);
+    let brand = request.brand?.trim();
+    if (!brand) {
+      if (pack.brandRequired) throw new Error("A brand is required");
+      brand = this.config.shopName?.trim() || "house";
+    }
     if (!request.lines?.length) throw new Error("At least one requirement line is required");
     const unresolved = []; const lines = [];
     for (const requestLine of request.lines) {
       const query = requestLine.sku || requestLine.query || "";
-      const candidates = this.store.search(query, request.brand).filter((item) => requestLine.sku ? item.sku.toLowerCase() === requestLine.sku.toLowerCase() : true);
+      const candidates = this.store.search(query, brand).filter((item) => requestLine.sku ? item.sku.toLowerCase() === requestLine.sku.toLowerCase() : true);
       if (candidates.length !== 1) { unresolved.push(requestLine); continue; }
       lines.push(calculateLine(candidates[0], requestLine.quantity, requestLine.lineDiscountBasisPoints, request.basketDiscountBasisPoints));
     }
     const now = new Date(); const quote: CalculatedQuote = {
-      id: randomUUID(), version: 1, brand: request.brand, customerName: request.customerName,
+      id: randomUUID(), version: 1, brand, customerName: request.customerName,
       complete: unresolved.length === 0, unresolved, lines,
       subtotalPaise: lines.reduce((sum, line) => sum + line.grossPaise, 0),
       discountPaise: lines.reduce((sum, line) => sum + line.discountPaise, 0),

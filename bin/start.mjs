@@ -164,6 +164,21 @@ export async function startKelly(args) {
   // Avoid reading another project's .env when launched from an arbitrary directory.
   process.chdir(root);
   const config = loadConfig();
+  if (args.includes("--demo") && config.commerceEnabled) {
+    const { seedDemoCatalogueIfEmpty } = await import("../src/commerce/demo-seed.ts");
+    const { seeded } = await seedDemoCatalogueIfEmpty(config);
+    if (seeded) console.log(`Seeded the demo ${config.trade} ${config.trade === "boutique" ? "rate card" : "catalogue"}.`);
+  }
+  if (args.includes("--demo") && config.trade === "boutique") {
+    const { DesignService } = await import("../src/designs/rag.ts");
+    const { seedBoutiqueDesigns } = await import("../src/designs/seed.ts");
+    const { boutiqueTradePack } = await import("../src/trade/boutique.ts");
+    const designs = new DesignService(config, boutiqueTradePack.galleryCategories, boutiqueTradePack.galleryTags);
+    try {
+      const { seeded } = await seedBoutiqueDesigns(designs);
+      if (seeded) console.log(`Seeded ${seeded} demo boutique designs.`);
+    } finally { designs.close(); }
+  }
   const voiceUrl = new URL(process.env.KELLY_KOKORO_URL || "http://127.0.0.1:8765");
   if (voiceUrl.protocol !== "http:" || voiceUrl.hostname !== "127.0.0.1" || voiceUrl.username || voiceUrl.password || voiceUrl.pathname !== "/" || voiceUrl.search || voiceUrl.hash) {
     throw new Error("For kelly start, set KELLY_KOKORO_URL to http://127.0.0.1:<port>.");

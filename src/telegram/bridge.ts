@@ -3,6 +3,8 @@ import type { HenryConfig } from "../config.ts";
 import type { ActivityLog } from "../activity.ts";
 import { readSettings } from "../util/settings.ts";
 import { reflexKind, renderReflex, type ReflexKind, type ReflexSnapshot } from "../reflex.ts";
+import { speakableSummary } from "../voice/speakable.ts";
+import { parseDesignsBlock } from "../designs/block.ts";
 import type { ConsumeOutcome, PumpConsumer, PumpMetaStore, TelegramAudioMeta, TelegramUpdate } from "./pump.ts";
 
 export { reflexKind, renderReflex, type ReflexKind, type ReflexSnapshot } from "../reflex.ts";
@@ -244,6 +246,12 @@ export interface BridgeDeps {
    * ordinary path, so an older wiring keeps working unchanged.
    */
   snapshot?: () => Promise<ReflexSnapshot>;
+  /**
+   * Optional design-gallery photo album, sent AFTER the text reply when a turn's answer
+   * carried a ```designs block (see src/designs/block.ts). Best effort: it resolves false
+   * rather than throwing, exactly like the voice reply — the text answer already stands.
+   */
+  photos?: (ids: string[]) => Promise<boolean>;
   fetchImpl?: typeof fetch;
   now?: () => number;
 }
@@ -532,7 +540,8 @@ export class TelegramBridge implements PumpConsumer {
   private speakAnswer(answer: string): void {
     const speak = this.deps.voice?.speak;
     if (!speak) return;
-    const pending = speak(answer)
+    // Spoken replies are a short TTS-safe summary, never the full chat answer read aloud.
+    const pending = speak(speakableSummary({ reply: answer }))
       .then((spoken) => { if (spoken) this.counters.voiceSpoken += 1; })
       .catch(() => undefined)
       .finally(() => { this.reflexInFlight.delete(pending); });
@@ -701,8 +710,14 @@ export class TelegramBridge implements PumpConsumer {
       stopTyping();
     }
     if (!answer) answer = "I hit an error thinking about that one — say it again, or grab me in the terminal.";
+    // A trailing ```designs block names which gallery items to show; it never belongs in the
+    // Telegram text itself (see src/designs/block.ts) — the photo album carries the pictures.
+    const designsBlock = parseDesignsBlock(answer);
+    if (designsBlock) answer = designsBlock.text;
     const sent = await this.reply(`${note}${answer}`);
     if (sent) this.counters.replies += 1; else this.counters.failed += 1;
+    // Design photo album, best effort, after the text: never fails the turn.
+    if (sent && designsBlock?.ids.length && this.deps.photos) void this.deps.photos(designsBlock.ids).catch(() => undefined);
     // Spoken reply: only for a turn the owner actually spoke, only after the text is
     // delivered, and never allowed to fail the turn.
     if (sent && item.spoken && this.deps.voice?.speak) this.speakAnswer(answer);

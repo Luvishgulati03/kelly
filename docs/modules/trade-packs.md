@@ -102,3 +102,20 @@ node bin/kelly.mjs start --demo --trade electrical
 `KELLY_SHOP_NAME=She Fashion House` and creates
 `data/demo-boutique/{data,memory,knowledge}` if missing. Both demo roots are
 already covered by the repo's `/data/` gitignore rule.
+
+## 7. Boutique rate cards and quoting
+
+The boutique pack (`brandRequired: false`) prices stitching jobs from an
+imported rate card rather than a multi-brand product catalogue; see
+`docs/modules/boutique.md` for the rate-card template, quoting without a
+brand, and how a chat or voice turn's spoken reply gets its price.
+
+## 8. Design gallery
+
+`galleryCategories` and `galleryTags` on a pack are also the validation lists
+for the customer-facing design gallery: `DesignStore.add` (and `update`)
+reject a category or tag that is not in the active pack's lists. Electrical's
+pack keeps both lists empty, so `runtime.designs` still exists but nothing
+can ever be added to it and the Designs pane stays hidden. See
+`docs/modules/designs.md` for the store, CLI, routes, and the fenced
+`designs` block contract Kelly's replies use to show a gallery.

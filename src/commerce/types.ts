@@ -30,7 +30,9 @@ export interface QuoteRequestLine {
 
 export interface QuoteRequest {
   customerName?: string;
-  brand: string;
+  /** Required unless the active trade pack sets brandRequired:false, in which case
+   * CommerceService.createQuote defaults it to the shop name (or "house"). */
+  brand?: string;
   lines: QuoteRequestLine[];
   basketDiscountBasisPoints?: number;
   validDays?: number;

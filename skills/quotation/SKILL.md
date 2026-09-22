@@ -39,3 +39,21 @@ existing quotation.
 
 Kelly does not send quotations. Sharing one with a customer is an outbound action: stage it
 for approval and let the operator approve and send it as two separate steps.
+
+## Boutique (rate card) trade pack
+
+The boutique trade pack (`brandRequired: false`) has no brand concept in its rate card; a
+brand is not a required input and `createQuote` defaults it to the shop name.
+
+1. Intake fields come from `pack.quoteIntake`: garment, work type (plain, lining,
+   embroidery, hand work), fabric source (customer's own fabric or fabric from the shop),
+   quantity, and delivery date. Ask one short question for whatever is missing. Never ask
+   for or store body measurements; the owner takes those in person.
+2. Rate card rows are catalogue rows imported from a boutique sheet (`kelly catalogue import
+   <file>`); a code/SKU column is optional and, when absent, Kelly derives a stable code from
+   category and name. A shop's rate card usually has no brand column either; missing brand
+   becomes the shop name.
+3. Generate a starter rate card with `kelly catalogue template` (writes
+   `data/templates/boutique-ratecard.xlsx` with the pack's example garments, work types, and
+   GST rates) when the shop has nothing digitized yet.
+4. Quote the same way as electrical, just without a `brand` field in the request JSON.
