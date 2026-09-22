@@ -31,8 +31,11 @@ export class CommerceService {
 
   async importCatalogue(filePath: string, options: { sheet?: string } = {}): Promise<unknown> {
     const absolute = path.resolve(filePath); const bytes = await fs.readFile(absolute); const ext = path.extname(absolute).toLowerCase();
-    let products: CatalogueProductInput[]; let kind: SourceKind;
-    if (ext === ".xlsx" || ext === ".csv") { products = await extractCatalogueRows(absolute, options.sheet, { shopName: this.config.shopName }); kind = ext.slice(1) as SourceKind; }
+    let products: CatalogueProductInput[]; let kind: SourceKind; let notes: string[] = [];
+    if (ext === ".xlsx" || ext === ".csv") {
+      const extracted = await extractCatalogueRows(absolute, { sheet: options.sheet, shopName: this.config.shopName, brandRequired: tradePack(this.config.trade).brandRequired });
+      products = extracted.rows; notes = extracted.notes; kind = ext.slice(1) as SourceKind;
+    }
     else if (ext === ".pdf") { products = await this.extractPdfCandidates(absolute); kind = "pdf"; }
     else throw new Error("Catalogue import supports PDF, XLSX and CSV files");
     if (!products.length) throw new Error("No product rows were detected. Nothing was imported.");
@@ -43,7 +46,7 @@ export class CommerceService {
     await fs.copyFile(absolute, storedSource, fsConstants.COPYFILE_EXCL).catch((error: NodeJS.ErrnoException) => { if (error.code !== "EEXIST") throw error; });
     const result = this.store.importProducts(storedSource, kind, bytes, products);
     await this.activity.record("knowledge.indexed", `Catalogue import ${result.duplicate ? "skipped duplicate" : "prepared for review"}`, { ...result, source: path.basename(filePath) });
-    return { ...result, status: result.duplicate ? "duplicate" : "pending-review", products: result.imported };
+    return { ...result, status: result.duplicate ? "duplicate" : "pending-review", products: result.imported, ...(notes.length ? { notes } : {}) };
   }
 
   private async extractPdfCandidates(filePath: string): Promise<CatalogueProductInput[]> {

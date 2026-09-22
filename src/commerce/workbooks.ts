@@ -101,20 +101,33 @@ function deriveCode(category: string, name: string, used: Set<string>): string {
 }
 
 export interface ExtractCatalogueRowsOptions {
-  /** Used as the row's brand when the sheet has no brand column ("house" if omitted). */
+  sheet?: string;
+  /** Used as the row's brand when the sheet has no brand column and brandRequired is false ("house" if omitted). */
   shopName?: string;
+  /** Whether a recognisable brand column is mandatory. Defaults to true (the safe default);
+   * the boutique trade pack sets this to false and rows are branded with shopName instead. */
+  brandRequired?: boolean;
 }
 
-export async function extractCatalogueRows(filePath: string, sheetName?: string, options: ExtractCatalogueRowsOptions = {}): Promise<CatalogueProductInput[]> {
-  const workbook = await loadWorkbook(filePath); const sheet = sheetName ? workbook.getWorksheet(sheetName) : workbook.worksheets[0];
+export interface ExtractCatalogueRowsResult {
+  rows: CatalogueProductInput[];
+  notes: string[];
+}
+
+export async function extractCatalogueRows(filePath: string, options: ExtractCatalogueRowsOptions = {}): Promise<ExtractCatalogueRowsResult> {
+  const workbook = await loadWorkbook(filePath); const sheet = options.sheet ? workbook.getWorksheet(options.sheet) : workbook.worksheets[0];
   if (!sheet) throw new Error("Workbook has no readable sheet");
   const indexes: Record<string, number> = {};
   sheet.getRow(1).eachCell((cell, col) => {
     const normalized = normalizeHeader(displayed(cell.value));
     for (const [field, aliases] of Object.entries(HEADERS)) if (aliases.includes(normalized)) indexes[field] = col;
   });
-  for (const required of ["name", "price"]) if (!indexes[required]) throw new Error(`Missing required catalogue column: ${required}`);
+  const brandRequired = options.brandRequired ?? true;
+  const required = brandRequired ? ["brand", "name", "price"] : ["name", "price"];
+  for (const field of required) if (!indexes[field]) throw new Error(`Missing required catalogue column: ${field}`);
   const defaultBrand = (options.shopName || "").trim() || "house";
+  const notes: string[] = [];
+  if (!indexes.brand && !brandRequired) notes.push(`brand column absent; rows branded as ${defaultBrand}`);
   const usedCodes = new Set<string>();
   const rows: CatalogueProductInput[] = [];
   for (let rowNo = 2; rowNo <= sheet.rowCount; rowNo++) {
@@ -138,7 +151,7 @@ export async function extractCatalogueRows(filePath: string, sheetName?: string,
       taxInclusive: indexes.taxInclusive ? /^(yes|true|1|inclusive)$/i.test(String(displayed(row.getCell(indexes.taxInclusive).value))) : false,
       sourceLocation: derivedSource });
   }
-  return rows;
+  return { rows, notes };
 }
 
 export async function exportQuoteWorkbook(quote: { id: string; customerName?: string; brand: string; lines: Array<{ sku: string; name: string; quantityMilli: number; unit: string; unitPricePaise: number; taxablePaise: number; taxPaise: number; totalPaise: number }>; totalPaise: number }, outputPath: string): Promise<string> {
