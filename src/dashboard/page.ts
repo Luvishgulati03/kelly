@@ -120,7 +120,7 @@ details.tbl{margin-top:10px}details.tbl summary{cursor:pointer;color:var(--coppe
       <button class="tab" role="tab" aria-selected="false" data-pane="usage">Usage &amp; quota</button>
       <button class="tab" role="tab" aria-selected="false" data-pane="catalogue">Catalogue</button>
       <a class="tab" href="/chat">Chat ↗</a>
-      <a class="tab" href="/voice">Speak ↗</a>
+      <a class="tab" href="/voice" id="openCounter">Counter ↗</a>
       <a class="tab" href="/memory">Memory ↗</a>
     </div>
     <div class="foot" id="foot">brain <b id="foot-provider">–</b><br>stt <b id="foot-stt">–</b><br>tts <b id="foot-tts">–</b><br>bound <b id="foot-bound">–</b></div>
@@ -223,7 +223,7 @@ document.addEventListener('click',function(e){var a=e.target.closest&&e.target.c
 
 /* ---- status + footer ---- */
 var status={};
-function refreshStatus(){return get('/api/status').then(function(s){status=s;var k=String(s.name||'').toLowerCase()==='kelly';ids('brand-name').textContent=s.name||'Kelly';ids('brand-sub').textContent=k?'switchboard':'control room';document.title=(s.name||'Kelly')+' · switchboard';ids('foot-provider').textContent=s.provider||'–';ids('foot-bound').textContent=(s.dashboard||'').replace(/^https?:\\/\\//,'')}).catch(function(){})}
+function refreshStatus(){return get('/api/status').then(function(s){status=s;var k=String(s.name||'').toLowerCase()==='kelly';var shop=(s.trade&&s.trade.shopName)||s.name||'Kelly';ids('brand-name').textContent=shop;ids('brand-sub').textContent=k?'switchboard':'control room';document.title=shop+' · switchboard';var markEl=document.querySelector('.brand .k');if(markEl)markEl.textContent=(shop.trim()[0]||'K').toUpperCase();ids('foot-provider').textContent=s.provider||'–';ids('foot-bound').textContent=(s.dashboard||'').replace(/^https?:\\/\\//,'')}).catch(function(){})}
 function refreshVoiceStatus(){return get('/api/voice/status').then(function(v){ids('foot-stt').textContent=v.sttEnabled?'configured':'off';ids('foot-tts').textContent=v.ttsEnabled?'configured':'off'}).catch(function(){})}
 
 /* ---- heartbeat: one spike per REAL event ---- */

@@ -99,8 +99,8 @@ test("voice chat routes through the regular conversation but never treats approv
     assert.equal(providerCalls, 1, "voice transcript should continue through regular chat SSE");
     assert.equal(approvalLookups, 0, "voice turns skip the explicit approval grammar");
     assert.equal(approvalExecutions, 0, "transcribed approval words must never approve or execute");
-    assert.match(providerPrompt, /always answer in clear English/);
-    assert.doesNotMatch(providerPrompt, /similar Hindi\/English mix/);
+    assert.match(providerPrompt, /always answer in clear, simple English/);
+    assert.doesNotMatch(providerPrompt, /Hindi\/English mix/);
     assert.match(providerPrompt, /Do not guess quantities, units, or brands/);
     assert.match(providerPrompt, /published catalogue and deterministic commerce calculations/);
 

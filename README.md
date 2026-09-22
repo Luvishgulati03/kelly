@@ -50,6 +50,17 @@ These are extension paths, not claims about the current release. The present bui
 has the deepest support for catalogue search, quotations, spreadsheets, and local
 business memory.
 
+## Roadmap
+
+Planned, not built:
+
+- Web image search fallback when a boutique deployment's design gallery has no match
+  for a requested category — owner-approved sources only, results shown labeled as
+  external, never saved without the owner's explicit yes.
+- Try-on image generation ("how would this design look on her") from a customer photo —
+  needs explicit consent and local-only storage rules.
+- CLIP image embeddings for search-by-photo, once a deployment's designs store exists.
+
 ## How quotation works
 
 ```mermaid

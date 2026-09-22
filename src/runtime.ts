@@ -28,6 +28,7 @@ import { LaunchCrewService } from "./launch/service.ts";
 import { XBrowserPostService } from "./social/x-browser.ts";
 import { readSettings, updateSettings } from "./util/settings.ts";
 import { sendTelegram } from "./notify/telegram.ts";
+import { tradePack, type TradePack } from "./trade/index.ts";
 import { MailWatchService } from "./mailwatch/service.ts";
 import { StandupStore } from "./standup/store.ts";
 import { StandupService } from "./standup/service.ts";
@@ -228,6 +229,11 @@ export class HenryRuntime {
     if (!isServiceExcluded("xBrowser")) {
       this.xBrowser = new XBrowserPostService(config, this.activity, this.approvals);
     }
+  }
+
+  /** The fixed-per-install trade pack (config.trade), for the dashboard and prompt to read. */
+  get trade(): TradePack {
+    return tradePack(this.config.trade);
   }
 
   /** Lazily opens the organization's knowledge DB on first domain-relevant turn; keeps boot fast. */
@@ -685,6 +691,12 @@ export class HenryRuntime {
       // Live limit/cooldown state per provider CLI ({} when both are healthy) — the
       // failover layer's ledger (providers/limits.ts), surfaced for :status and the page.
       providers: limitState(),
+      trade: {
+        id: this.trade.id,
+        displayName: this.trade.displayName,
+        shopName: this.config.shopName,
+        accent: this.trade.accent,
+      },
     };
     // Only include jobs status if jobs service is available
     if (this.jobs) status.jobs = await this.jobs.store.summary();

@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getActiveProfile } from "./profile.ts";
+import { parseTradeId, tradePack, type TradeId } from "./trade/index.ts";
 
 // Profile-aware env loading: Henry and Kelly have distinct state and env files.
 // - Henry: loads repo .env, respects CWD .env (HENRY_* vars, legacy behavior)
@@ -134,6 +135,10 @@ export interface HenryConfig {
   scoutProfilePath: string;
   /** Per-day ranked shortlists Luvish actually reads (`data/scout/<date>.md`). */
   scoutDir: string;
+  /** Fixed-per-install trade pack (KELLY_TRADE), chosen at setup; defaults to "electrical". */
+  trade: TradeId;
+  /** Shop name shown in the prompt and dashboard (KELLY_SHOP_NAME); defaults to the trade pack's default. */
+  shopName: string;
 }
 
 const thisFile = fileURLToPath(import.meta.url);
@@ -210,6 +215,7 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
   // No portfolio path is baked in — an unset variable stays undefined so callers can tell
   // "not configured" from "configured to somewhere", rather than inheriting the author's tree.
   const portfolioDir = env("PORTFOLIO_DIR");
+  const trade = parseTradeId(env("TRADE"));
   return {
     profileId: profile.id,
     commerceEnabled: profile.id === "kelly" || bool(env("COMMERCE_ENABLED"), false),
@@ -286,5 +292,7 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
     scoutDbPath: path.join(dataDir, "scout.db"),
     scoutProfilePath: path.join(dataDir, "scout-profile.json"),
     scoutDir: path.join(dataDir, "scout"),
+    trade,
+    shopName: env("SHOP_NAME") || tradePack(trade).defaultShopName,
   };
 }
