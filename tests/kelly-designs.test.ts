@@ -14,6 +14,8 @@ import { DesignService } from "../src/designs/rag.ts";
 import { parseDesignsBlock } from "../src/designs/block.ts";
 import { sendTelegramPhotoAlbum } from "../src/telegram/media.ts";
 import { encodeSolidPng } from "../src/designs/png.ts";
+import { galleryFastPath } from "../src/designs/fastpath.ts";
+import { boutiqueTradePack, electricalTradePack } from "../src/trade/index.ts";
 
 const CATEGORIES = ["suit", "saree", "lehenga", "blouse", "kurti", "gown", "dupatta"];
 const TAGS = ["trending", "latest", "bridal", "party", "festive", "casual", "custom-order"];
@@ -344,8 +346,12 @@ test("a ```designs block is stripped from the reply and emitted as an SSE `desig
       response: `Here are trending sarees.\n\n\`\`\`designs\n["${design.id}"]\n\`\`\``,
     });
     const response = await fetch(`${base}/api/chat/send`, {
+      // Not "show me trending sarees" — that now hits the local gallery fast path (see
+      // galleryFastPath tests below) and never reaches this fake model. "recommend" is one
+      // of the fast path's own judgment-word disqualifiers, so this prompt is guaranteed to
+      // still go to the model, which is what this test exercises.
       method: "POST", headers: { authorization: "Bearer designs-test-owner-token", "content-type": "application/json" },
-      body: JSON.stringify({ prompt: "show me trending sarees" }),
+      body: JSON.stringify({ prompt: "can you recommend trending sarees" }),
     });
     assert.equal(response.status, 200);
     const stream = await response.text();
@@ -357,6 +363,91 @@ test("a ```designs block is stripped from the reply and emitted as an SSE `desig
     assert.doesNotMatch(donePayload.response, /```designs/, "the fenced block never reaches the displayed response");
     assert.match(donePayload.response, /Here are trending sarees/);
     assert.equal(runtime.designs.store.get(design.id)!.shownCount, 1, "a shown design is marked shown");
+  });
+});
+
+/* ------------------------------------------------------------------ galleryFastPath ------------------------------------------------------------------ */
+
+test('galleryFastPath("show me trending sarees") returns the trending saree, marks it shown', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS);
+  try {
+    const { design } = service.store.add({ bytes: png(1, 1, 1), category: "saree", tags: ["trending"], caption: "Banarasi silk saree" });
+    const result = await galleryFastPath("show me trending sarees", boutiqueTradePack, service);
+    assert.ok(result, "matches the browse vocabulary");
+    assert.ok(result!.designs.some((d) => d.id === design.id));
+    assert.equal(result!.text, result!.spoken);
+    assert.equal(service.store.get(design.id)!.shownCount, 1);
+  } finally { service.close(); }
+});
+
+test('galleryFastPath("dikhao lehenga designs") matches via the Hinglish verb and category', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS);
+  try {
+    const { design } = service.store.add({ bytes: png(2, 2, 2), category: "lehenga", caption: "Party lehenga" });
+    const result = await galleryFastPath("dikhao lehenga designs", boutiqueTradePack, service);
+    assert.ok(result);
+    assert.ok(result!.designs.some((d) => d.id === design.id));
+  } finally { service.close(); }
+});
+
+test('galleryFastPath("how much for a saree blouse") does not match (pricing ask)', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS);
+  try {
+    const result = await galleryFastPath("how much for a saree blouse", boutiqueTradePack, service);
+    assert.equal(result, undefined);
+  } finally { service.close(); }
+});
+
+test('galleryFastPath("show me 2 metres of georgette") does not match (quantity ask)', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS);
+  try {
+    const result = await galleryFastPath("show me 2 metres of georgette", boutiqueTradePack, service);
+    assert.equal(result, undefined);
+  } finally { service.close(); }
+});
+
+test('galleryFastPath("show me sarees") with an empty store returns the empty sentence and designs: []', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS);
+  try {
+    const result = await galleryFastPath("show me sarees", boutiqueTradePack, service);
+    assert.ok(result);
+    assert.equal(result!.text, "No designs in the gallery for that yet.");
+    assert.equal(result!.spoken, result!.text);
+    assert.deepEqual(result!.designs, []);
+  } finally { service.close(); }
+});
+
+test("galleryFastPath never matches for the electrical trade (no gallery categories)", async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, [], []);
+  try {
+    const result = await galleryFastPath("show me trending designs", electricalTradePack, service);
+    assert.equal(result, undefined);
+  } finally { service.close(); }
+});
+
+test("POST /api/chat/send streams token, designs and done with provider fastpath, never calling the model provider", async () => {
+  await withBoutiqueDashboard(async (base, runtime) => {
+    const { design } = runtime.designs.store.add({ bytes: png(3, 3, 3), category: "saree", tags: ["trending"], caption: "Banarasi silk saree" });
+    let providerCalls = 0;
+    (runtime.agent as unknown as { run: unknown }).run = async () => {
+      providerCalls += 1;
+      return { runId: "should-not-run", provider: "codex", exitCode: 0, durationMs: 1, events: [], response: "should not be called" };
+    };
+    const response = await fetch(`${base}/api/chat/send`, {
+      method: "POST", headers: { authorization: "Bearer designs-test-owner-token", "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "show me trending sarees" }),
+    });
+    assert.equal(response.status, 200);
+    const stream = await response.text();
+    assert.match(stream, /event: token/);
+    assert.match(stream, /event: designs/);
+    assert.match(stream, new RegExp(design.id));
+    const doneLine = stream.split("\n\n").find((block) => block.includes("event: done"));
+    assert.ok(doneLine);
+    const donePayload = JSON.parse(doneLine!.match(/^data: (.+)$/m)![1]) as { provider: string };
+    assert.equal(donePayload.provider, "fastpath");
+    assert.equal(providerCalls, 0, "the configured provider is never invoked for a gallery fast-path turn");
+    assert.equal(runtime.designs.store.get(design.id)!.shownCount, 1);
   });
 });
 

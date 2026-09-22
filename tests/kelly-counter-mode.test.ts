@@ -251,6 +251,75 @@ test("chat/send emits an early spoken SSE event once the leading ```spoken fence
   });
 });
 
+test("chat/send forwards only Codex item.completed agent_message text, ignoring reasoning/command events, with per-message fence detection", async () => {
+  await withVoiceDashboard(async (base, runtime) => {
+    const auth = { authorization: "Bearer counter-voice-test-token" };
+    (runtime.agent as unknown as { run: unknown }).run = async (
+      _prompt: string,
+      options?: { onEvent?: (event: { parsed?: Record<string, unknown> }) => void },
+    ) => {
+      const onEvent = options?.onEvent;
+      // Reasoning: never a token.
+      onEvent?.({ parsed: { type: "item.completed", item: { type: "reasoning", text: "Thinking about the rate card." } } });
+      // First agent_message: commentary, no fence, forwarded as-is.
+      onEvent?.({ parsed: { type: "item.started", item: { type: "agent_message", text: "" } } });
+      onEvent?.({ parsed: { type: "item.completed", item: { type: "agent_message", text: "Checking the rate card." } } });
+      // Command execution: never a token, even though it carries a `text` field.
+      onEvent?.({ parsed: { type: "item.completed", item: { type: "command_execution", command: "cat rates.json", text: "500 per unit" } } });
+      // Final agent_message: opens with the ```spoken fence after earlier commentary already streamed.
+      onEvent?.({
+        parsed: {
+          type: "item.completed",
+          item: { type: "agent_message", text: "```spoken\nRate card checked.\n```\nThe rate is 500 rupees per unit." },
+        },
+      });
+      return {
+        runId: "codex-shaped", provider: "codex", exitCode: 0, durationMs: 1, events: [],
+        response: "Checking the rate card.\n\nThe rate is 500 rupees per unit.",
+      };
+    };
+
+    const response = await fetch(`${base}/api/chat/send`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "what's the rate card", voice: true }),
+    });
+    assert.equal(response.status, 200);
+    const events = parseSse(await response.text());
+    const kinds = events.map((e) => e.event);
+
+    // No reasoning or command_execution text ever reaches a token event.
+    for (const e of events) {
+      if (e.event !== "token") continue;
+      const text = (e.data as { text: string }).text;
+      assert.doesNotMatch(text, /Thinking about the rate card/);
+      assert.doesNotMatch(text, /500 per unit/);
+      assert.doesNotMatch(text, /cat rates\.json/);
+    }
+
+    const commentaryIndex = kinds.findIndex((k, i) => k === "token" && (events[i].data as { text: string }).text.includes("Checking the rate card"));
+    const spokenIndex = kinds.indexOf("spoken");
+    const answerIndex = kinds.findIndex((k, i) => k === "token" && (events[i].data as { text: string }).text.includes("The rate is 500 rupees per unit"));
+    const doneIndex = kinds.indexOf("done");
+
+    assert.notEqual(commentaryIndex, -1, "commentary agent_message should stream as a token");
+    assert.notEqual(spokenIndex, -1, "the fence in the final agent_message should still produce a spoken event");
+    assert.notEqual(answerIndex, -1, "the post-fence answer should stream as a token");
+    assert.ok(commentaryIndex < spokenIndex, "commentary token arrives before the fence in the final message resolves");
+    assert.ok(spokenIndex < answerIndex, "spoken fires before the post-fence answer token");
+    assert.ok(answerIndex < doneIndex, "answer token arrives before done");
+
+    const spokenPayload = events[spokenIndex].data as { text: string };
+    assert.equal(spokenPayload.text, "Rate card checked.");
+
+    for (const e of events) if (e.event === "token") assert.doesNotMatch((e.data as { text: string }).text, /```spoken|```/);
+
+    const done = events[doneIndex].data as { response: string };
+    assert.equal(done.response, "Checking the rate card.\n\nThe rate is 500 rupees per unit.");
+    assert.doesNotMatch(done.response, /```spoken/);
+  });
+});
+
 test("chat/send falls back to plain token streaming when a voice reply does not open with the fence", async () => {
   await withVoiceDashboard(async (base, runtime) => {
     const auth = { authorization: "Bearer counter-voice-test-token" };

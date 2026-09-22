@@ -124,6 +124,47 @@ to chat history and the transcript, the matching designs are resolved and
 (`id,category,tags,caption`) so history reloads still show the gallery
 (`ConversationStore`'s `ChatMessage.designs`, `src/dashboard/conversations.ts`).
 
+## 6a. Gallery fast path (`src/designs/fastpath.ts`)
+
+A plain gallery-browse ask ("show me trending sarees", "dikhao lehenga
+designs") has a complete, unambiguous answer in the local design store, so
+it never has to go to the configured model — same reflex-lane precedent as
+`src/reflex.ts` (narrow vocabulary, unambiguous answers only), just scoped
+to trade packs that carry a gallery.
+
+`galleryFastPath(prompt, pack, service)` returns `undefined` unless:
+
+- `pack.galleryCategories.length` is non-zero (electrical never matches),
+- the prompt is under 120 characters and contains a browse verb (`show`,
+  `see`, `dikhao`, `dikha`, `view`, `display`, `latest`, `trending`,
+  `designs`, `collection`, `options`),
+- it names a known category (singular or plural), a known tag, or the
+  literal word `latest`/`trending`/`designs`, and
+- it carries none of the pricing/quantity/judgment words (`price`, `rate`,
+  `cost`, `how much`, `kitna`, `quote`, `quotation`, `stitch`,
+  `measurement`, `order`, `book`, `cheaper`, `compare`, `which one`,
+  `suggest`, `recommend`, or a digit run followed by a unit like `2
+  metres`) — any of those routes straight to the model instead.
+
+When it matches: it runs `service.find(prompt, {limit: 8})` (the same query
+parser `DesignService.find` already uses for tags/categories/latest/
+trending), `markShown`s whatever it resolves, and returns one plain
+sentence for both `text` and `spoken` — "Showing 4 trending saree
+designs.", or, when a trending category comes up empty, "No saree designs
+match trending yet; here are the latest sarees." (widened to that
+category's latest), or "No designs in the gallery for that yet." when
+nothing at all is found.
+
+In `/api/chat/send`, right after the reflex check, `runtime.trade
+.galleryCategories.length` gates a call to `galleryFastPath`; a match
+records the turn in the conversation exactly like a normal reply (with the
+`designs` field), streams `token` then `designs` then `done` with
+`{response, spoken, provider: "fastpath", durationMs, conversationId}`,
+logs a `run.completed` activity event with `{provider: "fastpath",
+durationMs}`, and returns without calling the provider — voice turns
+(`voice: true`) go through the same path. Anything the fast path doesn't
+match falls through to the normal model turn unchanged.
+
 ## 7. Counter tablet (`src/dashboard/voice.html`)
 
 The `designs` SSE event (and a stored message's `designs` field, on history

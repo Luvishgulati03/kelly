@@ -38,6 +38,7 @@ import { isLongResearchAsk } from "../orchestration/luna.ts";
 import { reflexKind, renderReflex } from "../reflex.ts";
 import { parseDesignsBlock } from "../designs/block.ts";
 import { MAX_DESIGN_BYTES } from "../designs/store.ts";
+import { galleryFastPath } from "../designs/fastpath.ts";
 
 const EVENTS_POLL_MS = 2000;
 
@@ -1371,6 +1372,33 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           response.end();
           return;
         }
+        // A plain gallery-browse ask ("show me trending sarees") has a complete,
+        // unambiguous answer in the local design store — same reflex-lane precedent as
+        // above, just scoped to trade packs that actually carry a gallery.
+        const galleryFast = runtime.trade.galleryCategories.length
+          ? await galleryFastPath(prompt, runtime.trade, runtime.designs)
+          : undefined;
+        if (galleryFast) {
+          if (!await appendUser()) { json(response, 409, { error: "conversation changed; send again" }); return; }
+          startSse();
+          try {
+            const fastStart = Date.now();
+            const designsPayload = { designs: galleryFast.designs.map((design) => ({
+              id: design.id, category: design.category, tags: design.tags, caption: design.caption,
+              url: `/api/designs/${design.id}/image`, thumb: `/api/designs/${design.id}/thumb`,
+            })) };
+            await store.append(conversation.id, [{ role: "henry", text: galleryFast.text, at: new Date().toISOString(), designs: designsPayload.designs }], { ifGeneration: generation });
+            sseWrite(response, "token", { text: galleryFast.text });
+            sseWrite(response, "designs", designsPayload);
+            const durationMs = Date.now() - fastStart;
+            sseWrite(response, "done", { response: galleryFast.text, spoken: galleryFast.spoken, provider: "fastpath", durationMs, conversationId: conversation.id });
+            void runtime.activity.record("run.completed", "Kelly answered a gallery browse ask from local state", { provider: "fastpath", durationMs }).catch(() => undefined);
+          } catch (error) {
+            sseWrite(response, "error", { error: error instanceof Error ? error.message : String(error) });
+          }
+          response.end();
+          return;
+        }
         await serializeConversationRun(conversation.id, async () => {
           if (!await appendUser()) {
             startSse();
@@ -1418,12 +1446,33 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
             const runOptions = {
                 surface: conversation.surface,
                 catalogueQuery: prompt,
-                onEvent: (event: ProviderEvent) => {
-                  const text = event.parsed && typeof (event.parsed as Record<string, unknown>).text === "string"
-                    ? String((event.parsed as Record<string, unknown>).text)
-                    : undefined;
-                  emitToken(text);
-                },
+                // Claude's stream-json carries a top-level `text` per token (handled by
+                // `emitToken` above, unchanged). Codex's `--json` JSONL never has that; its
+                // agent text is nested as `{"type":"item.completed","item":{"type":
+                // "agent_message","text":"..."}}` (also item.started/item.updated for the
+                // same item, which must never be forwarded or the text would double up).
+                // Reasoning, command_execution, and tool call args/outputs are never
+                // forwarded as tokens. A voice turn's ```spoken fence can land on ANY
+                // agent_message (commentary can precede the final answer), so fence
+                // detection runs fresh per agent_message rather than once for the whole
+                // turn; consecutive agent messages get a blank line between them so
+                // commentary and answer don't run together.
+                onEvent: (() => {
+                  let agentMessageCount = 0;
+                  return (event: ProviderEvent) => {
+                    const parsed = event.parsed as Record<string, unknown> | undefined;
+                    if (parsed && typeof parsed.text === "string") { emitToken(String(parsed.text)); return; }
+                    if (parsed?.type !== "item.completed") return;
+                    const item = parsed.item as Record<string, unknown> | undefined;
+                    if (item?.type !== "agent_message" || typeof item.text !== "string") return;
+                    const separator = agentMessageCount > 0 ? "\n\n" : "";
+                    agentMessageCount += 1;
+                    const messageFilter = voiceMode ? createSpokenFenceFilter((spoken) => sseWrite(response, "spoken", { text: spoken })) : undefined;
+                    const visible = messageFilter ? messageFilter.push(item.text) : item.text;
+                    const combined = `${separator}${visible}`;
+                    if (combined.trim()) sseWrite(response, "token", { text: combined.endsWith("\n") ? combined : `${combined}\n` });
+                  };
+                })(),
               };
             const turn = attachmentPaths.length === 0
               ? isLongResearchAsk(composed) || classifyIntentTier(composed) === "t0"
@@ -1433,12 +1482,24 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
               surface: conversation.surface,
               catalogueQuery: prompt,
               provider: runtime.config.profileId === "kelly" ? "codex" as const : "claude" as const,
-              onEvent: (event) => {
-                const text = event.parsed && typeof (event.parsed as Record<string, unknown>).text === "string"
-                  ? String((event.parsed as Record<string, unknown>).text)
-                  : undefined;
-                emitToken(text);
-              },
+              // Same Codex `item.completed` agent_message handling as the non-attachment
+              // onEvent above (see comment there); this path is the attachment/vision turn.
+              onEvent: (() => {
+                let agentMessageCount = 0;
+                return (event: ProviderEvent) => {
+                  const parsed = event.parsed as Record<string, unknown> | undefined;
+                  if (parsed && typeof parsed.text === "string") { emitToken(String(parsed.text)); return; }
+                  if (parsed?.type !== "item.completed") return;
+                  const item = parsed.item as Record<string, unknown> | undefined;
+                  if (item?.type !== "agent_message" || typeof item.text !== "string") return;
+                  const separator = agentMessageCount > 0 ? "\n\n" : "";
+                  agentMessageCount += 1;
+                  const messageFilter = voiceMode ? createSpokenFenceFilter((spoken) => sseWrite(response, "spoken", { text: spoken })) : undefined;
+                  const visible = messageFilter ? messageFilter.push(item.text) : item.text;
+                  const combined = `${separator}${visible}`;
+                  if (combined.trim()) sseWrite(response, "token", { text: combined.endsWith("\n") ? combined : `${combined}\n` });
+                };
+              })(),
             }) };
             if (turn.delegated) {
               // Write the acknowledgement to the socket before the first await.
