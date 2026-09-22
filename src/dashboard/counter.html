@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title><!--KELLY_SHOP--> · counter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg:#141516; --surface:#1b1e20; --surface2:#22262a; --border:#3c4348; --borderSoft:#2f3539;
+    --text:#f3efe6; --dim:#c0bab0; --faint:#847e75;
+    --copper:#d08a4b; --copper2:#f0b072; --teal:#3cc9b0; --blue:#5e8be8; --warn:#f0b429; --danger:#f0616d;
+    --sans:"Atkinson Hyperlegible","Helvetica Neue",Arial,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+    --orb: clamp(200px, 34vmin, 320px); --gutter:20px;
+  }
+  <!--KELLY_ACCENT-->
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 var(--sans); overflow:hidden; height:100dvh;
+    background-image:radial-gradient(ellipse 70% 45% at 50% 18%, rgba(208,138,75,.10), transparent 70%); }
+  button { font:inherit; cursor:pointer; color:inherit; }
+  button:focus-visible, input:focus-visible, a:focus-visible { outline:2px solid var(--copper); outline-offset:3px; }
+  a { color:var(--dim); text-decoration:none; } a:hover { color:var(--text); }
+
+  .app { height:100%; height:100dvh; display:grid; grid-template-rows:auto auto 1fr auto; overflow:hidden; }
+  header { height:56px; display:flex; align-items:center; justify-content:space-between; padding:0 var(--gutter); border-bottom:1px solid var(--borderSoft); }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; min-width:0; }
+  .brand .mark { flex:none; width:26px; height:26px; border-radius:7px; background:linear-gradient(160deg,var(--copper2),var(--copper) 70%); display:grid; place-items:center; font:800 15px var(--display); color:#1a1108; }
+  .brand span.name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .controls { display:flex; gap:6px; }
+  .icon { width:42px; height:42px; border-radius:12px; border:1px solid transparent; background:transparent; display:grid; place-items:center; color:var(--dim); }
+  .icon svg { width:20px; height:20px; }
+  .icon:hover:not(:disabled) { background:var(--surface2); color:var(--text); }
+  .icon[aria-pressed="true"] { background:rgba(208,138,75,.16); color:var(--copper2); border-color:rgba(208,138,75,.4); }
+
+  .banner { margin:0; padding:8px var(--gutter); background:rgba(240,180,41,.12); border-bottom:1px solid rgba(240,180,41,.3); color:var(--warn); font-size:13px; text-align:center; }
+  .banner[hidden] { display:none; }
+
+  .typed-row { display:flex; gap:8px; padding:10px var(--gutter); border-bottom:1px solid var(--borderSoft); background:var(--surface); }
+  .typed-row[hidden] { display:none; }
+  .typed-row input { flex:1; min-width:0; background:var(--surface2); border:1px solid var(--border); border-radius:12px; color:var(--text); padding:10px 14px; font:16px var(--sans); }
+  .typed-row input::placeholder { color:var(--faint); }
+  .typed-row button { border:0; background:var(--copper); color:#1a1108; border-radius:12px; padding:0 18px; font-weight:700; }
+  .typed-row button:hover:not(:disabled) { background:var(--copper2); }
+  .typed-row button:disabled { background:var(--surface2); color:var(--faint); cursor:not-allowed; }
+
+  .stage { overflow:hidden; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:10px var(--gutter) 4px; min-height:0; gap:0; }
+  .orb { position:relative; width:var(--orb); height:var(--orb); border-radius:50%; border:0; padding:0; background:transparent; display:grid; place-items:center; touch-action:manipulation; -webkit-tap-highlight-color:transparent; user-select:none; flex:none; }
+  .orb canvas { position:absolute; inset:-40%; width:180%; height:180%; pointer-events:none; }
+  .orb .glyph { position:relative; width:calc(var(--orb) * .17); height:calc(var(--orb) * .17); color:var(--text); transition:transform .25s ease, color .25s ease; filter:drop-shadow(0 2px 8px rgba(0,0,0,.6)); }
+  .orb:hover .glyph { transform:scale(1.06); }
+  .orb[aria-pressed="true"] .glyph { color:#fff; }
+  .orb:disabled { cursor:not-allowed; } .orb:disabled .glyph { color:var(--faint); }
+  .orb:focus-visible { outline-offset:8px; }
+  .status { text-align:center; margin-top:10px; min-height:26px; }
+  .status strong { display:block; font:700 clamp(15px,2vw,18px)/1.2 var(--sans); font-variant-numeric:tabular-nums; letter-spacing:.005em; color:var(--dim); }
+  .status[data-mode="recording"] strong { color:var(--copper2); }
+  .status[data-mode="speaking"] strong { color:var(--teal); }
+  .status[data-mode="error"] strong { color:var(--danger); }
+  #stop { margin-top:8px; border:1px solid var(--border); background:var(--surface); border-radius:999px; padding:6px 16px; font-size:13px; font-weight:700; color:var(--dim); }
+  #stop:hover { color:var(--text); border-color:var(--faint); }
+  #stop[hidden] { display:none; }
+
+  .words { width:min(680px,100%); text-align:center; margin-top:14px; display:flex; flex-direction:column; align-items:center; gap:6px; min-height:0; overflow:hidden; }
+  #heard { font:13px var(--mono); color:var(--faint); min-height:18px; max-width:60ch; overflow-wrap:anywhere; opacity:1; transition:opacity .35s ease; margin:0; }
+  #heard:empty { opacity:0; }
+  #reply { font:600 clamp(22px,3.4vw,34px)/1.35 var(--sans); color:var(--text); max-width:28ch; margin:0; white-space:pre-wrap; overflow-wrap:anywhere; opacity:1; transition:opacity .35s ease; }
+  #reply.crit { color:var(--danger); }
+  #reply:empty { opacity:0; }
+  .fading #heard, .fading #reply { opacity:0; }
+
+  audio#audioPlayback { width:min(360px,100%); height:36px; margin-top:10px; filter:invert(.92) hue-rotate(180deg) saturate(.6); border-radius:999px; }
+  audio#audioPlayback[hidden] { display:none; }
+
+  .gallery { display:flex; gap:10px; overflow-x:auto; scroll-snap-type:x mandatory; margin-top:12px; padding-bottom:4px; -webkit-overflow-scrolling:touch; max-width:min(760px,92vw); }
+  .gallery-card { flex:0 0 200px; scroll-snap-align:start; border:1px solid var(--borderSoft); border-radius:12px; overflow:hidden; background:var(--surface2); cursor:pointer; }
+  .gallery-card img { display:block; width:100%; aspect-ratio:4/5; object-fit:cover; background:var(--surface2); }
+  .gallery-card .cap { padding:8px 10px; }
+  .gallery-card .chip { display:inline-block; font:600 10.5px var(--mono); letter-spacing:.04em; text-transform:uppercase; color:var(--copper2); background:rgba(208,138,75,.14); border-radius:999px; padding:2px 8px; margin-bottom:4px; }
+  .gallery-card .line { font-size:12.5px; color:var(--dim); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  @media (max-width:640px) { .gallery-card { flex-basis:70vw; } }
+
+  dialog#lightbox { border:0; padding:0; margin:auto; width:100vw; height:100vh; max-width:100vw; max-height:100vh; background:#0b0c0d; }
+  dialog#lightbox::backdrop { background:rgba(0,0,0,.9); }
+  #lightbox .lb-stage { position:relative; width:100%; height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+  #lightbox img { max-width:min(94vw,700px); max-height:70vh; object-fit:contain; border-radius:10px; }
+  #lightbox .lb-cap { color:var(--text); text-align:center; margin-top:14px; max-width:80vw; }
+  #lightbox .lb-cap .chip { display:inline-block; font:600 11px var(--mono); text-transform:uppercase; color:var(--copper2); background:rgba(208,138,75,.16); border-radius:999px; padding:2px 9px; margin-bottom:6px; }
+  #lightbox .lb-close, #lightbox .lb-nav { position:absolute; border:1px solid var(--border); background:rgba(27,30,32,.85); color:var(--text); border-radius:999px; width:44px; height:44px; display:grid; place-items:center; font-size:20px; }
+  #lightbox .lb-close { top:16px; right:16px; }
+  #lightbox .lb-prev { left:16px; top:50%; transform:translateY(-50%); }
+  #lightbox .lb-next { right:16px; top:50%; transform:translateY(-50%); }
+
+  .foot { padding:6px var(--gutter) max(8px, env(safe-area-inset-bottom)); text-align:center; }
+  #message { margin:0; min-height:16px; color:var(--dim); font-size:12px; }
+  #message.error { color:var(--danger); }
+
+  @media (max-width:640px) { :root { --gutter:14px; } header { height:50px; } }
+  @media (max-height:640px) { .words { margin-top:8px; } }
+  @media (prefers-reduced-motion:reduce) { #heard, #reply { transition:none; } }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="brand"><span class="mark" aria-hidden="true"><!--KELLY_MARK--></span><span class="name"><!--KELLY_SHOP--></span></div>
+    <div class="controls">
+      <button id="mute" class="icon" type="button" aria-pressed="false" aria-label="Mute Kelly's voice">
+        <svg id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M11 5 6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 5.5a9 9 0 0 1 0 13"></path>
+        </svg>
+      </button>
+      <button id="typeToggle" class="icon" type="button" aria-pressed="false" aria-label="Type instead of speaking">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="6" width="20" height="12" rx="2"></rect><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M6 14h12"></path>
+        </svg>
+      </button>
+    </div>
+  </header>
+
+  <p class="banner" id="banner" role="status" hidden>Conversation mode is off, this page is in preview. Turn it on from the Switchboard.</p>
+
+  <form class="typed-row" id="typedForm" hidden autocomplete="off">
+    <input id="typed" type="text" placeholder="Type a message to Kelly" aria-label="Type a message to Kelly">
+    <button id="typedSend" type="submit">Send</button>
+  </form>
+
+  <main class="stage" id="stage" aria-label="Talk to Kelly">
+    <button id="record" class="orb" type="button" aria-pressed="false" aria-label="Start talking" disabled>
+      <canvas id="orbCanvas" aria-hidden="true"></canvas>
+      <svg class="glyph" id="micIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"></path><path d="M19 11a7 7 0 0 1-14 0"></path><line x1="12" y1="18" x2="12" y2="22"></line><line x1="8" y1="22" x2="16" y2="22"></line>
+      </svg>
+    </button>
+    <div class="status" id="status" aria-live="polite"><strong id="state">Checking voice service…</strong></div>
+    <button id="stop" class="pill" type="button" hidden>Stop</button>
+    <div class="words" id="words">
+      <p id="heard"></p>
+      <p id="reply" aria-live="polite"></p>
+      <div id="designs"></div>
+    </div>
+    <audio id="audioPlayback" preload="metadata" aria-label="Kelly speech playback" controls hidden></audio>
+  </main>
+
+  <div class="foot">
+    <p id="message" role="status" aria-live="polite"></p>
+  </div>
+</div>
+
+<dialog id="lightbox" aria-label="Design preview">
+  <div class="lb-stage">
+    <button type="button" class="lb-close" id="lbClose" aria-label="Close">✕</button>
+    <button type="button" class="lb-nav lb-prev" id="lbPrev" aria-label="Previous design">‹</button>
+    <img id="lbImg" alt="">
+    <div class="lb-cap"><span class="chip" id="lbChip"></span><div id="lbText"></div></div>
+    <button type="button" class="lb-nav lb-next" id="lbNext" aria-label="Next design">›</button>
+  </div>
+</dialog>
+
+<script>
+/* ---------- The orb ----------
+ * Copied verbatim from voice.html: layered translucent blobs whose outlines ripple with a
+ * few slow sines. `level` (0..1) comes from a live analyser on the microphone, or on Kelly's
+ * playback, so silence is calm and speech makes the rings swell. No library, one
+ * requestAnimationFrame, paused when the tab is hidden, and a still ring when the person
+ * prefers reduced motion.
+ */
+const KellyOrb = (() => {
+  const BLOBS = [
+    { rgb:[208,138,75],  base:.66, k:[.10,.06,.04], f:[3,5,2],  s:[.55,-.37,.23], p:0.0, drift:.11 },
+    { rgb:[240,176,114], base:.56, k:[.08,.05,.05], f:[2,4,7],  s:[-.41,.29,.19], p:1.9, drift:-.09 },
+    { rgb:[60,201,176],  base:.48, k:[.09,.07,.03], f:[4,3,6],  s:[.33,-.51,.27], p:3.3, drift:.14 },
+    { rgb:[94,139,232],  base:.42, k:[.07,.06,.05], f:[5,2,3],  s:[-.29,.44,-.21], p:4.7, drift:-.12 },
+    { rgb:[240,97,109],  base:.34, k:[.06,.05,.04], f:[3,6,4],  s:[.47,.25,-.36], p:0.8, drift:.08 },
+  ];
+  const MOOD = {
+    idle:         { alpha:[.50,.40,.46,.40,.16], scale:.86, wobble:.35, spin:.25 },
+    recording:    { alpha:[.72,.58,.38,.30,.34], scale:1.0, wobble:1.0, spin:.6 },
+    transcribing: { alpha:[.35,.30,.55,.60,.15], scale:.82, wobble:.25, spin:1.8 },
+    speaking:     { alpha:[.30,.32,.85,.70,.15], scale:.95, wobble:.9, spin:.5 },
+    error:        { alpha:[.30,.25,.10,.10,.95], scale:.9, wobble:.2, spin:.2 },
+  };
+  function mount(canvas) {
+    const ctx = canvas.getContext('2d');
+    const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    let state = 'idle', level = 0, shown = 0, raf = 0, dpr = 1, size = 0, t0 = performance.now(), errorAt = -1, alive = true;
+    const mix = { alpha:[...MOOD.idle.alpha], scale:MOOD.idle.scale, wobble:MOOD.idle.wobble, spin:MOOD.idle.spin };
+    function fit() {
+      const rect = canvas.getBoundingClientRect();
+      dpr = Math.min(2, window.devicePixelRatio || 1);
+      size = Math.max(1, Math.round(rect.width));
+      canvas.width = Math.round(size * dpr); canvas.height = Math.round(size * dpr);
+    }
+    const ro = 'ResizeObserver' in window ? new ResizeObserver(fit) : null; ro?.observe(canvas); fit();
+    function blobPath(cx, cy, r, b, t, wobble, spin) {
+      ctx.beginPath();
+      const steps = 72, rot = t * b.drift * spin;
+      for (let i = 0; i <= steps; i++) {
+        const a = (i / steps) * Math.PI * 2 + rot;
+        let d = 0;
+        for (let j = 0; j < 3; j++) d += b.k[j] * wobble * Math.sin(b.f[j] * a + t * b.s[j] * 2.2 + b.p);
+        const rr = r * (1 + d);
+        const x = cx + Math.cos(a) * rr, y = cy + Math.sin(a) * rr;
+        i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+      }
+      ctx.closePath();
+    }
+    function frame(now) {
+      if (!alive) return;
+      raf = 0;
+      const t = (now - t0) / 1000;
+      shown += (level - shown) * (level > shown ? .38 : .07);
+      const mood = MOOD[state] || MOOD.idle;
+      for (let i = 0; i < 5; i++) mix.alpha[i] += (mood.alpha[i] - mix.alpha[i]) * .06;
+      mix.scale += (mood.scale - mix.scale) * .06; mix.wobble += (mood.wobble - mix.wobble) * .08; mix.spin += (mood.spin - mix.spin) * .05;
+      const W = canvas.width, c = W / 2, R = W / 3.6;
+      ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, W, W);
+      const breath = reduced ? 0 : Math.sin(t * (Math.PI * 2 / 4.2)) * .025;
+      const live = state === 'recording' || state === 'speaking' ? shown : 0;
+      const scale = mix.scale * (1 + breath + live * .24);
+      const errorFlash = errorAt >= 0 ? Math.max(0, 1 - (t - errorAt) / .9) : 0;
+      ctx.globalCompositeOperation = 'screen';
+      ctx.filter = 'blur(' + (W * (reduced ? .012 : .016)) + 'px)';
+      for (let i = 0; i < 5; i++) {
+        const b = BLOBS[i];
+        const a = Math.min(1, mix.alpha[i] + (i === 4 ? errorFlash : 0) + live * (i < 2 ? .15 : i === 2 ? .12 : .06));
+        if (a < .02) continue;
+        const wobble = reduced ? 0 : mix.wobble + live * 1.6;
+        const r = R * (.78 + .07 * i) * scale * (1 + (reduced ? 0 : .02 * Math.sin(t * .8 + i)));
+        const swing = R * (.12 + .10 * mix.spin + live * .08);
+        const ox = reduced ? 0 : Math.cos(t * .35 + b.p) * swing, oy = reduced ? 0 : Math.sin(t * .29 + b.p) * swing;
+        const g = ctx.createRadialGradient(c + ox, c + oy, r * .4, c + ox, c + oy, r);
+        g.addColorStop(0, `rgba(${b.rgb},${a * .35})`); g.addColorStop(.62, `rgba(${b.rgb},${a})`); g.addColorStop(1, `rgba(${b.rgb},0)`);
+        ctx.fillStyle = g;
+        blobPath(c + ox, c + oy, r, b, reduced ? 0 : t, wobble, mix.spin);
+        ctx.fill();
+      }
+      ctx.filter = 'none';
+      if (state === 'transcribing' && !reduced && ctx.createConicGradient) {
+        const g = ctx.createConicGradient(t * 3.2, c, c);
+        g.addColorStop(0, 'rgba(94,139,232,0)'); g.addColorStop(.7, 'rgba(94,139,232,0)'); g.addColorStop(.92, 'rgba(240,176,114,.9)'); g.addColorStop(1, 'rgba(94,139,232,0)');
+        ctx.strokeStyle = g; ctx.lineWidth = W * .012; ctx.beginPath(); ctx.arc(c, c, R * .9 * scale, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      const inner = R * .52 * (1 + live * .06);
+      const disc = ctx.createRadialGradient(c, c - inner * .3, inner * .1, c, c, inner);
+      disc.addColorStop(0, 'rgba(34,38,42,.96)'); disc.addColorStop(1, 'rgba(20,21,22,.94)');
+      ctx.fillStyle = disc; ctx.beginPath(); ctx.arc(c, c, inner, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = state === 'recording' ? `rgba(240,176,114,${.35 + live * .5})` : 'rgba(255,255,255,.08)'; ctx.lineWidth = Math.max(1, W * .004); ctx.stroke();
+      if (!reduced || state !== 'idle') raf = requestAnimationFrame(frame);
+    }
+    function kick() { if (!raf && alive && !document.hidden) raf = requestAnimationFrame(frame); }
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { cancelAnimationFrame(raf); raf = 0; } else kick(); });
+    kick();
+    return {
+      setState(next) {
+        if (next === 'error') { errorAt = (performance.now() - t0) / 1000; next = 'idle'; }
+        state = next in MOOD ? next : 'idle';
+        if (state !== 'recording' && state !== 'speaking') level = 0;
+        kick();
+      },
+      setLevel(v) { level = Math.max(0, Math.min(1, Number(v) || 0)); kick(); },
+      get state() { return state; },
+      destroy() { alive = false; cancelAnimationFrame(raf); ro?.disconnect(); },
+    };
+  }
+  return { mount };
+})();
+window.KellyOrb = KellyOrb;
+
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const record = $('record'), status = $('status'), state = $('state'), message = $('message');
+  const stopButton = $('stop'), heard = $('heard'), reply = $('reply'), words = $('words'), designsEl = $('designs');
+  const mute = $('mute'), typeToggle = $('typeToggle'), typedForm = $('typedForm'), typed = $('typed'), typedSend = $('typedSend');
+  const banner = $('banner'), playback = $('audioPlayback');
+  const orb = KellyOrb.mount($('orbCanvas'));
+  const reducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  /* Testing hooks: a headless run cannot make a fake microphone fall silent, so the auto-stop
+     watchdog reads an overridable level, and the silence window is shrinkable in tests. */
+  const testing = { silenceMs:1200, speechMs:300, speechThreshold:.12, silenceThreshold:.06, levelOverride:null };
+  window.KellyCounter = { testing };
+
+  let stream = null, context = null, recorder = null, chunks = [], recording = false, starting = false;
+  let captureTimer = null, stopTimer = null, captureId = 0, discardCapture = false, recordingBytes = 0;
+  let meterCtx = null, meterRaf = 0, playCtx = null, playAnalyser = null, playRaf = 0;
+  let busy = false, streaming = false, muted = false;
+  let speechDetected = false, speechSince = 0, silenceSince = 0, startedAt = 0;
+  const TARGET_RATE = 16000, MAX_MS = 20000;
+
+  function say(text, error = false) { message.textContent = text; message.classList.toggle('error', error); }
+  function setMode(mode) { status.dataset.mode = mode; orb.setState(mode); }
+  function setBusy(value) { busy = value; refresh(); }
+  function refresh() { record.disabled = busy || streaming || state.dataset.available !== 'true'; typedSend.disabled = busy || streaming || !typed.value.trim(); }
+
+  /* ---------- mute ---------- */
+  try { muted = localStorage.getItem('kelly.counter.muted') === '1'; } catch {}
+  function applyMuted() {
+    mute.setAttribute('aria-pressed', String(muted));
+    mute.setAttribute('aria-label', muted ? "Unmute Kelly's voice" : "Mute Kelly's voice");
+  }
+  applyMuted();
+  mute.addEventListener('click', () => {
+    muted = !muted;
+    try { localStorage.setItem('kelly.counter.muted', muted ? '1' : '0'); } catch {}
+    applyMuted();
+    if (muted) stopSpeaking();
+  });
+
+  /* ---------- typed fallback ---------- */
+  typeToggle.addEventListener('click', () => {
+    const open = typedForm.hidden;
+    typedForm.hidden = !open;
+    typeToggle.setAttribute('aria-pressed', String(open));
+    if (open) typed.focus();
+  });
+  typed.addEventListener('input', refresh);
+  typedForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const prompt = typed.value.trim();
+    if (!prompt || busy || streaming) return;
+    typed.value = '';
+    refresh();
+    void sendPrompt(prompt, false, undefined);
+  });
+
+  async function checkStatus() {
+    try {
+      const response = await fetch('/api/voice/status', { credentials:'same-origin', cache:'no-store' });
+      const data = await response.json();
+      if (!response.ok || !data.available) throw new Error(data.error || 'Voice service is not available yet.');
+      state.dataset.available = data.sttEnabled ? 'true' : 'false'; state.dataset.tts = data.ttsEnabled ? 'true' : 'false';
+      state.textContent = data.sttEnabled ? 'Tap to talk' : 'Speech is not configured here';
+      banner.hidden = data.counterMode === undefined || data.counterMode === 'conversation';
+    } catch (error) {
+      state.dataset.available = 'false'; state.textContent = 'Voice unavailable';
+      say(error.message || 'Try again later.', true);
+    }
+    setMode('idle'); refresh();
+  }
+
+  /* ---------- level metering + auto-stop watchdog ---------- */
+  function meterFrom(analyser, target, floor, span) {
+    const buffer = new Float32Array(analyser.fftSize);
+    return () => {
+      analyser.getFloatTimeDomainData(buffer);
+      let sum = 0; for (let i = 0; i < buffer.length; i++) sum += buffer[i] * buffer[i];
+      const rms = Math.sqrt(sum / buffer.length);
+      target(Math.sqrt(Math.max(0, Math.min(1, (rms - floor) / span))));
+    };
+  }
+  function vadTick(level) {
+    const now = performance.now();
+    if (level >= testing.speechThreshold) {
+      if (!speechDetected) {
+        if (!speechSince) speechSince = now;
+        if (now - speechSince >= testing.speechMs) speechDetected = true;
+      }
+      silenceSince = 0;
+    } else {
+      speechSince = 0;
+      if (speechDetected) {
+        if (!silenceSince) silenceSince = now;
+        if (now - silenceSince >= testing.silenceMs) finish();
+      }
+    }
+  }
+  function startMicMeter(source) {
+    try {
+      meterCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const analyser = meterCtx.createAnalyser(); analyser.fftSize = 512; analyser.smoothingTimeConstant = .5;
+      meterCtx.createMediaStreamSource(source).connect(analyser);
+      // lastMeasured tracks the true analyser reading so a test override only replaces what
+      // feeds the watchdog, not the visual level the orb draws.
+      const read = meterFrom(analyser, (v) => { lastMeasured = v; orb.setLevel(v); }, .008, .16);
+      const tick = () => {
+        if (!meterCtx) return;
+        read();
+        vadTick(testing.levelOverride != null ? testing.levelOverride : lastMeasured);
+        meterRaf = requestAnimationFrame(tick);
+      };
+      meterRaf = requestAnimationFrame(tick);
+      if (meterCtx.state === 'suspended') meterCtx.resume().catch(() => {});
+    } catch { meterCtx = null; }
+  }
+  let lastMeasured = 0;
+  function stopMicMeter() {
+    cancelAnimationFrame(meterRaf); meterRaf = 0;
+    if (meterCtx) { const old = meterCtx; meterCtx = null; old.close().catch(() => {}); }
+    orb.setLevel(0);
+    speechDetected = false; speechSince = 0; silenceSince = 0;
+  }
+  function ensurePlayMeter() {
+    if (playAnalyser) return;
+    try {
+      playCtx = playCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (playCtx.state !== 'running') { playCtx.resume().catch(() => {}); if (playCtx.state !== 'running') return; }
+      const source = playCtx.createMediaElementSource(playback);
+      playAnalyser = playCtx.createAnalyser(); playAnalyser.fftSize = 512; playAnalyser.smoothingTimeConstant = .6;
+      source.connect(playAnalyser); playAnalyser.connect(playCtx.destination);
+    } catch { playAnalyser = null; }
+  }
+  function startPlayMeter() {
+    cancelAnimationFrame(playRaf);
+    const read = playAnalyser ? meterFrom(playAnalyser, (v) => orb.setLevel(v), .01, .22) : null;
+    const t0 = performance.now();
+    const tick = () => {
+      if (playback.paused || playback.ended) { orb.setLevel(0); return; }
+      if (read) read(); else orb.setLevel(.35 + .3 * Math.abs(Math.sin((performance.now() - t0) / 260)));
+      playRaf = requestAnimationFrame(tick);
+    };
+    playRaf = requestAnimationFrame(tick);
+  }
+
+  /* ---------- capture (copied and trimmed from voice.html) ---------- */
+  function releaseCapture() {
+    clearInterval(captureTimer); captureTimer = null;
+    clearTimeout(stopTimer); stopTimer = null;
+    if (recorder) { const old = recorder; recorder = null; old.ondataavailable = old.onstop = old.onerror = null; if (old.state !== 'inactive') { try { old.stop(); } catch {} } }
+    if (stream) { stream.getTracks().forEach(track => track.stop()); stream = null; }
+    if (context) { const old = context; context = null; old.close().catch(() => {}); }
+    stopMicMeter();
+  }
+  function resetRecordButton() { record.setAttribute('aria-pressed','false'); record.setAttribute('aria-label','Start talking'); }
+  function captureFailed(error) {
+    captureId++; starting = recording = false; chunks = []; releaseCapture(); resetRecordButton(); setMode('error'); setBusy(false);
+    state.textContent = 'Recording could not start';
+    const hints = {
+      NotAllowedError: 'Allow microphone access for this page in Chrome. Also check macOS System Settings > Privacy & Security > Microphone.',
+      NotFoundError: 'No microphone was found. Connect one or select an available input in your browser.',
+      NotReadableError: 'The microphone could not be opened. Check the selected input and whether another app is using it.',
+    };
+    say(hints[error.name] || error.message || 'Try again or check the browser microphone settings.', true);
+  }
+  function resample(input, fromRate) {
+    if (fromRate === TARGET_RATE) return input;
+    const ratio = fromRate / TARGET_RATE, length = Math.floor(input.length / ratio), output = new Float32Array(length);
+    for (let i = 0; i < length; i++) {
+      const start = Math.floor(i * ratio), end = Math.max(start + 1, Math.floor((i + 1) * ratio));
+      let sum = 0; for (let j = start; j < end && j < input.length; j++) sum += input[j];
+      output[i] = sum / (end - start);
+    }
+    return output;
+  }
+  function toWav(parts, fromRate) {
+    const size = parts.reduce((total, part) => total + part.length, 0), joined = new Float32Array(size);
+    let offset = 0; for (const part of parts) { joined.set(part, offset); offset += part.length; }
+    const floats = resample(joined, fromRate);
+    const buffer = new ArrayBuffer(44 + floats.length * 2), view = new DataView(buffer);
+    const write = (at, text) => { for (let i = 0; i < text.length; i++) view.setUint8(at + i, text.charCodeAt(i)); };
+    write(0,'RIFF'); view.setUint32(4,36 + floats.length * 2,true); write(8,'WAVE'); write(12,'fmt '); view.setUint32(16,16,true);
+    view.setUint16(20,1,true); view.setUint16(22,1,true); view.setUint32(24,TARGET_RATE,true); view.setUint32(28,TARGET_RATE * 2,true); view.setUint16(32,2,true); view.setUint16(34,16,true); write(36,'data'); view.setUint32(40,floats.length * 2,true);
+    for (let i = 0; i < floats.length; i++) { const sample = Math.max(-1, Math.min(1, floats[i])); view.setInt16(44 + i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true); }
+    return new Blob([buffer], { type:'audio/wav' });
+  }
+  async function begin() {
+    if (recording || starting || busy || streaming || state.dataset.available !== 'true') return;
+    const id = ++captureId;
+    starting = true; setBusy(true); say(''); stopSpeaking(); fadeOutWords(); chunks = []; recordingBytes = 0; discardCapture = false;
+    // The playback AudioContext is created here, inside the tap gesture, so it is never
+    // blocked by autoplay policy when Kelly speaks back a few seconds later.
+    ensurePlayMeter();
+    state.textContent = 'Waiting for microphone';
+    try {
+      if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') throw new Error('This browser cannot record. Please open the Kelly tunnel address (HTTPS) in a supported browser.');
+      const supportedTypes = ['audio/webm;codecs=opus','audio/webm','audio/mp4'];
+      const mimeType = supportedTypes.find(type => MediaRecorder.isTypeSupported(type));
+      if (!mimeType) throw new Error('This browser cannot record. Please open the Kelly tunnel address (HTTPS) in a supported browser.');
+      const acquired = await navigator.mediaDevices.getUserMedia({ audio:{ channelCount:1, echoCancellation:true, noiseSuppression:true, autoGainControl:true } });
+      if (id !== captureId) { acquired.getTracks().forEach(track => track.stop()); return; }
+      stream = acquired;
+      recorder = new MediaRecorder(stream, { mimeType });
+      recorder.ondataavailable = event => {
+        if (id !== captureId || !event.data.size) return;
+        recordingBytes += event.data.size;
+        if (recordingBytes > 8 * 1024 * 1024) { captureFailed(new Error('Recording exceeded the 8 MB limit. Please try a shorter message.')); return; }
+        chunks.push(event.data);
+      };
+      recorder.onerror = event => captureFailed(event.error || new Error('The browser recorder stopped unexpectedly.'));
+      recorder.onstop = () => { if (id === captureId) void completeRecording(id); };
+      recorder.start(250);
+      starting = false; recording = true; startedAt = Date.now(); speechDetected = false; speechSince = 0; silenceSince = 0;
+      record.disabled = false; record.setAttribute('aria-pressed','true'); record.setAttribute('aria-label','Stop talking');
+      setMode('recording'); startMicMeter(stream);
+      state.textContent = 'Listening…';
+      captureTimer = setInterval(() => { if (Date.now() - startedAt >= MAX_MS) finish(); }, 200);
+    } catch (error) { if (id === captureId) captureFailed(error); }
+  }
+  function finish(discard = false) {
+    if (!recording) return;
+    recording = false; discardCapture = discard; clearInterval(captureTimer); resetRecordButton(); stopMicMeter(); setBusy(true);
+    setMode(discard ? 'idle' : 'transcribing'); state.textContent = discard ? 'Discarded' : 'One moment…';
+    stopTimer = setTimeout(() => captureFailed(new Error('The browser did not finish the recording. Refresh and try again.')), 5000);
+    try { recorder.stop(); } catch (error) { captureFailed(error); }
+  }
+  async function completeRecording(id) {
+    const encoded = new Blob(chunks, { type: recorder?.mimeType || 'audio/webm' });
+    recording = false; chunks = []; releaseCapture(); resetRecordButton(); setBusy(true);
+    try {
+      if (discardCapture) { setMode('idle'); state.textContent = 'Tap to talk'; return; }
+      if (!encoded.size) throw new Error('Your browser returned an empty recording. Check the microphone selected in Chrome and macOS input settings.');
+      const decoder = new (window.AudioContext || window.webkitAudioContext)(); context = decoder;
+      const decoded = await decoder.decodeAudioData(await encoded.arrayBuffer());
+      if (id !== captureId) return;
+      if (!decoded.length || decoded.duration > 25) throw new Error('Recording is empty or too long.');
+      const mono = new Float32Array(decoded.length);
+      for (let channel = 0; channel < decoded.numberOfChannels; channel++) {
+        const samples = decoded.getChannelData(channel);
+        for (let i = 0; i < mono.length; i++) mono[i] += samples[i] / decoded.numberOfChannels;
+      }
+      await decoder.close(); context = null;
+      const audio = toWav([mono], decoded.sampleRate);
+      state.textContent = 'Listening to that…';
+      const response = await fetch('/api/voice/transcribe', { method:'POST', credentials:'same-origin', headers:{ 'content-type':'audio/wav', 'x-kelly-voice-language':'auto' }, body:audio, signal:AbortSignal.timeout(120000) });
+      const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Transcription failed.');
+      const text = data.text || '';
+      setHeard(text);
+      if (!text) { setMode('idle'); state.textContent = 'Tap to talk'; say('No words were heard. Try again.'); return; }
+      releaseCapture(); setBusy(false);
+      await sendPrompt(text, true, data.transcriptId || undefined);
+      return;
+    } catch (error) { setMode('error'); state.textContent = 'Tap to talk'; say(error.message || 'Recording or transcription failed.', true); }
+    finally { releaseCapture(); setBusy(false); }
+  }
+
+  /* ---------- the words ---------- */
+  function fadeOutWords() {
+    words.classList.add('fading');
+  }
+  function setHeard(text) {
+    words.classList.remove('fading');
+    heard.textContent = text;
+  }
+
+  /* ---------- typing animation for Kelly's reply ---------- */
+  const TYPE_RATE = 40;
+  let typeBuffer = '', typedText = '', typeRaf = 0, typeLast = 0, typeFast = false, typeDone = null;
+  function resetTyping() { typeBuffer = ''; typedText = ''; typeFast = false; reply.textContent = ''; reply.classList.remove('crit'); }
+  function pushToken(text) { typeBuffer += text; kickType(); }
+  function kickType() { if (!typeRaf) { typeLast = 0; typeRaf = requestAnimationFrame(typeTick); } }
+  function typeTick(now) {
+    typeRaf = 0;
+    if (!typeLast) typeLast = now;
+    const dt = (now - typeLast) / 1000; typeLast = now;
+    if (typeBuffer.length) {
+      const n = typeFast ? typeBuffer.length : Math.max(1, Math.round(TYPE_RATE * dt));
+      const take = typeBuffer.slice(0, n); typeBuffer = typeBuffer.slice(n);
+      typedText += take;
+      reply.textContent = typedText;
+    }
+    if (typeBuffer.length) typeRaf = requestAnimationFrame(typeTick);
+    else if (typeDone) { const cb = typeDone; typeDone = null; cb(); }
+  }
+  function drainTyping(onDone) {
+    typeFast = true;
+    if (!typeBuffer.length) { onDone(); return; }
+    typeDone = onDone; kickType();
+  }
+
+  /* ---------- design gallery + lightbox (copied from voice.html) ---------- */
+  const esc = (s) => s.replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+  let lightboxSet = [];
+  const lightbox = document.getElementById('lightbox'), lbImg = document.getElementById('lbImg'), lbChip = document.getElementById('lbChip'), lbText = document.getElementById('lbText');
+  function openLightbox(set, index) {
+    lightboxSet = set; showLightbox(index);
+    if (typeof lightbox.showModal === 'function') lightbox.showModal(); else lightbox.setAttribute('open', '');
+  }
+  function showLightbox(index) {
+    const d = lightboxSet[(index + lightboxSet.length) % lightboxSet.length];
+    if (!d) return;
+    lightbox.dataset.index = String((index + lightboxSet.length) % lightboxSet.length);
+    lbImg.src = d.url || d.thumb || ''; lbImg.alt = d.caption || d.category || 'design';
+    lbChip.textContent = d.category || ''; lbText.textContent = d.caption || '';
+  }
+  document.getElementById('lbClose').addEventListener('click', () => lightbox.close ? lightbox.close() : lightbox.removeAttribute('open'));
+  document.getElementById('lbPrev').addEventListener('click', () => showLightbox(Number(lightbox.dataset.index || 0) - 1));
+  document.getElementById('lbNext').addEventListener('click', () => showLightbox(Number(lightbox.dataset.index || 0) + 1));
+  lightbox.addEventListener('click', (event) => { if (event.target === lightbox) (lightbox.close ? lightbox.close() : lightbox.removeAttribute('open')); });
+  lightbox.addEventListener('keydown', (event) => {
+    if (event.key === 'ArrowRight') showLightbox(Number(lightbox.dataset.index || 0) + 1);
+    else if (event.key === 'ArrowLeft') showLightbox(Number(lightbox.dataset.index || 0) - 1);
+    else if (event.key === 'Escape') { event.stopPropagation(); (lightbox.close ? lightbox.close() : lightbox.removeAttribute('open')); }
+  });
+  let touchStartX = null;
+  lightbox.addEventListener('touchstart', (event) => { touchStartX = event.touches[0]?.clientX ?? null; }, { passive:true });
+  lightbox.addEventListener('touchend', (event) => {
+    if (touchStartX == null) return;
+    const dx = (event.changedTouches[0]?.clientX ?? touchStartX) - touchStartX;
+    if (Math.abs(dx) > 40) showLightbox(Number(lightbox.dataset.index || 0) + (dx < 0 ? 1 : -1));
+    touchStartX = null;
+  }, { passive:true });
+  function renderGallery(designs) {
+    designsEl.innerHTML = '';
+    if (!designs || !designs.length) return;
+    const strip = document.createElement('div'); strip.className = 'gallery';
+    designs.forEach((d, i) => {
+      const card = document.createElement('div'); card.className = 'gallery-card'; card.tabIndex = 0; card.setAttribute('role', 'button'); card.setAttribute('aria-label', 'Open ' + (d.caption || d.category));
+      card.innerHTML = '<img src="' + esc(d.thumb || d.url || '') + '" alt="' + esc(d.caption || d.category || '') + '" loading="lazy">'
+        + '<div class="cap"><span class="chip">' + esc(d.category || '') + '</span><div class="line">' + esc(d.caption || '') + '</div></div>';
+      card.addEventListener('click', () => openLightbox(designs, i));
+      card.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openLightbox(designs, i); } });
+      strip.appendChild(card);
+    });
+    designsEl.appendChild(strip);
+  }
+
+  /* ---------- speech playback: framed sequence or a single whole file ---------- */
+  let speaking = false, speakAbort = null, playQueue = [], playingUrl = null;
+  function stopSpeaking() {
+    speakAbort?.abort(); speakAbort = null;
+    playQueue = [];
+    cancelAnimationFrame(playRaf); orb.setLevel(0);
+    playback.onended = playback.onerror = playback.onplay = null;
+    playback.pause(); playback.removeAttribute('src'); playback.load(); playback.hidden = true;
+    if (playingUrl) { URL.revokeObjectURL(playingUrl); playingUrl = null; }
+    stopButton.hidden = true;
+    if (speaking) { speaking = false; setMode('idle'); state.textContent = 'Tap to talk'; }
+  }
+  function playNextFrame() {
+    if (!playQueue.length) return;
+    const blob = playQueue.shift();
+    playingUrl = URL.createObjectURL(blob);
+    playback.src = playingUrl;
+    playback.onended = () => { URL.revokeObjectURL(playingUrl); playingUrl = null; playNextFrame(); };
+    playback.onerror = () => say('Playback failed.', true);
+    playback.play().then(() => { say(''); }).catch((error) => {
+      if (error.name === 'NotAllowedError') { playback.hidden = false; say('Audio is ready. Press Play.'); }
+    });
+  }
+  function queueFrame(blob) {
+    const wasEmpty = playQueue.length === 0 && !playingUrl;
+    playQueue.push(blob);
+    if (wasEmpty) playNextFrame();
+  }
+  async function readFramed(reader) {
+    let buf = new Uint8Array(0);
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (value) {
+        const merged = new Uint8Array(buf.length + value.length);
+        merged.set(buf); merged.set(value, buf.length); buf = merged;
+      }
+      while (buf.length >= 4) {
+        const len = new DataView(buf.buffer, buf.byteOffset, 4).getUint32(0, false);
+        if (buf.length < 4 + len) break;
+        const frame = buf.slice(4, 4 + len);
+        buf = buf.slice(4 + len);
+        queueFrame(new Blob([frame], { type:'audio/wav' }));
+      }
+      if (done) break;
+    }
+  }
+  async function speakText(text) {
+    if (muted || !text || !text.trim()) return;
+    if (state.dataset.tts !== 'true') return;
+    stopSpeaking();
+    ensurePlayMeter();
+    speaking = true; speakAbort = new AbortController();
+    setMode('speaking'); state.textContent = 'Kelly is speaking'; stopButton.hidden = false; playback.hidden = false;
+    playback.onplay = () => { playCtx?.resume?.().catch(() => {}); startPlayMeter(); };
+    try {
+      const response = await fetch('/api/voice/speak', { method:'POST', credentials:'same-origin', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ text, language:'en', chunk:true }), signal:speakAbort.signal });
+      if (!response.ok) { let data = {}; try { data = await response.json(); } catch {} throw new Error(data.error || 'Speech is unavailable.'); }
+      const ct = response.headers.get('content-type') || '';
+      if (ct.includes('application/x-kelly-wav-seq') && response.body) {
+        await readFramed(response.body.getReader());
+      } else {
+        const audio = await response.blob();
+        if (audio.size > 44) queueFrame(audio);
+      }
+      // Once the last frame has been queued, wait for it to actually finish playing before
+      // returning to idle; that happens naturally in playNextFrame/onended.
+      const waitForEnd = () => new Promise((resolve) => {
+        const check = () => { if (!playQueue.length && (playback.paused || playback.ended) && !speaking) return resolve(); requestAnimationFrame(check); };
+        const originalOnEnded = playback.onended;
+        playback.onended = () => { originalOnEnded?.(); if (!playQueue.length) { speaking = false; setMode('idle'); state.textContent = 'Tap to talk'; stopButton.hidden = true; resolve(); } };
+      });
+      await waitForEnd();
+    } catch (error) {
+      if (error.name !== 'AbortError') { say(error.message || 'Could not play speech.', true); }
+      speaking = false; setMode('idle'); state.textContent = 'Tap to talk'; stopButton.hidden = true;
+    }
+  }
+  stopButton.addEventListener('click', stopSpeaking);
+
+  /* ---------- send a turn ---------- */
+  async function sendPrompt(prompt, voiced, transcriptId) {
+    if (!prompt || streaming) return;
+    streaming = true; refresh();
+    resetTyping();
+    designsEl.innerHTML = '';
+    setMode('transcribing'); state.textContent = 'Kelly is thinking';
+    let spokenArrived = false;
+    try {
+      const response = await fetch('/api/chat/send', { method:'POST', credentials:'same-origin', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ prompt, voice:voiced, ...(transcriptId ? { transcriptId } : {}) }) });
+      if (!response.ok) { let data = {}; try { data = await response.json(); } catch {} throw new Error(data.error || 'Chat request failed.'); }
+      const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = '';
+      while (true) {
+        const { value, done } = await reader.read(); if (done) break;
+        pending += decoder.decode(value, { stream:true }); const blocks = pending.split('\n\n'); pending = blocks.pop();
+        for (const block of blocks) {
+          const ev = block.match(/^event: (.+)$/m)?.[1], raw = block.match(/^data: (.+)$/m)?.[1]; if (!raw) continue;
+          let data; try { data = JSON.parse(raw); } catch { continue; }
+          if (ev === 'token') { pushToken(data.text || ''); }
+          else if (ev === 'spoken') { spokenArrived = true; if (voiced && data.text) void speakText(data.text); }
+          else if (ev === 'designs') { if (data.designs && data.designs.length) renderGallery(data.designs); }
+          else if (ev === 'done') { if (voiced && !spokenArrived && data.spoken) void speakText(data.spoken); }
+          else if (ev === 'error') throw new Error(data.error || 'Chat failed.');
+        }
+      }
+      await new Promise((resolve) => drainTyping(resolve));
+      setMode(speaking ? 'speaking' : 'idle'); state.textContent = speaking ? 'Kelly is speaking' : 'Tap to talk';
+    } catch (error) {
+      await new Promise((resolve) => drainTyping(resolve));
+      reply.classList.add('crit'); reply.textContent = error.message || 'Chat request failed.';
+      setMode('error'); state.textContent = 'Tap to talk'; say(error.message || 'Chat request failed.', true);
+    } finally { streaming = false; refresh(); }
+  }
+
+  /* ---------- input ---------- */
+  record.addEventListener('click', () => { if (recording) finish(); else if (!busy) void begin(); });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      if (lightbox.open) return;
+      if (recording) finish(true);
+      else if (speaking) stopSpeaking();
+      return;
+    }
+    if (event.code === 'Space') {
+      const active = document.activeElement;
+      if (active === typed || active === record) return;
+      const tag = (active?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea') return;
+      event.preventDefault();
+      record.click();
+    }
+  });
+  window.addEventListener('pagehide', () => { captureId++; starting = recording = false; chunks = []; releaseCapture(); stopSpeaking(); });
+
+  checkStatus();
+})();
+</script>
+</body>
+</html>

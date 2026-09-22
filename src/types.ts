@@ -49,6 +49,10 @@ export type ActivityKind =
   | "voice.answered"
   | "voice.dropped"
   | "voice.failed"
+  /** A text-to-speech synthesis call and its timing ({chars, ms, sentence}), or the one
+   *  best-effort warm-up synthesis Kelly runs at startup when Kokoro is configured ({ms}). */
+  | "voice.tts"
+  | "voice.tts.warm"
   /** Remote-access tunnel (Tailscale Serve or Cloudflare Tunnel) came up, was stopped, or failed to (re)connect. */
   | "remote.started"
   | "remote.stopped"

@@ -40,11 +40,11 @@ function storeIn(root: string): { store: VoiceTranscriptStore; settingsPath: str
 test("voice settings default to 60 days of text and no recording", () => {
   const root = tempDir("kelly-vs-");
   const settingsPath = path.join(root, "settings.json");
-  assert.deepEqual(readVoiceSettings(settingsPath), { retentionDays: 60, recordAudio: false, audioRetentionDays: 7 });
+  assert.deepEqual(readVoiceSettings(settingsPath), { retentionDays: 60, recordAudio: false, audioRetentionDays: 7, counterMode: "review" });
   assert.deepEqual(readVoiceSettings(settingsPath), VOICE_SETTINGS_DEFAULTS);
 
   const updated = updateVoiceSettings(settingsPath, { recordAudio: true, retentionDays: 90 });
-  assert.deepEqual(updated, { retentionDays: 90, recordAudio: true, audioRetentionDays: 7 });
+  assert.deepEqual(updated, { retentionDays: 90, recordAudio: true, audioRetentionDays: 7, counterMode: "review" });
   assert.deepEqual(readVoiceSettings(settingsPath), updated, "persisted through settings.json");
 
   const clamped = updateVoiceSettings(settingsPath, { retentionDays: 9999, audioRetentionDays: 0 });
@@ -281,6 +281,8 @@ test("summarizeUsage buckets runs, tokens, provider time and voice seconds by lo
     event("run.completed", at(0, 11), { durationMs: 6100, firstTextMs: 1900, usage: { input: 3000, cached: 2500, output: 80 } }),
     event("run.failed", at(0, 12), { error: "boom" }),
     event("voice.transcribed", at(0, 13), { durationSeconds: 6, sttMs: 4100 }),
+    event("voice.tts", at(0, 13), { chars: 100, ms: 200, sentence: false }),
+    event("voice.tts", at(0, 14), { chars: 50, ms: 150, sentence: true }),
     event("run.completed", at(2, 10), { durationMs: 20000 }),
     event("run.completed", at(9, 10), { durationMs: 1, usage: { input: 999999, cached: 0, output: 0 } }),
   ];
@@ -300,6 +302,9 @@ test("summarizeUsage buckets runs, tokens, provider time and voice seconds by lo
   assert.equal(summary.latency.p95Ms, 20000);
   assert.equal(summary.latency.p50FirstTextMs, 1900, "the lower of the two first-text samples");
   assert.equal(summary.voice.realTimeFactor, 0.68);
+  assert.equal(summary.voice.ttsChars, 150);
+  assert.equal(summary.voice.ttsMs, 350);
+  assert.equal(summary.voice.ttsP50MsPer100Chars, 200);
   assert.equal(summary.tokenCoverage, 0.67, "one of three runs in the window printed no tokens");
 });
 
@@ -337,7 +342,7 @@ test("dashboard serves transcript history, settings, and usage, and never leaks 
     assert.equal(missingAudio.status, 404, "no recording is kept, so none is served");
 
     const changed = await (await fetch(`${base}/api/voice/settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordAudio: true, retentionDays: 30 }) })).json() as { settings: { retentionDays: number; recordAudio: boolean } };
-    assert.deepEqual(changed.settings, { retentionDays: 30, recordAudio: true, audioRetentionDays: 7 });
+    assert.deepEqual(changed.settings, { retentionDays: 30, recordAudio: true, audioRetentionDays: 7, counterMode: "review" });
 
     const usage = await (await fetch(`${base}/api/usage`)).json() as { windowDays: number; days: unknown[]; limits: Record<string, unknown>; today: { runs: number } };
     assert.equal(usage.windowDays, 7);

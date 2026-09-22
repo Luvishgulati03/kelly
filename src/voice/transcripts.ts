@@ -30,16 +30,33 @@ import { readSettings, updateSettings } from "../util/settings.ts";
  *   failed      → download, conversion, or transcription failed (no words kept)
  */
 
+/**
+ * `counterMode` picks which of the two counter-tablet experiences `voice.html` /
+ * `counter.html` present: "review" (default) is today's flow — a transcript is shown and
+ * the owner/operator types "send" to confirm before it reaches Kelly. "conversation" skips
+ * that review step: transcripts go straight to Kelly and replies are spoken back. It is a
+ * durable setting (`voice.counterMode` in `data/settings.json`), with `KELLY_COUNTER_MODE`
+ * as a process-level override — set, valid, and it wins over whatever is persisted; set and
+ * invalid, it is ignored and the persisted/default value applies instead.
+ */
+export type CounterMode = "review" | "conversation";
+
+export function isCounterMode(value: unknown): value is CounterMode {
+  return value === "review" || value === "conversation";
+}
+
 export interface VoiceSettings {
   retentionDays: number;
   recordAudio: boolean;
   audioRetentionDays: number;
+  counterMode: CounterMode;
 }
 
 export const VOICE_SETTINGS_DEFAULTS: Readonly<VoiceSettings> = Object.freeze({
   retentionDays: 60,
   recordAudio: false,
   audioRetentionDays: 7,
+  counterMode: "review",
 });
 
 const RETENTION_RANGE = { min: 1, max: 365 };
@@ -51,27 +68,47 @@ function clampDays(value: unknown, fallback: number, range: { min: number; max: 
   return Math.min(range.max, Math.max(range.min, Math.round(parsed)));
 }
 
-/** `settings.json → voice`. Missing or malformed reads as the defaults. */
-export function readVoiceSettings(settingsPath: string): VoiceSettings {
+/** Reads persisted `settings.json → voice` only, with no env override applied — the shape
+ *  `updateVoiceSettings` reads-merges-writes against, so a shadowing env var can never leak
+ *  into what actually gets saved. */
+function readPersistedVoiceSettings(settingsPath: string): VoiceSettings {
   const raw = readSettings(settingsPath).voice;
   const record = raw && typeof raw === "object" && !Array.isArray(raw) ? raw as Record<string, unknown> : {};
   return {
     retentionDays: clampDays(record.retentionDays, VOICE_SETTINGS_DEFAULTS.retentionDays, RETENTION_RANGE),
     recordAudio: record.recordAudio === true,
     audioRetentionDays: clampDays(record.audioRetentionDays, VOICE_SETTINGS_DEFAULTS.audioRetentionDays, AUDIO_RETENTION_RANGE),
+    counterMode: isCounterMode(record.counterMode) ? record.counterMode : VOICE_SETTINGS_DEFAULTS.counterMode,
   };
 }
 
-/** Read-merge-write through the shared settings helper; returns what is now in force. */
+/** `settings.json → voice`. Missing or malformed reads as the defaults. `KELLY_COUNTER_MODE`,
+ *  when set to a valid mode, overrides whatever is persisted for THIS read; an invalid value
+ *  is ignored. The override is process-scoped display/behaviour only — see
+ *  `readPersistedVoiceSettings` for what `updateVoiceSettings` actually saves. */
+export function readVoiceSettings(settingsPath: string, env: NodeJS.ProcessEnv = process.env): VoiceSettings {
+  const persisted = readPersistedVoiceSettings(settingsPath);
+  const envOverride = env.KELLY_COUNTER_MODE;
+  return {
+    ...persisted,
+    counterMode: isCounterMode(envOverride) ? envOverride : persisted.counterMode,
+  };
+}
+
+/** Read-merge-write through the shared settings helper; returns what is now in force
+ *  (including any live `KELLY_COUNTER_MODE` override). Persistence itself is always against
+ *  the on-disk value, never the env-shadowed one, so an override never gets baked in by a
+ *  save the admin made for something else entirely. */
 export function updateVoiceSettings(settingsPath: string, patch: Partial<VoiceSettings>): VoiceSettings {
-  const current = readVoiceSettings(settingsPath);
+  const current = readPersistedVoiceSettings(settingsPath);
   const next: VoiceSettings = {
     retentionDays: patch.retentionDays === undefined ? current.retentionDays : clampDays(patch.retentionDays, current.retentionDays, RETENTION_RANGE),
     recordAudio: patch.recordAudio === undefined ? current.recordAudio : patch.recordAudio === true,
     audioRetentionDays: patch.audioRetentionDays === undefined ? current.audioRetentionDays : clampDays(patch.audioRetentionDays, current.audioRetentionDays, AUDIO_RETENTION_RANGE),
+    counterMode: patch.counterMode === undefined ? current.counterMode : isCounterMode(patch.counterMode) ? patch.counterMode : current.counterMode,
   };
   updateSettings(settingsPath, { voice: next });
-  return next;
+  return readVoiceSettings(settingsPath);
 }
 
 export type TranscriptSurface = "counter" | "telegram";

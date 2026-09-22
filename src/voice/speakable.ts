@@ -123,3 +123,75 @@ export function extractQuoteIdFromReply(reply: string): string | undefined {
   const json = new RegExp(`"id"\\s*:\\s*"(${uuid})"`, "i").exec(reply);
   return json?.[1];
 }
+
+/**
+ * Splits text into sentence-sized chunks for sequential TTS synthesis — on `.`, `?`, `!`, and
+ * the Hindi/Devanagari full stop (danda, `।`), each kept with its own delimiter. Whitespace-only
+ * pieces are dropped. A text with none of those delimiters comes back as a single chunk (the
+ * whole trimmed input), never empty for non-empty input.
+ */
+export function splitSentences(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  const pieces = trimmed.match(/[^.?!।]+[.?!।]*/gu) ?? [trimmed];
+  return pieces.map((piece) => piece.trim()).filter(Boolean);
+}
+
+/**
+ * Streamed-token watcher for a voice turn's leading ```spoken fence (see the voiceMode
+ * instruction in `src/dashboard/server.ts`, which tells Kelly to put that fence FIRST). Feed
+ * every streamed text chunk to `push`; its return value is what should still reach the
+ * client as a visible `token` event.
+ *
+ * Three phases:
+ *   buffering  — not yet enough text to know whether the reply opens with the fence. Nothing
+ *                is shown yet.
+ *   in-fence   — the opener matched; text is captured as the fence body (never shown) until
+ *                the closing ``` arrives, at which point `onSpoken` fires exactly once with
+ *                the body normalised through `stripForSpeech`.
+ *   passthrough — either the closing fence was just consumed, or the buffered prefix proved
+ *                the reply does NOT open with the fence (in which case everything buffered so
+ *                far is flushed as the return value on that transition). Every push after this
+ *                point returns its input unchanged.
+ */
+export function createSpokenFenceFilter(onSpoken: (text: string) => void): { push: (text: string) => string } {
+  const opener = "```spoken";
+  let phase: "buffering" | "in-fence" | "passthrough" = "buffering";
+  let buffer = "";
+  let fenceBody = "";
+
+  function push(text: string): string {
+    if (phase === "passthrough") return text;
+    if (phase === "in-fence") {
+      fenceBody += text;
+      const closeIndex = fenceBody.indexOf("```");
+      if (closeIndex === -1) return "";
+      const body = fenceBody.slice(0, closeIndex);
+      const after = fenceBody.slice(closeIndex + 3);
+      fenceBody = "";
+      phase = "passthrough";
+      onSpoken(stripForSpeech(body));
+      return after;
+    }
+    // buffering
+    buffer += text;
+    const trimmed = buffer.replace(/^\s+/, "");
+    if (!trimmed) return ""; // still all whitespace so far; keep waiting
+    const compareLen = Math.min(trimmed.length, opener.length);
+    if (trimmed.slice(0, compareLen).toLowerCase() !== opener.slice(0, compareLen)) {
+      // The reply does not open with the fence: everything buffered becomes visible now.
+      phase = "passthrough";
+      const flushed = buffer;
+      buffer = "";
+      return flushed;
+    }
+    if (trimmed.length < opener.length) return ""; // still a matching prefix; keep waiting
+    const rest = trimmed.slice(opener.length);
+    const bodyStart = rest.startsWith("\n") ? rest.slice(1) : rest;
+    phase = "in-fence";
+    buffer = "";
+    return push(bodyStart);
+  }
+
+  return { push };
+}

@@ -45,6 +45,25 @@ Transcripts live in `data/voice/transcripts.db`; recordings in `data/voice/audio
 Both are private to the owner (0600), never leave the machine, and are never committed.
 The words themselves never enter the activity log; the log carries only sizes and timings.
 
+## Counter mode (planned, built behind a flag)
+
+`voice.counterMode` in `data/settings.json` is `"review"` (default) or `"conversation"`,
+overridable per-process with `KELLY_COUNTER_MODE` (a valid value wins over whatever is
+persisted; an invalid one is ignored). It is a toggle in the Voice pane's "Counter mode"
+card (admin only), and read-only for every role at `GET /api/voice/status`'s `counterMode`
+field so the counter tablet can act on it without admin rights.
+
+- **review** (today's behaviour) — `/voice` serves the owner's review page: a transcript is
+  shown and must be typed-confirmed before it reaches Kelly.
+- **conversation** — a `counter`-role `GET /voice` 302s to `/counter` instead (admins can
+  still open either page); `/counter` sends transcripts straight to Kelly with no review
+  step and speaks replies back. See `docs/voice.md` for the counter page's speech-latency
+  mechanics (early `spoken` SSE event, chunked TTS, Kokoro warm-up).
+
+`/counter` itself is served in both modes (so it can be tested while still in "review"); the
+page is expected to read its own mode off `GET /api/voice/status` and show a banner in
+review mode.
+
 ## APIs
 
 | Route | Purpose |
@@ -52,7 +71,10 @@ The words themselves never enter the activity log; the log carries only sizes an
 | `GET /api/voice/transcripts?surface=&state=&language=&q=&sparse=&limit=` | History with stats and settings. |
 | `GET /api/voice/transcripts/:id` | One transcript, with `audio: true` when a recording is kept. |
 | `GET /api/voice/audio/:id` | The kept recording, or 404. |
-| `GET` / `POST /api/voice/settings` | Read or change retention. |
+| `GET` / `POST /api/voice/settings` | Read or change retention and `counterMode` (admin only). |
+| `GET /api/voice/status` | `{available, sttEnabled, ttsEnabled, counterMode}` — every role, no admin required. |
+| `GET /voice` | Owner review page. Redirects a `counter`-role request to `/counter` when `counterMode` is `"conversation"`. |
+| `GET /counter` | Customer-facing counter tablet page (design gallery, and the conversation-mode voice flow). |
 | `GET /api/usage` | Seven-day usage summary from the activity journal and the cooldown ledger. |
 | `GET /api/events` | Server-sent events: `activity`, `resources`, `agent`. |
 

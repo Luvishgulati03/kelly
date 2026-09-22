@@ -31,7 +31,15 @@ export interface UsageSummary {
   days: UsageDay[];
   today: UsageDay;
   latency: { samples: number; p50Ms: number | null; p95Ms: number | null; p50FirstTextMs: number | null };
-  voice: { transcriptions: number; seconds: number; sttMs: number; realTimeFactor: number | null };
+  voice: {
+    transcriptions: number; seconds: number; sttMs: number; realTimeFactor: number | null;
+    /** Total characters and wall-clock ms spent in `voice.tts` synthesis calls (chunked
+     *  per-sentence calls each contribute their own chars/ms). */
+    ttsChars: number; ttsMs: number;
+    /** Median of (ms / chars * 100) across individual `voice.tts` events — "typical ms to
+     *  speak 100 characters" — or null when there are no samples. */
+    ttsP50MsPer100Chars: number | null;
+  };
   /** Live cooldowns per provider ({} when none), straight from the ledger. */
   limits: LimitState;
   /** Fraction of runs that carried token counts; below 1 means some CLIs printed none. */
@@ -75,6 +83,9 @@ export function summarizeUsage(events: ActivityEvent[], limits: LimitState, now:
   let voiceSeconds = 0;
   let sttMs = 0;
   let transcriptions = 0;
+  let ttsMs = 0;
+  let ttsChars = 0;
+  const ttsSamplesPer100Chars: number[] = [];
 
   for (const event of events) {
     const at = new Date(event.timestamp);
@@ -106,6 +117,12 @@ export function summarizeUsage(events: ActivityEvent[], limits: LimitState, now:
       day.voiceSeconds += seconds;
       voiceSeconds += seconds;
       sttMs += num(meta.sttMs);
+    } else if (event.kind === "voice.tts") {
+      const chars = num(meta.chars);
+      const ms = num(meta.ms);
+      ttsChars += chars;
+      ttsMs += ms;
+      if (chars > 0) ttsSamplesPer100Chars.push((ms / chars) * 100);
     }
   }
 
@@ -116,7 +133,11 @@ export function summarizeUsage(events: ActivityEvent[], limits: LimitState, now:
     days: list,
     today,
     latency: { samples: durations.length, p50Ms: percentile(durations, 0.5), p95Ms: percentile(durations, 0.95), p50FirstTextMs: percentile(firstText, 0.5) },
-    voice: { transcriptions, seconds: voiceSeconds, sttMs, realTimeFactor: voiceSeconds > 0 && sttMs > 0 ? Math.round((sttMs / 1000 / voiceSeconds) * 100) / 100 : null },
+    voice: {
+      transcriptions, seconds: voiceSeconds, sttMs,
+      realTimeFactor: voiceSeconds > 0 && sttMs > 0 ? Math.round((sttMs / 1000 / voiceSeconds) * 100) / 100 : null,
+      ttsChars, ttsMs, ttsP50MsPer100Chars: percentile(ttsSamplesPer100Chars, 0.5),
+    },
     limits,
     tokenCoverage: runs > 0 ? Math.round((withTokens / runs) * 100) / 100 : 1,
   };

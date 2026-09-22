@@ -55,8 +55,8 @@ test("voice page and APIs use dashboard auth; disabled local engines fail closed
     assert.match(html, /getUserMedia/);
     assert.match(html, /audio\/wav/);
 
-    const status = await fetch(`${base}/api/voice/status`, { headers: auth }).then(response => response.json()) as { available: boolean; sttEnabled: boolean; ttsEnabled: boolean };
-    assert.deepEqual(status, { available: true, sttEnabled: false, ttsEnabled: false });
+    const status = await fetch(`${base}/api/voice/status`, { headers: auth }).then(response => response.json()) as { available: boolean; sttEnabled: boolean; ttsEnabled: boolean; counterMode: string };
+    assert.deepEqual(status, { available: true, sttEnabled: false, ttsEnabled: false, counterMode: "review" });
     const crossOrigin = await fetch(`${base}/api/voice/speak`, { method: "POST", headers: { ...auth, origin: "https://evil.example", "content-type": "application/json" }, body: JSON.stringify({ text: "hello" }) });
     assert.equal(crossOrigin.status, 403);
     const audioBody = Uint8Array.from(wav()) as unknown as BodyInit;

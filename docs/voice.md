@@ -88,6 +88,39 @@ and place model files deliberately, then set `KELLY_KOKORO_MODEL_PATH` and
 whether the authenticated Kokoro worker is reachable; it does not measure
 recognition or voice quality.
 
+## Speech latency: early spoken event, chunked synthesis, warm-up, timing
+
+A voice turn's reply is instructed to lead with a ```` ```spoken ```` fence (the very first
+thing in the reply, not the last) containing the one or two sentences meant for
+text-to-speech. `POST /api/chat/send`'s SSE loop watches the streamed reply for that fence:
+as soon as its closing ` ``` ` arrives, an `event: spoken` with `{text}` (normalised through
+`stripForSpeech`) fires once — before the rest of the reply has necessarily finished
+streaming — and the fenced characters never appear in a `token` event. If the reply turns
+out not to open with the fence, everything buffered flushes straight through as ordinary
+`token` text instead. `done`'s own `spoken` field (quote-aware, built from the full response)
+is unchanged, for a client that only waits for completion.
+
+`POST /api/voice/speak` accepts an optional `{ chunk: true }`. With it, the text is split
+into sentences (`.`, `?`, `!`, and the Hindi/Devanagari danda `।`) and each is synthesised
+and written in turn — so playback can start on the first sentence instead of waiting for the
+whole reply to be spoken. The response is `content-type: application/x-kelly-wav-seq`: a
+plain sequence of frames, no multipart parser needed — each frame is a 4-byte big-endian
+length prefix followed by that many bytes of one complete WAV file. Read the length, read
+that many bytes, repeat until the stream ends. Without `chunk`, the route is unchanged: one
+request, one WAV response.
+
+When Kokoro is configured, the dashboard synthesises "Ready." once in the background at
+startup and discards it — Kokoro's first real synthesis is measurably slower than the rest,
+and this absorbs that cost before a customer ever hears it. It records one
+`voice.tts.warm` activity event with `{ms}`; a cold or unreachable worker at startup is not
+an error (the first real request still tries its own synthesis).
+
+Every synthesis call — chunked (once per sentence) or not — records a `voice.tts` activity
+event with `{chars, ms, sentence: true|false}`. `GET /api/usage` folds these into
+`voice.ttsChars`, `voice.ttsMs`, and `voice.ttsP50MsPer100Chars` (the median of
+`ms / chars * 100` across samples); the switchboard's Usage pane shows this as a "speech: N
+chars, p50 ms per 100 chars" line next to the whisper real-time factor.
+
 ## References
 
 - [Kokoro-82M official voice catalogue](https://huggingface.co/hexgrad/Kokoro-82M/blob/main/VOICES.md)
