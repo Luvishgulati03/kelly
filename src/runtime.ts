@@ -51,6 +51,7 @@ import type { ReflexSnapshot } from "./reflex.ts";
 import { isServiceExcluded, getActiveProfile } from "./profile.ts";
 import { CommerceService } from "./commerce/service.ts";
 import { DesignService } from "./designs/rag.ts";
+import { voicePrompt } from "./designs/vocabulary.ts";
 import { TunnelManager, type TunnelConfig, type TunnelMode, type TunnelStatus } from "./remote/tunnel.ts";
 import { hasUserWithRole } from "./dashboard/auth.ts";
 
@@ -251,7 +252,7 @@ export class HenryRuntime {
    * everything, which is the correct behavior for a trade with no gallery.
    */
   get designs(): DesignService {
-    if (!this._designs) this._designs = new DesignService(this.config, this.trade.galleryCategories, this.trade.galleryTags);
+    if (!this._designs) this._designs = new DesignService(this.config, this.trade.galleryCategories, this.trade.galleryTags, this.trade.aliases);
     return this._designs;
   }
 
@@ -430,6 +431,7 @@ export class HenryRuntime {
         maxBytes: positive(env.KELLY_TELEGRAM_VOICE_MAX_BYTES),
         maxSeconds: positive(env.KELLY_TELEGRAM_VOICE_MAX_SECONDS),
         language: env.KELLY_TELEGRAM_VOICE_LANGUAGE?.trim() || undefined,
+        prompt: voicePrompt(this.config.shopName, this.trade.vocabulary),
       },
     });
   }

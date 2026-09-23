@@ -33,6 +33,21 @@ test("both trade packs carry non-empty prompt blocks and required fields", () =>
   }
 });
 
+test("both trade packs carry a non-empty voice vocabulary, and boutique declares aliases for every gallery category and tag", () => {
+  for (const id of ["electrical", "boutique"] as const) {
+    const pack = tradePack(id);
+    assert.ok(pack.vocabulary.length > 0, `${id} vocabulary must not be empty`);
+  }
+  const boutique = tradePack("boutique");
+  assert.ok(boutique.vocabulary.includes("lehenga"));
+  assert.ok(boutique.vocabulary.includes("saree"));
+  for (const category of boutique.galleryCategories) {
+    assert.ok(boutique.aliases[category]?.length, `expected aliases for category "${category}"`);
+  }
+  assert.ok(boutique.aliases.latest?.length);
+  assert.ok(boutique.aliases.trending?.length);
+});
+
 test("boutique promptBlock asks for garment, fabric and delivery, and grounds pricing in the rate card", () => {
   const block = tradePack("boutique").promptBlock;
   assert.match(block, /rate card/);

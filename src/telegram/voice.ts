@@ -62,7 +62,7 @@ export interface AudioConverter {
 /** The transcription contract, satisfied structurally by LocalVoiceService. */
 export interface VoiceTranscriber {
   sttEnabled(): boolean;
-  transcribe(wav: Uint8Array, options?: { language?: string }): Promise<{ text: string; language?: string }>;
+  transcribe(wav: Uint8Array, options?: { language?: string; prompt?: string }): Promise<{ text: string; language?: string }>;
 }
 
 export interface VoiceIntakeLimits {
@@ -72,6 +72,8 @@ export interface VoiceIntakeLimits {
   maxSeconds: number;
   /** Transcription language hint passed straight through to the adapter. */
   language: string;
+  /** Optional trade vocabulary hint passed straight through to the adapter's --prompt. */
+  prompt?: string;
 }
 
 export const VOICE_INTAKE_DEFAULTS: Readonly<VoiceIntakeLimits> = Object.freeze({
@@ -110,6 +112,7 @@ export class TelegramVoiceIntake {
       maxBytes: positive(supplied.maxBytes, VOICE_INTAKE_DEFAULTS.maxBytes),
       maxSeconds: positive(supplied.maxSeconds, VOICE_INTAKE_DEFAULTS.maxSeconds),
       language: supplied.language?.trim() || VOICE_INTAKE_DEFAULTS.language,
+      ...(supplied.prompt?.trim() ? { prompt: supplied.prompt.trim() } : {}),
     };
   }
 
@@ -187,7 +190,7 @@ export class TelegramVoiceIntake {
     }
 
     try {
-      const result = await this.deps.transcriber.transcribe(wav, { language: this.limits.language });
+      const result = await this.deps.transcriber.transcribe(wav, { language: this.limits.language, ...(this.limits.prompt ? { prompt: this.limits.prompt } : {}) });
       const text = result.text.trim();
       if (!text) throw new VoiceIntakeError("I could not hear any words in that note.", "transcription_failed");
       return {

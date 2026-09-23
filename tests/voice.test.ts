@@ -105,6 +105,36 @@ test("STT passes a temporary WAV and preserves Hindi/Hinglish script and quantit
   await fs.rm(tempRoot, { recursive: true, force: true });
 });
 
+test("STT passes a vocabulary --prompt when supplied, capped at 400 chars with newlines and quotes stripped, and omits it otherwise", async () => {
+  const tempRoot = await temp();
+  let argsSeen: string[] = [];
+  const runner: VoiceCommandRunner = async (_exe, args) => {
+    argsSeen = args;
+    const prefix = args[args.indexOf("-of") + 1]!;
+    await fs.writeFile(`${prefix}.txt`, "lehenga");
+    return { stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), exitCode: 0 };
+  };
+  const service = new LocalVoiceService({ tempRoot, stt: { whisperCppPath: "/local/whisper", whisperModelPath: "/models/ggml-small.bin" } }, runner);
+
+  await service.transcribe(wav(), { prompt: "She Fashion House: lehenga, saree, kurti" });
+  assert.ok(argsSeen.includes("--prompt"));
+  assert.equal(argsSeen[argsSeen.indexOf("--prompt") + 1], "She Fashion House: lehenga, saree, kurti");
+
+  await service.transcribe(wav(), { prompt: `line one\nline two "quoted" and 'quoted'` });
+  assert.equal(argsSeen[argsSeen.indexOf("--prompt") + 1], "line one line two quoted and quoted");
+
+  await service.transcribe(wav(), { prompt: "x".repeat(500) });
+  assert.equal(argsSeen[argsSeen.indexOf("--prompt") + 1].length, 400);
+
+  await service.transcribe(wav());
+  assert.equal(argsSeen.includes("--prompt"), false, "no prompt option means no --prompt flag");
+
+  await service.transcribe(wav(), { prompt: "   " });
+  assert.equal(argsSeen.includes("--prompt"), false, "a blank prompt is treated as no prompt");
+
+  await fs.rm(tempRoot, { recursive: true, force: true });
+});
+
 test("STT reports provider and transcript output failures and cleans temporary files", async () => {
   const tempRoot = await temp();
   const failing: VoiceCommandRunner = async () => ({ stdout: Buffer.alloc(0), stderr: Buffer.from("model load failed"), exitCode: 2 });

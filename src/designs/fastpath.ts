@@ -1,6 +1,7 @@
 import type { TradePack } from "../trade/index.ts";
 import type { DesignRecord } from "./store.ts";
 import type { DesignService } from "./rag.ts";
+import { tokenize, resolveTerm } from "./vocabulary.ts";
 
 /**
  * Provider-free reflex lane for the design gallery, same precedent as src/reflex.ts:
@@ -13,6 +14,8 @@ export interface GalleryFastPathResult {
   text: string;
   spoken: string;
   designs: DesignRecord[];
+  /** True when nothing was recognised and Kelly is asking which category the customer meant, instead of showing an unfiltered set. */
+  clarify?: boolean;
 }
 
 const BROWSE_VERBS = /\b(show|see|dikhao|dikha|view|display|latest|trending|designs|collection|options)\b/i;
@@ -28,15 +31,18 @@ const QUANTITY_UNIT = /\d+\s*(mm|cm|m|meters?|metres?|yards?|yds?|inch(?:es)?|ft
 
 const MAX_LEN = 120;
 
-function words(text: string): string[] {
-  return text.toLowerCase().match(/[a-z][a-z-]*/g) ?? [];
+function pluralize(name: string): string {
+  return name.endsWith("s") ? name : `${name}s`;
 }
 
-function matchesCategory(word: string, categoryNames: string[]): string | undefined {
-  const singular = word.endsWith("s") ? word.slice(0, -1) : word;
-  if (categoryNames.includes(word)) return word;
-  if (categoryNames.includes(singular)) return singular;
-  return undefined;
+/** "a, b, c or d" — the exact join style used in the clarification sentence below. */
+function listSentence(items: string[]): string {
+  if (items.length <= 1) return items.join("");
+  return `${items.slice(0, -1).join(", ")} or ${items[items.length - 1]}`;
+}
+
+function clarificationText(pack: TradePack): string {
+  return `Which designs would you like to see: ${listSentence(pack.galleryCategories.map(pluralize))}?`;
 }
 
 /**
@@ -54,23 +60,30 @@ export async function galleryFastPath(prompt: string, pack: TradePack, service: 
   if (DISQUALIFIERS.some((word) => lower.includes(word))) return undefined;
   if (QUANTITY_UNIT.test(lower)) return undefined;
 
-  const categoryNames = service.store.categoryNames;
-  const tagNames = service.store.tagNames;
-  const tokens = words(lower);
+  const tokens = tokenize(prompt);
+  const vocab = { galleryCategories: pack.galleryCategories, galleryTags: pack.galleryTags, aliases: pack.aliases };
 
   let category: string | undefined;
   let namesTag = false;
+  let trending = false;
+  let latest = false;
   for (const token of tokens) {
-    if (!category) {
-      const hit = matchesCategory(token, categoryNames);
-      if (hit) category = hit;
-    }
-    if (!namesTag && tagNames.includes(token)) namesTag = true;
+    const resolved = resolveTerm(token, vocab);
+    if (!resolved) continue;
+    if (resolved.kind === "category") { category ??= resolved.value; continue; }
+    if (resolved.kind === "tag") { namesTag = true; continue; }
+    if (resolved.kind === "latest") { latest = true; continue; }
+    trending = true;
   }
-  const trending = tokens.includes("trending");
-  const latest = tokens.includes("latest");
-  const namesDesigns = tokens.includes("designs");
-  if (!category && !namesTag && !trending && !latest && !namesDesigns) return undefined;
+  // "designs"/"collection"/"options" alone (no recognised category, tag, or latest/trending
+  // intent) is an ambiguous browse ask, not a request for an unfiltered, mixed-category set —
+  // this is the exact shape of the "Lengar designs" incident this fast path used to mishandle.
+  const namesDesignsAsk = tokens.includes("designs") || tokens.includes("collection") || tokens.includes("options");
+  if (!category && !namesTag && !trending && !latest) {
+    if (!namesDesignsAsk) return undefined;
+    const text = clarificationText(pack);
+    return { text, spoken: text, designs: [], clarify: true };
+  }
 
   const empty = (): GalleryFastPathResult => ({ text: "No designs in the gallery for that yet.", spoken: "No designs in the gallery for that yet.", designs: [] });
 
@@ -78,9 +91,12 @@ export async function galleryFastPath(prompt: string, pack: TradePack, service: 
   if (results.length) {
     service.store.markShown(results.map((design) => design.id));
     const adjective = trending ? "trending " : latest ? "latest " : "";
-    const categoryWord = category ? `${category} ` : "";
     const noun = `design${results.length === 1 ? "" : "s"}`;
-    const text = `Showing ${results.length} ${adjective}${categoryWord}${noun}.`;
+    const text = category
+      ? `Showing ${results.length} ${adjective}${category} ${noun}.`
+      : (trending || latest)
+        ? `Showing the ${results.length} ${adjective}${noun} across categories.`
+        : `Showing ${results.length} ${adjective}${noun}.`;
     return { text, spoken: text, designs: results };
   }
 

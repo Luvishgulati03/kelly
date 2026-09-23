@@ -2,6 +2,7 @@ import path from "node:path";
 import type { HenryConfig } from "../config.ts";
 import { KnowledgeBase } from "../knowledge/store.ts";
 import { DesignStore, type DesignFilter, type DesignRecord } from "./store.ts";
+import { tokenize, resolveTerm, type VocabularyPack } from "./vocabulary.ts";
 
 /**
  * Semantic fallback for the design gallery, mirroring commerce/rag.ts: caption, category,
@@ -46,9 +47,17 @@ export interface DesignRagPort {
 export class DesignService {
   readonly store: DesignStore;
   private rag?: DesignRagPort;
+  private readonly vocab: VocabularyPack;
 
-  constructor(private readonly config: HenryConfig, categories: string[], tags: string[], rag?: DesignRagPort) {
+  constructor(
+    private readonly config: HenryConfig,
+    categories: string[],
+    tags: string[],
+    aliases: Record<string, string[]> = {},
+    rag?: DesignRagPort,
+  ) {
     this.store = new DesignStore(config.dataDir, categories, tags);
+    this.vocab = { galleryCategories: categories, galleryTags: tags, aliases };
     this.rag = rag;
   }
 
@@ -93,14 +102,16 @@ export class DesignService {
     let trending = Boolean(filter.trending);
     const words: string[] = [];
     const stop = new Set(["show", "me", "some", "any", "the", "of", "for", "in", "please", "designs", "design", "photos", "pictures", "images", "want", "see", "with", "and"]);
-    const { categoryNames, tagNames } = this.store;
-    for (const raw of (query.toLowerCase().match(/[a-z][a-z-]*/g) ?? [])) {
-      const singular = raw.endsWith("s") ? raw.slice(0, -1) : raw;
-      if (categoryNames.includes(raw) || categoryNames.includes(singular)) { category ??= categoryNames.includes(raw) ? raw : singular; continue; }
-      if (raw === "trending" || raw === "popular") { trending = true; continue; }
-      if (raw === "latest" || raw === "newest" || raw === "recent" || raw === "new") { latest = true; continue; }
-      if (tagNames.includes(raw)) { tags.add(raw); continue; }
-      if (!stop.has(raw) && raw.length > 2) words.push(raw);
+    for (const token of tokenize(query)) {
+      const resolved = resolveTerm(token, this.vocab);
+      if (resolved) {
+        if (resolved.kind === "category") { category ??= resolved.value; continue; }
+        if (resolved.kind === "tag") { tags.add(resolved.value); continue; }
+        if (resolved.kind === "latest") { latest = true; continue; }
+        trending = true;
+        continue;
+      }
+      if (!stop.has(token) && token.length > 2 && /^[a-z-]+$/.test(token)) words.push(token);
     }
     return { category, tags: [...tags], latest, trending, words };
   }

@@ -15,6 +15,11 @@ export const electricalTradePack: TradePack = {
   quoteIntake: ["item", "rating", "quantity", "brand"],
   galleryCategories: [],
   galleryTags: [],
+  vocabulary: [
+    "MCB", "RCCB", "Havells", "Polycab", "Finolex", "Anchor", "sqmm", "ampere",
+    "socket", "switch", "wire", "cable", "bulb", "fan", "meter",
+  ],
+  aliases: {},
   setupQuestions: [
     "What products or categories does the shop sell (e.g. wiring, switches, fans, lighting)?",
     "Which brands does the shop carry, and is there a preferred or default brand?",

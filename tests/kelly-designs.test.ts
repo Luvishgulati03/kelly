@@ -15,6 +15,7 @@ import { parseDesignsBlock } from "../src/designs/block.ts";
 import { sendTelegramPhotoAlbum } from "../src/telegram/media.ts";
 import { encodeSolidPng } from "../src/designs/png.ts";
 import { galleryFastPath } from "../src/designs/fastpath.ts";
+import { tokenize, resolveTerm, recognisedGarmentWord, voicePrompt } from "../src/designs/vocabulary.ts";
 import { boutiqueTradePack, electricalTradePack } from "../src/trade/index.ts";
 
 const CATEGORIES = ["suit", "saree", "lehenga", "blouse", "kurti", "gown", "dupatta"];
@@ -449,6 +450,156 @@ test("POST /api/chat/send streams token, designs and done with provider fastpath
     assert.equal(providerCalls, 0, "the configured provider is never invoked for a gallery fast-path turn");
     assert.equal(runtime.designs.store.get(design.id)!.shownCount, 1);
   });
+});
+
+test("POST /api/chat/send streams a clarification (designs: [], provider fastpath) for an unrecognised garment word, never calling the model", async () => {
+  await withBoutiqueDashboard(async (base, runtime) => {
+    runtime.designs.store.add({ bytes: png(4, 4, 4), category: "saree" });
+    runtime.designs.store.add({ bytes: png(5, 5, 5), category: "gown" });
+    let providerCalls = 0;
+    (runtime.agent as unknown as { run: unknown }).run = async () => {
+      providerCalls += 1;
+      return { runId: "should-not-run", provider: "codex", exitCode: 0, durationMs: 1, events: [], response: "should not be called" };
+    };
+    const response = await fetch(`${base}/api/chat/send`, {
+      method: "POST", headers: { authorization: "Bearer designs-test-owner-token", "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "show me gumboot designs" }),
+    });
+    assert.equal(response.status, 200);
+    const stream = await response.text();
+    const designsBlock = stream.split("\n\n").find((block) => block.includes("event: designs"));
+    assert.ok(designsBlock, "the fast-path lane still streams a designs event, carrying no gallery");
+    const designsPayload = JSON.parse(designsBlock!.match(/^data: (.+)$/m)![1]) as { designs: unknown[] };
+    assert.deepEqual(designsPayload.designs, [], "a clarification never resolves to an actual gallery");
+    const doneLine = stream.split("\n\n").find((block) => block.includes("event: done"));
+    assert.ok(doneLine);
+    const donePayload = JSON.parse(doneLine!.match(/^data: (.+)$/m)![1]) as { provider: string; response: string };
+    assert.equal(donePayload.provider, "fastpath");
+    assert.match(donePayload.response, /Which designs would you like to see/);
+    assert.equal(providerCalls, 0, "a clarification is answered locally, never by the model");
+  });
+});
+
+/* ------------------------------------------------------------------ vocabulary ------------------------------------------------------------------ */
+
+test("tokenize reads Latin and Devanagari words out of a mixed-script prompt", () => {
+  assert.deepEqual(tokenize("show me lehinga designs"), ["show", "me", "lehinga", "designs"]);
+  const tokens = tokenize("लहंगा dikhao");
+  assert.ok(tokens.includes("dikhao"));
+  assert.ok(tokens.includes("लहंगा"));
+});
+
+test("resolveTerm resolves exact names, plurals, aliases (Latin and Devanagari), and latest/trending", () => {
+  assert.deepEqual(resolveTerm("lehenga", boutiqueTradePack), { kind: "category", value: "lehenga" });
+  assert.deepEqual(resolveTerm("lehengas", boutiqueTradePack), { kind: "category", value: "lehenga" });
+  assert.deepEqual(resolveTerm("lehinga", boutiqueTradePack), { kind: "category", value: "lehenga" });
+  assert.deepEqual(resolveTerm("langa", boutiqueTradePack), { kind: "category", value: "lehenga" });
+  assert.deepEqual(resolveTerm("लहंगा", boutiqueTradePack), { kind: "category", value: "lehenga" });
+  assert.deepEqual(resolveTerm("sadi", boutiqueTradePack), { kind: "category", value: "saree" });
+  assert.deepEqual(resolveTerm("साड़ी", boutiqueTradePack), { kind: "category", value: "saree" });
+  assert.deepEqual(resolveTerm("shaadi", boutiqueTradePack), { kind: "tag", value: "bridal" });
+  assert.deepEqual(resolveTerm("naya", boutiqueTradePack), { kind: "latest", value: "latest" });
+  assert.deepEqual(resolveTerm("popular", boutiqueTradePack), { kind: "trending", value: "trending" });
+  assert.deepEqual(resolveTerm("trending", boutiqueTradePack), { kind: "trending", value: "trending" });
+});
+
+test("resolveTerm fuzzy-matches close misspellings within the distance rule, and never fuzzes 3-letter words", () => {
+  // "lehnga" is a literal alias too; this exercises the same result reachable only via the
+  // distance rule against a category name directly ("kruti" is 1 edit from "kurti").
+  assert.deepEqual(resolveTerm("kruti", boutiqueTradePack), { kind: "category", value: "kurti" });
+  // "lengar" (the incident's actual mis-transcription) sits distance 2 from the "langa"/
+  // "lengha" aliases (a 6-letter token allows distance <= 2), so it correctly resolves too —
+  // this is what fixes the incident outright rather than merely asking a clarifying question.
+  assert.deepEqual(resolveTerm("lengar", boutiqueTradePack), { kind: "category", value: "lehenga" });
+  assert.equal(resolveTerm("gumboot", boutiqueTradePack), undefined, "unrelated word, outside the fuzzy rule for any category, tag or alias");
+  assert.equal(resolveTerm("kit", boutiqueTradePack), undefined, "3-letter tokens never fuzz, even if close to a category name");
+});
+
+test("recognisedGarmentWord mirrors resolveTerm", () => {
+  assert.equal(recognisedGarmentWord("lehinga", boutiqueTradePack), true);
+  assert.equal(recognisedGarmentWord("xylophone", boutiqueTradePack), false);
+});
+
+test("voicePrompt builds a shop-prefixed vocabulary hint, or undefined for an empty vocabulary", () => {
+  assert.equal(voicePrompt("She Fashion House", boutiqueTradePack.vocabulary), `She Fashion House: ${boutiqueTradePack.vocabulary.join(", ")}`);
+  assert.equal(voicePrompt("Kelly's counter", []), undefined);
+});
+
+/* ------------------------------------------------------------------ parseQuery via find() ------------------------------------------------------------------ */
+
+test('find("lehinga designs"), find("लहंगा dikhao") and find("show me ghagra") all resolve to lehenga', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS, boutiqueTradePack.aliases);
+  try {
+    service.store.add({ bytes: png(1, 1, 1), category: "lehenga", caption: "Bridal lehenga" });
+    service.store.add({ bytes: png(2, 2, 2), category: "lehenga", caption: "Party lehenga" });
+    service.store.add({ bytes: png(3, 3, 3), category: "saree", caption: "Cotton saree" });
+
+    for (const query of ["lehinga designs", "लहंगा dikhao", "show me ghagra"]) {
+      const results = await service.find(query);
+      assert.ok(results.length > 0, `expected results for "${query}"`);
+      assert.ok(results.every((d) => d.category === "lehenga"), `expected only lehengas for "${query}"`);
+    }
+  } finally { service.close(); }
+});
+
+/* ------------------------------------------------------------------ fast path clarification ------------------------------------------------------------------ */
+
+test('galleryFastPath("show me gumboot designs") asks which category, never shows a mixed set', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS, boutiqueTradePack.aliases);
+  try {
+    service.store.add({ bytes: png(1, 1, 1), category: "saree" });
+    service.store.add({ bytes: png(2, 2, 2), category: "gown" });
+    const result = await galleryFastPath("show me gumboot designs", boutiqueTradePack, service);
+    assert.ok(result);
+    assert.equal(result!.clarify, true);
+    assert.deepEqual(result!.designs, []);
+    assert.match(result!.text, /Which designs would you like to see/);
+    assert.match(result!.text, /suits, sarees, lehengas, blouses, kurtis, gowns or dupattas/);
+    assert.equal(result!.text, result!.spoken);
+  } finally { service.close(); }
+});
+
+test('galleryFastPath("Kelly now show me the latest Lengar designs you have") resolves "Lengar" to lehenga via the fuzzy alias rule and never clarifies', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS, boutiqueTradePack.aliases);
+  try {
+    const { design: lehenga } = service.store.add({ bytes: png(1, 1, 1), category: "lehenga", caption: "Mirror-work lehenga" });
+    service.store.add({ bytes: png(2, 2, 2), category: "gown", caption: "Evening gown" });
+    const result = await galleryFastPath("Kelly now show me the latest Lengar designs you have", boutiqueTradePack, service);
+    assert.ok(result);
+    assert.equal(result!.clarify, undefined);
+    assert.ok(result!.designs.some((d) => d.id === lehenga.id));
+    assert.ok(result!.designs.every((d) => d.category === "lehenga"), "only lehengas, never the incident's mixed dupatta/gown/kurti/blouse set");
+  } finally { service.close(); }
+});
+
+test('galleryFastPath("show me designs") and galleryFastPath("designs dikhao") both clarify with no category recognised', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS, boutiqueTradePack.aliases);
+  try {
+    for (const prompt of ["show me designs", "designs dikhao"]) {
+      const result = await galleryFastPath(prompt, boutiqueTradePack, service);
+      assert.ok(result, `expected a fast-path result for "${prompt}"`);
+      assert.equal(result!.clarify, true, `expected clarification for "${prompt}"`);
+      assert.deepEqual(result!.designs, []);
+    }
+  } finally { service.close(); }
+});
+
+test('galleryFastPath("show me trending sarees") and galleryFastPath("latest designs") still answer directly, never clarify', async () => {
+  const service = new DesignService({ dataDir: tempDir() } as never, CATEGORIES, TAGS, boutiqueTradePack.aliases);
+  try {
+    service.store.add({ bytes: png(1, 1, 1), category: "saree", tags: ["trending"], caption: "Banarasi silk saree" });
+    service.store.add({ bytes: png(2, 2, 2), category: "gown", caption: "Evening gown" });
+
+    const trendingSarees = await galleryFastPath("show me trending sarees", boutiqueTradePack, service);
+    assert.ok(trendingSarees);
+    assert.equal(trendingSarees!.clarify, undefined);
+    assert.ok(trendingSarees!.designs.every((d) => d.category === "saree"));
+
+    const latestDesigns = await galleryFastPath("latest designs", boutiqueTradePack, service);
+    assert.ok(latestDesigns);
+    assert.equal(latestDesigns!.clarify, undefined);
+    assert.match(latestDesigns!.text, /across categories/);
+  } finally { service.close(); }
 });
 
 /* ------------------------------------------------------------------ Telegram album ------------------------------------------------------------------ */

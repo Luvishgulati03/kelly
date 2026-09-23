@@ -24,6 +24,10 @@ export interface TradePack {
   galleryCategories: string[];
   galleryTags: string[];
   setupQuestions: string[];
+  /** Words whisper.cpp's STT is primed with (see voicePrompt in src/designs/vocabulary.ts). */
+  vocabulary: string[];
+  /** Spoken/misspelled/Devanagari variants for each gallery category and tag, plus "latest"/"trending". */
+  aliases: Record<string, string[]>;
 }
 
 const PACKS: Record<TradeId, TradePack> = {

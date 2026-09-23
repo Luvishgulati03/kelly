@@ -211,6 +211,72 @@ encoder (`src/designs/png.ts`, built on Node's own `zlib.deflateSync` — no
 image dependency). Seeding is idempotent: it only runs when
 `DesignStore.stats().total === 0`.
 
+## 10a. Misheard words (`src/designs/vocabulary.ts`)
+
+whisper.cpp mis-hears garment words with no prompt context: a real boutique
+demo had the owner say "lehenga" and got back "Lengar", then "lehinga". The
+old fast path fired on the bare word "designs" with no recognised category,
+`DesignService.find` narrowed nothing, and the unfiltered store (every
+category) came back — 8 random designs shown twice. Three pieces close
+that gap:
+
+- **Vocabulary prompt.** `TradePack.vocabulary: string[]` (boutique:
+  garment names, work types, fabrics; electrical: brands, units) is turned
+  into `"<shop name>: word, word, ..."` by `voicePrompt(shopName,
+  vocabulary)` and passed as `TranscriptionOptions.prompt` to
+  `LocalVoiceService.transcribe`, which forwards it to whisper-cli as
+  `--prompt <text>` (capped at 400 chars, newlines and quotes stripped, and
+  omitted entirely when there is no vocabulary or the prompt is blank).
+  Both voice surfaces set it: the dashboard's `/api/voice/transcribe`
+  route (`src/dashboard/server.ts`) and the Telegram voice intake
+  (`src/runtime.ts`'s `buildTelegramVoiceIntake`, threaded through
+  `VoiceIntakeLimits.prompt` in `src/telegram/voice.ts`). This primes
+  whisper toward the shop's own words but never guarantees a correct
+  transcript — the next two pieces are what actually recover from a miss.
+
+- **Aliases and fuzzy matching.** `TradePack.aliases: Record<string,
+  string[]>` maps every gallery category, every gallery tag, and the two
+  query intents `latest`/`trending` to known spoken/misspelled/Devanagari
+  variants (e.g. `lehenga: [lehnga, lehinga, lengha, langa, ..., लहंगा,
+  ...]`). `resolveTerm(token, pack)` in `src/designs/vocabulary.ts` checks,
+  in order: the literal `latest`/`trending` words (always intent, even
+  though the pack also uses them as literal tag names), exact category/tag
+  names (singular or plural), the alias table (any script), and finally —
+  only for Latin tokens of 4+ letters, and against category/tag names and
+  the pack's own Latin aliases — a restricted Damerau-Levenshtein fuzzy
+  match: distance ≤ 1 for 4-5 letter tokens, ≤ 2 for 6+ letter tokens.
+  3-letter (or shorter) tokens are never fuzzed. `tokenize(text)` reads
+  both Latin and Devanagari words out of one prompt, so "लहंगा dikhao"
+  resolves the same as "show me lehenga". This is strong enough to recover
+  the incident outright: "lehinga" matches the literal alias, and "Lengar"
+  (whisper's actual mis-transcription) is distance 2 from the "langa"/
+  "lengha" aliases, within the 6-letter budget — both now resolve straight
+  to the `lehenga` category instead of falling through to an unfiltered
+  set. `DesignService.parseQuery` (`src/designs/rag.ts`) and
+  `galleryFastPath` (`src/designs/fastpath.ts`) both parse a query through
+  `tokenize`/`resolveTerm` now, replacing their earlier ad hoc exact-word
+  matching.
+
+- **Clarify instead of guessing wrong.** `galleryFastPath` only proceeds
+  when it recognises a category, a tag, or a `latest`/`trending` intent.
+  When the prompt is an explicit browse ask (a browse verb plus
+  `designs`/`collection`/`options`) but nothing else was recognised — the
+  literal shape of "show me designs" or an unrecognised noun immediately
+  before "designs" that the fuzzy rule still can't place, e.g. "show me
+  gumboot designs" — it returns a clarification instead of the model or an
+  unfiltered gallery: `{text, spoken: "Which designs would you like to
+  see: suits, sarees, lehengas, blouses, kurtis, gowns or dupattas?",
+  designs: [], clarify: true}`, built from the pack's own category list.
+  The dashboard SSE loop (`src/dashboard/server.ts`) streams it exactly
+  like any other fast-path answer (`token`, `designs` with an empty array,
+  `done` with `provider: "fastpath"`) — no gallery, no model call.
+  `latest`/`trending` alone (no category) is never treated as ambiguous —
+  "latest designs" answers directly and may legitimately mix categories,
+  saying so in the sentence ("Showing the 8 latest designs across
+  categories."). The model path carries the same instruction: the DESIGN
+  GALLERY prompt block in `src/agent/henry.ts` tells Kelly to ask which
+  category rather than show a mixed set when a word isn't understood.
+
 ## 11. Limits
 
 - 8 MB per image, PNG/JPEG/WebP/GIF only (magic-byte sniffed).

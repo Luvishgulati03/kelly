@@ -408,9 +408,10 @@ function fakeIntake(options: {
   convert?: (input: Buffer) => Promise<Buffer>;
   transcribe?: (wav: Uint8Array) => Promise<{ text: string }>;
   sttEnabled?: boolean;
-  limits?: { maxBytes?: number; maxSeconds?: number };
-} = {}): { intake: TelegramVoiceIntake; calls: { getFile: number; download: number; convert: number; transcribe: number } } {
+  limits?: { maxBytes?: number; maxSeconds?: number; prompt?: string };
+} = {}): { intake: TelegramVoiceIntake; calls: { getFile: number; download: number; convert: number; transcribe: number }; transcribeOptions: Array<{ language?: string; prompt?: string }> } {
   const calls = { getFile: 0, download: 0, convert: 0, transcribe: 0 };
+  const transcribeOptions: Array<{ language?: string; prompt?: string }> = [];
   const fetcher: TelegramFileFetcher = {
     async getFile() { calls.getFile += 1; return options.file ?? { filePath: "voice/file_1.oga", fileSize: 8_000 }; },
     async download(file, maxBytes) {
@@ -428,13 +429,14 @@ function fakeIntake(options: {
   };
   const transcriber: VoiceTranscriber = {
     sttEnabled: () => options.sttEnabled !== false,
-    async transcribe(wav) {
+    async transcribe(wav, transcribeOpts) {
       calls.transcribe += 1;
+      transcribeOptions.push(transcribeOpts ?? {});
       if (options.transcribe) return await options.transcribe(wav);
       return { text: "  ek 20W batten ka rate  ", language: "hi" };
     },
   };
-  return { intake: new TelegramVoiceIntake({ fetcher, converter, transcriber, limits: options.limits }), calls };
+  return { intake: new TelegramVoiceIntake({ fetcher, converter, transcriber, limits: options.limits }), calls, transcribeOptions };
 }
 
 test("intake screens size, duration and format BEFORE any Telegram call", async () => {
@@ -506,6 +508,16 @@ test("intake returns the trimmed transcript with the bytes it actually read", as
   assert.equal(result.bytes, 1_234);
   assert.equal(result.durationSeconds, 6);
   assert.deepEqual(calls, { getFile: 1, download: 1, convert: 1, transcribe: 1 });
+});
+
+test("intake passes a configured vocabulary prompt through to the transcriber, and omits it when none is set", async () => {
+  const withPrompt = fakeIntake({ limits: { prompt: "She Fashion House: lehenga, saree, kurti" } });
+  await withPrompt.intake.transcribe({ file_id: "a" });
+  assert.equal(withPrompt.transcribeOptions[0].prompt, "She Fashion House: lehenga, saree, kurti");
+
+  const withoutPrompt = fakeIntake();
+  await withoutPrompt.intake.transcribe({ file_id: "a" });
+  assert.equal(withoutPrompt.transcribeOptions[0].prompt, undefined);
 });
 
 /* ------------------------------------------------------------------ *

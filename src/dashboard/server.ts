@@ -39,6 +39,7 @@ import { reflexKind, renderReflex } from "../reflex.ts";
 import { parseDesignsBlock } from "../designs/block.ts";
 import { MAX_DESIGN_BYTES } from "../designs/store.ts";
 import { galleryFastPath } from "../designs/fastpath.ts";
+import { voicePrompt } from "../designs/vocabulary.ts";
 
 const EVENTS_POLL_MS = 2000;
 
@@ -1135,7 +1136,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           const durationSeconds = wavDurationSeconds(audio);
           let result: { text: string; language?: string };
           try {
-            result = await voice.transcribe(audio, { language });
+            result = await voice.transcribe(audio, { language, prompt: voicePrompt(runtime.config.shopName, runtime.trade.vocabulary) });
           } catch (error) {
             // A disabled adapter is configuration, not a failed interaction: nothing to keep.
             if (!(error instanceof VoiceError && error.code === "disabled")) {

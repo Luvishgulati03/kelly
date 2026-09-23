@@ -88,7 +88,11 @@ export type VoiceCommandRunner = (
   options: VoiceRunOptions,
 ) => Promise<VoiceCommandResult>;
 
-export interface TranscriptionOptions { language?: VoiceLanguage }
+export interface TranscriptionOptions {
+  language?: VoiceLanguage;
+  /** Vocabulary hint passed to whisper.cpp's --prompt; capped at 400 chars, newlines/quotes stripped. */
+  prompt?: string;
+}
 export interface TranscriptionResult { text: string; language?: VoiceLanguage }
 export interface SynthesisOptions { language?: VoiceLanguage }
 
@@ -260,6 +264,8 @@ export class LocalVoiceService {
       await writeFile(inputPath, audio, { mode: 0o600, flag: "wx" });
       const args = ["-m", cfg.whisperModelPath, "-f", inputPath, "--output-txt", "-of", outputPrefix];
       args.push("-l", options.language && options.language !== "hi-en" && options.language !== "auto" ? options.language : "auto");
+      const prompt = options.prompt?.replace(/[\r\n]+/g, " ").replace(/["']/g, "").trim().slice(0, 400);
+      if (prompt) args.push("--prompt", prompt);
       const result = await this.runner(cfg.whisperCppPath, args, {
         timeoutMs: positiveInt(cfg.timeoutMs, VOICE_LIMITS.timeoutMs),
         maxStdoutBytes: VOICE_LIMITS.stderrBytes,
