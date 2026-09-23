@@ -40,6 +40,9 @@ export interface UsageSummary {
      *  speak 100 characters" — or null when there are no samples. */
     ttsP50MsPer100Chars: number | null;
   };
+  /** Kelly Talk (hands-free counter loop) sessions in the window, from `talk.session.ended`
+   *  activity events. */
+  talk: { sessions: number; turns: number };
   /** Live cooldowns per provider ({} when none), straight from the ledger. */
   limits: LimitState;
   /** Fraction of runs that carried token counts; below 1 means some CLIs printed none. */
@@ -86,6 +89,8 @@ export function summarizeUsage(events: ActivityEvent[], limits: LimitState, now:
   let ttsMs = 0;
   let ttsChars = 0;
   const ttsSamplesPer100Chars: number[] = [];
+  let talkSessions = 0;
+  let talkTurns = 0;
 
   for (const event of events) {
     const at = new Date(event.timestamp);
@@ -123,6 +128,9 @@ export function summarizeUsage(events: ActivityEvent[], limits: LimitState, now:
       ttsChars += chars;
       ttsMs += ms;
       if (chars > 0) ttsSamplesPer100Chars.push((ms / chars) * 100);
+    } else if (event.kind === "talk.session.ended") {
+      talkSessions += 1;
+      talkTurns += num(meta.turns);
     }
   }
 
@@ -138,6 +146,7 @@ export function summarizeUsage(events: ActivityEvent[], limits: LimitState, now:
       realTimeFactor: voiceSeconds > 0 && sttMs > 0 ? Math.round((sttMs / 1000 / voiceSeconds) * 100) / 100 : null,
       ttsChars, ttsMs, ttsP50MsPer100Chars: percentile(ttsSamplesPer100Chars, 0.5),
     },
+    talk: { sessions: talkSessions, turns: talkTurns },
     limits,
     tokenCoverage: runs > 0 ? Math.round((withTokens / runs) * 100) / 100 : 1,
   };

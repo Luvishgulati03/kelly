@@ -34,15 +34,17 @@ import { readSettings, updateSettings } from "../util/settings.ts";
  * `counterMode` picks which of the two counter-tablet experiences `voice.html` /
  * `counter.html` present: "review" (default) is today's flow — a transcript is shown and
  * the owner/operator types "send" to confirm before it reaches Kelly. "conversation" skips
- * that review step: transcripts go straight to Kelly and replies are spoken back. It is a
- * durable setting (`voice.counterMode` in `data/settings.json`), with `KELLY_COUNTER_MODE`
- * as a process-level override — set, valid, and it wins over whatever is persisted; set and
- * invalid, it is ignored and the persisted/default value applies instead.
+ * that review step: transcripts go straight to Kelly and replies are spoken back. "talk" is
+ * the hands-free counter loop (Kelly Talk): the page greets, listens, replies, and listens
+ * again with no tap between turns. It is a durable setting (`voice.counterMode` in
+ * `data/settings.json`), with `KELLY_COUNTER_MODE` as a process-level override — set, valid,
+ * and it wins over whatever is persisted; set and invalid, it is ignored and the
+ * persisted/default value applies instead.
  */
-export type CounterMode = "review" | "conversation";
+export type CounterMode = "review" | "conversation" | "talk";
 
 export function isCounterMode(value: unknown): value is CounterMode {
-  return value === "review" || value === "conversation";
+  return value === "review" || value === "conversation" || value === "talk";
 }
 
 export interface VoiceSettings {

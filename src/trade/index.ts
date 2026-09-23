@@ -19,6 +19,11 @@ export interface TradePack {
   brandRequired: boolean;
   accent: { copper: string; copper2: string; dim: string };
   promptBlock: string;
+  /** Kelly Talk (hands-free counter loop) greeting, spoken once a session opens.
+   *  `<shop>` is replaced by `shopName` at runtime. */
+  greeting: string;
+  /** Kelly Talk "still there?" re-prompt, spoken after a period of silence. */
+  reprompt: string;
   /** Fields Kelly must know before pricing. */
   quoteIntake: string[];
   galleryCategories: string[];

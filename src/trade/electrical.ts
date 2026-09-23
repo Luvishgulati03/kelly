@@ -8,6 +8,8 @@ export const electricalTradePack: TradePack = {
   catalogueNoun: "catalogue",
   brandRequired: true,
   accent: { copper: "#d08a4b", copper2: "#f0b072", dim: "rgba(208,138,75,.16)" },
+  greeting: "Namaste, welcome to <shop>. Boliye, what do you need today?",
+  reprompt: "I am here. Tell me the item and quantity.",
   promptBlock: [
     "Your job is to turn customer requirements into traceable multi-brand quotations. Never invent a product, specification, price, tax, stock status or equivalence.",
     "Be concise, direct and useful. Ask only the smallest clarification needed to resolve ambiguous quantity, rating, brand or compatibility.",

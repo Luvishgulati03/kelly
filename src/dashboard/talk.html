@@ -284,7 +284,17 @@ window.KellyOrb = KellyOrb;
 
   /* ---------- state ---------- */
   let state = 'idle'; // idle | greeting | listening | thinking | speaking
-  let sessionId = 0, sessionActive = false;
+  let sessionId = 0, sessionActive = false, sessionTurns = 0;
+
+  /* ---------- session activity events: talk.session.started / talk.session.ended ---------- */
+  function reportSession(event, extra) {
+    try {
+      void fetch('/api/voice/talk/session', {
+        method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ event, ...extra }),
+      }).catch(() => {});
+    } catch {}
+  }
   let stream = null, mimeType = null;
   let meterCtx = null, analyser = null;
   let playCtx = null, playAnalyser = null, playRaf = 0;
@@ -600,7 +610,7 @@ window.KellyOrb = KellyOrb;
     const id = sessionId;
     await chime();
     if (id !== sessionId) return;
-    teardownSession();
+    teardownSession('sleep');
   }
   function chime() {
     return new Promise((resolve) => {
@@ -668,6 +678,7 @@ window.KellyOrb = KellyOrb;
       if (id !== sessionId) return;
       setHeard(text);
       if (!text) { enterListening(false); return; }
+      if (id === sessionId) sessionTurns++;
       await sendPrompt(id, text, data.transcriptId || undefined);
     } catch { if (id === sessionId) enterListening(false); }
   }
@@ -750,7 +761,8 @@ window.KellyOrb = KellyOrb;
   /* ---------- session lifecycle ---------- */
   async function startSession() {
     if (sessionActive) return;
-    sessionId++; const id = sessionId; sessionActive = true;
+    sessionId++; const id = sessionId; sessionActive = true; sessionTurns = 0;
+    reportSession('start');
     hideGallery(); clearCaptions();
     talkBtn.setAttribute('aria-pressed', 'true'); talkBtn.setAttribute('aria-label', 'End session');
     ensurePlayMeter();
@@ -774,7 +786,8 @@ window.KellyOrb = KellyOrb;
     if (id !== sessionId || state !== 'greeting') return;
     enterListening(true);
   }
-  function teardownSession() {
+  function teardownSession(reason) {
+    if (sessionActive) reportSession('end', { turns: sessionTurns, ...(reason ? { reason } : {}) });
     sessionId++;
     sessionActive = false;
     setCapturing(false); speechSince = 0; silenceSince = 0; repromptedYet = false; repromptAt = 0;
@@ -791,7 +804,7 @@ window.KellyOrb = KellyOrb;
   }
   function endSessionManual() {
     if (capturing) { try { recorder && recorder.state !== 'inactive' && recorder.stop(); } catch {} }
-    teardownSession();
+    teardownSession('press');
   }
 
   function onPress() {

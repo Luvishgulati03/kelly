@@ -53,6 +53,10 @@ export type ActivityKind =
    *  best-effort warm-up synthesis Kelly runs at startup when Kokoro is configured ({ms}). */
   | "voice.tts"
   | "voice.tts.warm"
+  /** Kelly Talk (hands-free counter loop, `voice.counterMode: "talk"`): a session opened or
+   *  closed ({turns?, reason?: "press" | "sleep" | "error"} on end). */
+  | "talk.session.started"
+  | "talk.session.ended"
   /** Remote-access tunnel (Tailscale Serve or Cloudflare Tunnel) came up, was stopped, or failed to (re)connect. */
   | "remote.started"
   | "remote.stopped"

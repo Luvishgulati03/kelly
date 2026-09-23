@@ -232,6 +232,13 @@ async function counterHtml(shopName: string, accent: TradeAccent): Promise<strin
   }
 }
 
+const TALK_HTML_PATH = fileURLToPath(new URL("./talk.html", import.meta.url));
+/** Kelly Talk: the hands-free counter loop (`voice.counterMode` "talk"). Branded the same
+ *  way `/voice` and `/counter` are. */
+async function talkHtml(shopName: string, accent: TradeAccent): Promise<string> {
+  return brandedHtml(TALK_HTML_PATH, shopName, accent);
+}
+
 // Constructed once per dashboard server below; the worker owns model configuration,
 // local subprocess timeouts, and audio validation.
 
@@ -357,6 +364,45 @@ async function constellationJs(): Promise<string> {
   return constellationJsCache;
 }
 
+// Kelly Talk's client-side speech-onset detector: Silero VAD via @ricky0123/vad-web, running
+// on onnxruntime-web. Served straight from node_modules at request time (no copy into src/ —
+// these are large binaries and, for the wasm, platform-shaped) under a fixed allowlist of
+// basenames, so `GET /vendor/vad/<name>` can never traverse outside the two package dirs this
+// map points at. talk.html falls back to the energy VAD (src/dashboard/talk.html) when any of
+// this 404s or MicVAD fails to initialise, so a missing/failed install degrades gracefully.
+const VAD_WEB_DIST = fileURLToPath(new URL("../../node_modules/@ricky0123/vad-web/dist/", import.meta.url));
+const ONNXRUNTIME_WEB_DIST = fileURLToPath(new URL("../../node_modules/onnxruntime-web/dist/", import.meta.url));
+const VENDOR_VAD_ASSETS: Record<string, { dir: string; contentType: string }> = {
+  "bundle.min.js": { dir: VAD_WEB_DIST, contentType: "application/javascript; charset=utf-8" },
+  "vad.worklet.bundle.min.js": { dir: VAD_WEB_DIST, contentType: "application/javascript; charset=utf-8" },
+  "silero_vad_v5.onnx": { dir: VAD_WEB_DIST, contentType: "application/octet-stream" },
+  "silero_vad_v6.onnx": { dir: VAD_WEB_DIST, contentType: "application/octet-stream" },
+  "silero_vad_legacy.onnx": { dir: VAD_WEB_DIST, contentType: "application/octet-stream" },
+  "ort-wasm-simd-threaded.mjs": { dir: ONNXRUNTIME_WEB_DIST, contentType: "text/javascript; charset=utf-8" },
+  "ort-wasm-simd-threaded.wasm": { dir: ONNXRUNTIME_WEB_DIST, contentType: "application/wasm" },
+  "ort-wasm-simd-threaded.asyncify.mjs": { dir: ONNXRUNTIME_WEB_DIST, contentType: "text/javascript; charset=utf-8" },
+  "ort-wasm-simd-threaded.asyncify.wasm": { dir: ONNXRUNTIME_WEB_DIST, contentType: "application/wasm" },
+  "ort-wasm-simd-threaded.jsep.mjs": { dir: ONNXRUNTIME_WEB_DIST, contentType: "text/javascript; charset=utf-8" },
+  "ort-wasm-simd-threaded.jsep.wasm": { dir: ONNXRUNTIME_WEB_DIST, contentType: "application/wasm" },
+  "ort-wasm-simd-threaded.jspi.mjs": { dir: ONNXRUNTIME_WEB_DIST, contentType: "text/javascript; charset=utf-8" },
+  "ort-wasm-simd-threaded.jspi.wasm": { dir: ONNXRUNTIME_WEB_DIST, contentType: "application/wasm" },
+};
+const vendorVadCache = new Map<string, Buffer>();
+
+async function vendorVadAsset(name: string): Promise<{ bytes: Buffer; contentType: string } | null> {
+  const entry = VENDOR_VAD_ASSETS[name];
+  if (!entry) return null; // allowlist only — no path traversal, no arbitrary node_modules reads
+  const cached = vendorVadCache.get(name);
+  if (cached) return { bytes: cached, contentType: entry.contentType };
+  try {
+    const bytes = await fs.readFile(path.join(entry.dir, name));
+    vendorVadCache.set(name, bytes);
+    return { bytes, contentType: entry.contentType };
+  } catch {
+    return null;
+  }
+}
+
 // GET /api/engram/metrics wraps src/metrics/recall-metrics.ts#summarizeRecallMetrics —
 // a module owned elsewhere (dashboard-design-v2.md §C). The field list is declared
 // locally (the exact contract, nothing beyond it) rather than imported, and the
@@ -418,6 +464,39 @@ async function engramTraces(runtime: HenryRuntime, limit: number): Promise<{ ava
   } catch {
     return { available: false };
   }
+}
+
+// Kelly Talk greeting/reprompt: synthesised ONCE per process per text (the greeting and
+// reprompt strings are fixed per trade + shop name, so there are only ever two of them) and
+// cached both in memory and on disk under `<dataDir>/voice/cache/<sha256 of text>.wav`, so a
+// restart is instant rather than re-paying TTS latency on the shop's first "Namaste" of the
+// day. Keyed by the exact (already shop-substituted) text, not by kind, so a later re-brand
+// (a different `<shop>` string) simply gets its own cache entry rather than serving stale audio.
+const ttsPromptCache = new Map<string, Buffer>();
+
+function talkPromptText(kind: "greeting" | "reprompt", runtime: HenryRuntime): string {
+  const template = kind === "greeting" ? runtime.trade.greeting : runtime.trade.reprompt;
+  return template.replaceAll("<shop>", runtime.config.shopName);
+}
+
+async function synthesizeCachedPrompt(voice: LocalVoiceService, dataDir: string, text: string): Promise<Buffer> {
+  const cached = ttsPromptCache.get(text);
+  if (cached) return cached;
+  const hash = crypto.createHash("sha256").update(text, "utf8").digest("hex");
+  const cacheDir = path.join(dataDir, "voice", "cache");
+  const cachePath = path.join(cacheDir, `${hash}.wav`);
+  try {
+    const onDisk = await fs.readFile(cachePath);
+    ttsPromptCache.set(text, onDisk);
+    return onDisk;
+  } catch { /* not cached on disk yet (or a fresh dataDir) */ }
+  const audio = await voice.synthesize(text, { language: "en" });
+  ttsPromptCache.set(text, audio);
+  try {
+    await fs.mkdir(cacheDir, { recursive: true, mode: 0o700 });
+    await fs.writeFile(cachePath, audio, { mode: 0o600 });
+  } catch { /* best effort — an unwritable cache dir still serves from memory */ }
+  return audio;
 }
 
 const AUTH_ALERT_WINDOW_MS = 10 * 60 * 1000;
@@ -652,9 +731,10 @@ function wrongRolePage(response: http.ServerResponse, user: SessionUser, roles: 
 }
 
 const COUNTER_EXACT_ROUTES = new Set([
-  "/chat", "/voice", "/counter", "/logout",
+  "/chat", "/voice", "/counter", "/talk", "/logout",
   "/api/health", "/api/status", "/api/skills",
   "/api/voice/status", "/api/voice/transcribe", "/api/voice/speak",
+  "/api/voice/greeting", "/api/voice/reprompt", "/api/voice/talk/session",
 ]);
 
 /**
@@ -670,6 +750,9 @@ function counterAllowedRoute(route: string): boolean {
   // GET-only reads (list, image, thumb): write methods on this prefix are gated separately
   // below and still require admin, same as every other mutating route.
   if (route.startsWith("/api/designs")) return true;
+  // GET-only static VAD assets (Silero bundle, worklet, ONNX model, onnxruntime-web wasm):
+  // write methods are gated separately below, same shape as /api/designs above.
+  if (route.startsWith("/vendor/")) return true;
   return route.startsWith("/api/chat/") || route.startsWith("/api/conversations") || route.startsWith("/api/attachments");
 }
 
@@ -710,6 +793,18 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       .then(() => runtime.activity.record("voice.tts.warm", "Kokoro warmed up", { voice: true, ms: Date.now() - warmStarted }))
       .catch(() => undefined);
   }
+  // Kelly Talk's greeting and reprompt: same reasoning as the Kokoro warm-up above, but for
+  // the two fixed phrases the hands-free loop actually plays. Best-effort, never blocks
+  // startup; a synthesis failure here is not fatal — the first real request just tries (and
+  // reports) its own synthesis normally.
+  if (voice.ttsEnabled()) {
+    for (const kind of ["greeting", "reprompt"] as const) {
+      const warmStarted = Date.now();
+      void synthesizeCachedPrompt(voice, runtime.config.dataDir, talkPromptText(kind, runtime))
+        .then(() => runtime.activity.record("voice.tts.warm", `Talk ${kind} warmed up`, { voice: true, kind, ms: Date.now() - warmStarted }))
+        .catch(() => undefined);
+    }
+  }
   const server = http.createServer(async (request, response) => {
     try {
       if (!loopback(runtime.config.host) && !runtime.config.allowRemoteDashboard) throw new Error("Remote dashboard is disabled; bind HENRY_HOST to loopback or explicitly enable a token-protected remote dashboard");
@@ -735,7 +830,8 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         // Designs is read-only for the counter role: GET list/image/thumb, never the
         // owner's write routes (POST/PATCH/DELETE stay admin-only, same as everywhere else).
         const designsWrite = route.startsWith("/api/designs") && request.method !== "GET";
-        if (user.role !== "counter" || !counterAllowedRoute(route) || designsWrite) {
+        const vendorWrite = route.startsWith("/vendor/") && request.method !== "GET";
+        if (user.role !== "counter" || !counterAllowedRoute(route) || designsWrite || vendorWrite) {
           if (request.method === "GET" && wantsHtml(request)) { wrongRolePage(response, user, ["admin"]); return; }
           json(response, 403, { error: "admin access required" });
           return;
@@ -777,10 +873,11 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         return;
       }
       if (request.method === "GET" && (route === "/voice")) {
-        // Conversation mode replaces the counter tablet's review flow with /counter's
-        // no-review one; the admin's own owner-review page (this route) is unaffected — only
-        // a non-admin (counter) request is redirected.
-        if (user?.role === "counter" && readVoiceSettings(runtime.config.settingsPath).counterMode === "conversation") {
+        // Conversation and talk modes both replace the counter tablet's review flow with
+        // /counter's no-review one; the admin's own owner-review page (this route) is
+        // unaffected — only a non-admin (counter) request is redirected.
+        const voiceRouteMode = readVoiceSettings(runtime.config.settingsPath).counterMode;
+        if (user?.role === "counter" && (voiceRouteMode === "conversation" || voiceRouteMode === "talk")) {
           redirect(response, "/counter");
           return;
         }
@@ -789,10 +886,24 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         return;
       }
       if (request.method === "GET" && route === "/counter") {
-        // Served in both modes: "review" keeps it reachable for testing (the page itself reads
+        // Served in every mode: "review" keeps it reachable for testing (the page itself reads
         // /api/voice/status's counterMode to decide whether to show a review-mode banner).
+        // "conversation" serves counter.html's tap-to-talk flow; "talk" serves talk.html's
+        // hands-free loop; in "review" a `?page=talk` query previews talk.html instead — both
+        // query and mode-driven choices here are previews only, never the live default.
+        const counterRouteMode = readVoiceSettings(runtime.config.settingsPath).counterMode;
+        const wantsTalk = counterRouteMode === "talk" || (counterRouteMode === "review" && url.searchParams.get("page") === "talk");
         response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
-        response.end(await counterHtml(runtime.config.shopName, runtime.trade.accent));
+        response.end(wantsTalk
+          ? await talkHtml(runtime.config.shopName, runtime.trade.accent)
+          : await counterHtml(runtime.config.shopName, runtime.trade.accent));
+        return;
+      }
+      if (request.method === "GET" && route === "/talk") {
+        // A direct alias that always serves talk.html regardless of counterMode — used to
+        // test/demo the hands-free loop without flipping the shop's live mode.
+        response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "x-content-type-options": "nosniff" });
+        response.end(await talkHtml(runtime.config.shopName, runtime.trade.accent));
         return;
       }
       if (request.method === "GET" && route === "/api/voice/status") {
@@ -894,6 +1005,14 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       if (request.method === "GET" && url.pathname === "/constellation.js") {
         response.writeHead(200, { "content-type": "application/javascript; charset=utf-8", "cache-control": "no-store" });
         response.end(await constellationJs());
+        return;
+      }
+      const vendorVadRoute = url.pathname.match(/^\/vendor\/vad\/([^/]+)$/);
+      if (request.method === "GET" && vendorVadRoute) {
+        const asset = await vendorVadAsset(decodeURIComponent(vendorVadRoute[1]));
+        if (!asset) { json(response, 404, { error: "asset not found" }); return; }
+        response.writeHead(200, { "content-type": asset.contentType, "content-length": asset.bytes.length, "cache-control": "public, max-age=86400" });
+        response.end(asset.bytes);
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/health") { json(response, 200, { ok: true, timestamp: new Date().toISOString() }); return; }
@@ -1077,6 +1196,37 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         const pruned = runtime.voiceTranscripts.prune();
         await runtime.activity.record("workflow.completed", `Voice retention updated: text ${settings.retentionDays}d, audio ${settings.recordAudio ? `on, ${settings.audioRetentionDays}d` : "off"}`, { voice: true, settings, discarded, pruned });
         json(response, 200, { settings, discarded, pruned, stats: runtime.voiceTranscripts.stats() });
+        return;
+      }
+      if (request.method === "GET" && (route === "/api/voice/greeting" || route === "/api/voice/reprompt")) {
+        if (!voice.ttsEnabled()) { json(response, 404, { error: "Speech is unavailable." }); return; }
+        const kind = route === "/api/voice/greeting" ? "greeting" : "reprompt";
+        try {
+          const audio = await synthesizeCachedPrompt(voice, runtime.config.dataDir, talkPromptText(kind, runtime));
+          response.writeHead(200, { "content-type": "audio/wav", "content-length": audio.length, "cache-control": "private, max-age=3600", "x-content-type-options": "nosniff" });
+          response.end(audio);
+        } catch (error) {
+          json(response, error instanceof VoiceError && error.code === "timeout" ? 504 : 503, { error: error instanceof Error ? error.message : "Speech is unavailable." });
+        }
+        return;
+      }
+      if (request.method === "POST" && route === "/api/voice/talk/session") {
+        const input = await body(request);
+        if (input.event === "start") {
+          await runtime.activity.record("talk.session.started", "Kelly Talk session started", { voice: true, counter: true }).catch(() => undefined);
+          json(response, 200, { ok: true });
+          return;
+        }
+        if (input.event === "end") {
+          const turns = typeof input.turns === "number" && Number.isFinite(input.turns) ? Math.max(0, Math.round(input.turns)) : undefined;
+          const reason = input.reason === "press" || input.reason === "sleep" || input.reason === "error" ? input.reason : undefined;
+          await runtime.activity.record("talk.session.ended", "Kelly Talk session ended", {
+            voice: true, counter: true, ...(turns !== undefined ? { turns } : {}), ...(reason ? { reason } : {}),
+          }).catch(() => undefined);
+          json(response, 200, { ok: true });
+          return;
+        }
+        json(response, 400, { error: 'event must be "start" or "end"' });
         return;
       }
       if (request.method === "GET" && route === "/api/voice/transcripts") {
