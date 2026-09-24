@@ -249,12 +249,20 @@ window.KellyOrb = KellyOrb;
     repromptMs: 8000,
     sleepMs: 15000,
     rearmMs: 300,
+    fillerMs: 1200,
+    secondFillerMs: 12000,
+    preSpeechPadMs: 300,
+    sileroPositive: .55,
+    sileroNegative: .35,
     speechThreshold: .12,
     silenceThreshold: .06,
     floor: .008,
     levelOverride: null,
     get vadMode() { return vadMode; },
     get micActive() { return !!(stream && stream.getTracks().some(t => t.readyState === 'live')); },
+    get conversationId() { return conversationId; },
+    get fillersPlayed() { return fillersPlayed; },
+    get vadRunning() { return sileroRunning; },
   };
   window.KellyTalk = {
     testing,
@@ -286,6 +294,30 @@ window.KellyOrb = KellyOrb;
   let state = 'idle'; // idle | greeting | listening | thinking | speaking
   let sessionId = 0, sessionActive = false, sessionTurns = 0;
 
+  /* ---------- one conversation per talk session ----------
+     Each press starts a fresh conversation, so one customer's order never answers the next
+     customer's "how much?". Embedded in the chat page (?embed=1&conversationId=...), the
+     session joins the owner's open conversation instead and tells the parent after each turn. */
+  const params = new URLSearchParams(location.search);
+  const embedded = params.get('embed') === '1';
+  const embedConversationId = /^[A-Za-z0-9_-]{1,80}$/.test(params.get('conversationId') || '') ? params.get('conversationId') : null;
+  let conversationId = null, conversationReady = Promise.resolve();
+  function notifyParent(event) {
+    if (!embedded || window.parent === window) return;
+    try { window.parent.postMessage({ type: 'kelly-talk', event, conversationId }, location.origin); } catch {}
+  }
+  function openConversation(id) {
+    if (embedConversationId) { conversationId = embedConversationId; return Promise.resolve(); }
+    conversationId = null;
+    const title = 'Talk ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return fetch('/api/conversations', {
+      method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }),
+    }).then((r) => r.ok ? r.json() : null).then((data) => {
+      // No conversation (an older server, or a failure): the turn falls back to the active one.
+      if (id === sessionId && data && data.conversation && data.conversation.id) conversationId = data.conversation.id;
+    }).catch(() => {});
+  }
+
   /* ---------- session activity events: talk.session.started / talk.session.ended ---------- */
   function reportSession(event, extra) {
     try {
@@ -305,6 +337,9 @@ window.KellyOrb = KellyOrb;
   let playbackBusy = false;
   let speaking = false, speakAbort = null, playQueue = [], playingUrl = null, activePlaybackAbort = null;
   let vadMode = 'energy', sileroVad = null;
+  let sileroSpeechAt = 0, sileroLong = false, sileroDiscard = false, sileroRunning = false;
+  let fillerTimers = [], fillerDone = Promise.resolve(), fillerIndex = 0, fillersPlayed = 0;
+  let turnCounter = 0, turnSpeech = null, chatAbort = null;
 
   function sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
@@ -457,8 +492,46 @@ window.KellyOrb = KellyOrb;
       if (done) break;
     }
   }
-  async function speakReply(id, text) {
-    if (!text || !text.trim()) { if (id === sessionId) enterListening(true); return; }
+  /* ---------- reply speech: one queue per turn ----------
+     A Codex turn can send more than one spoken line (an acknowledgement such as "checking the
+     rate card", then the answer). Lines play in order and never cut each other off; the mic
+     stays muted until the turn is finished AND the queue is empty; between lines the orb shows
+     Thinking. A press while Kelly speaks drops the rest of the turn (abortTurn). */
+  function beginTurnSpeech(id, turn) { turnSpeech = { id, turn, queue: [], running: false, done: false, spoke: false }; }
+  function turnIsCurrent(t) { return !!t && t === turnSpeech && t.id === sessionId && t.turn === turnCounter; }
+  function queueSpeech(turn, text) {
+    const t = turnSpeech;
+    if (!t || t.turn !== turn) return;
+    cancelFillers();
+    if (text && text.trim()) t.queue.push(text.trim());
+    void drainSpeech(t);
+  }
+  function finishTurnSpeech(turn) {
+    const t = turnSpeech;
+    if (!t || t.turn !== turn) return;
+    t.done = true;
+    void drainSpeech(t);
+  }
+  async function drainSpeech(t) {
+    if (t.running) return;
+    t.running = true;
+    try {
+      while (t.queue.length && turnIsCurrent(t)) {
+        const text = t.queue.shift();
+        t.spoke = true;
+        const finished = await speakOnce(text);
+        if (!finished) return; // interrupted: abortTurn already moved on
+      }
+    } finally { t.running = false; }
+    if (!turnIsCurrent(t)) return;
+    if (t.queue.length) { void drainSpeech(t); return; }
+    if (!t.done) { if (state === 'speaking') setState('thinking', 'Thinking'); return; }
+    await fillerDone;
+    if (turnIsCurrent(t) && (state === 'speaking' || state === 'thinking')) { turnSpeech = null; enterListening(true); }
+  }
+  /** Speaks one line; resolves true when it played to the end, false when interrupted. */
+  async function speakOnce(text) {
+    await fillerDone;
     stopSpeaking();
     ensurePlayMeter();
     speaking = true; speakAbort = new AbortController();
@@ -479,12 +552,22 @@ window.KellyOrb = KellyOrb;
         const check = () => { if (!playQueue.length && (playback.paused || playback.ended) && !speaking) return resolve(); requestAnimationFrame(check); };
         check();
       });
+      return true;
     } catch (error) {
       speaking = false;
-      if (error && error.name === 'AbortError') return; // interrupted by a press; caller already transitioned
+      // Interrupted by a press, or the line could not be synthesised: either way the turn goes on.
+      return !(error && error.name === 'AbortError');
     }
-    if (id === sessionId && state === 'speaking') enterListening(true);
   }
+  /** Drops whatever the current turn still had to say or stream. */
+  function abortTurn() {
+    turnCounter++;
+    turnSpeech = null;
+    try { chatAbort?.abort(); } catch {}
+    chatAbort = null;
+    cancelFillers();
+  }
+
 
   /* ---------- WAV encoding (copied from counter.html) ---------- */
   function resample(input, fromRate) {
@@ -563,9 +646,26 @@ window.KellyOrb = KellyOrb;
     if (state !== 'listening') return;
     const now = performance.now();
     if (!playbackBusy) {
-      if (vadMode === 'energy') {
-        const level = readLevel();
-        orb.setLevel(level);
+      const level = readLevel();
+      orb.setLevel(level);
+      if (vadMode === 'silero') {
+        if (sileroSpeechAt) {
+          const duration = now - sileroSpeechAt;
+          // Long requests get the longer end-of-turn window, switched mid-utterance.
+          if (!sileroLong && duration > testing.longSilenceAfterMs) { sileroLong = true; try { sileroVad.setOptions({ redemptionMs: testing.longSilenceMs }); } catch {} }
+          if (duration >= testing.hardCapMs) {
+            // Submits the speech so far (onSpeechEnd moves to thinking). If Silero held no
+            // speech after all, listening simply carries on.
+            listenRaf = 0;
+            void sileroSubmitNow().then(() => {
+              if (state !== 'listening') return;
+              sileroSpeechAt = 0; setCapturing(false); void resumeVad();
+              if (!listenRaf) listenRaf = requestAnimationFrame(listenLoop);
+            });
+            return;
+          }
+        }
+      } else {
         if (capturing) {
           const duration = now - recordingStartedAt;
           const silenceLimit = duration > testing.longSilenceAfterMs ? testing.longSilenceMs : testing.silenceMs;
@@ -594,16 +694,19 @@ window.KellyOrb = KellyOrb;
     setCapturing(false);
     speechSince = 0; silenceSince = 0;
     if (resetWatchdog) { lastActivityAt = performance.now(); repromptedYet = false; repromptAt = 0; }
+    void resumeVad();
     if (!listenRaf) listenRaf = requestAnimationFrame(listenLoop);
   }
   async function triggerReprompt() {
     const id = sessionId;
     repromptedYet = true;
     stateEl.textContent = 'Still there?';
+    await pauseVad();
     await playPrompt('reprompt');
     if (id !== sessionId || state !== 'listening') return;
     repromptAt = performance.now();
     stateEl.textContent = 'Listening';
+    void resumeVad();
     if (!listenRaf) listenRaf = requestAnimationFrame(listenLoop);
   }
   async function endSessionSilently() {
@@ -683,78 +786,153 @@ window.KellyOrb = KellyOrb;
     } catch { if (id === sessionId) enterListening(false); }
   }
 
-  /* ---------- Silero speech events (best-effort; falls back to energy VAD above) ---------- */
+  /* ---------- Silero VAD (vad-web 0.0.31), energy VAD above is the fallback ----------
+     The library's defaults would open a second microphone and stop its tracks on pause, which
+     would also kill our recorder and meter. So it is handed the session's one stream through
+     getStream/resumeStream, pauseStream is a no-op, and it shares the meter's AudioContext.
+     It is started only while listening and paused whenever Kelly speaks (half-duplex).
+     Timing is in milliseconds in this version (minSpeechMs, redemptionMs, preSpeechPadMs);
+     redemptionMs is switched from the short to the long window mid-utterance by listenLoop,
+     and the hard cap submits the speech so far by pausing with submitUserSpeechOnPause. */
   function onSileroSpeechStart() {
-    if (state !== 'listening' || capturing) return;
-    setCapturing(true); recordingStartedAt = performance.now();
+    if (state !== 'listening') return;
+    sileroSpeechAt = performance.now(); sileroLong = false;
+    try { sileroVad.setOptions({ redemptionMs: testing.silenceMs }); } catch {}
+  }
+  function onSileroSpeechRealStart() {
+    if (state !== 'listening') return;
+    setCapturing(true);
     hideGallery();
   }
+  function onSileroMisfire() { sileroSpeechAt = 0; if (state === 'listening') setCapturing(false); }
   async function onSileroSpeechEnd(audio) {
-    if (!capturing) return;
+    sileroSpeechAt = 0;
+    if (sileroDiscard || state !== 'listening') return;
     setCapturing(false);
     const id = sessionId;
     setState('thinking', 'Thinking');
+    await pauseVad();
     try { await transcribeAndRespond(id, toWav([audio], TARGET_RATE)); }
     catch { if (id === sessionId) enterListening(false); }
   }
+  async function sileroSubmitNow() {
+    if (!sileroVad || !sileroRunning) return;
+    sileroDiscard = false; sileroRunning = false;
+    try { await sileroVad.pause(); } catch {}
+  }
+  async function pauseVad() {
+    if (vadMode !== 'silero' || !sileroVad || !sileroRunning) return;
+    sileroRunning = false; sileroDiscard = true; sileroSpeechAt = 0;
+    try { await sileroVad.pause(); } catch {}
+    sileroDiscard = false;
+  }
+  async function resumeVad() {
+    if (vadMode !== 'silero' || !sileroVad || sileroRunning || state !== 'listening') return;
+    sileroRunning = true;
+    try { await sileroVad.start(); } catch { sileroRunning = false; vadMode = 'energy'; }
+  }
   async function initVad() {
-    vadMode = 'energy'; sileroVad = null;
+    vadMode = 'energy'; sileroVad = null; sileroRunning = false;
     if (!window.vad || !window.vad.MicVAD) return;
     try {
-      const minSpeechFrames = Math.max(1, Math.round(testing.speechMs / 32));
-      const redemptionFrames = Math.max(1, Math.round(testing.silenceMs / 32));
+      const shared = stream;
       const instance = await window.vad.MicVAD.new({
-        stream,
+        model: 'v5',
         baseAssetPath: '/vendor/vad/',
         onnxWASMBasePath: '/vendor/vad/',
-        positiveSpeechThreshold: .55,
-        negativeSpeechThreshold: .35,
-        minSpeechFrames,
-        redemptionFrames,
+        startOnLoad: false,
+        getStream: async () => shared,
+        resumeStream: async () => shared,
+        pauseStream: async () => {},
+        ...(meterCtx ? { audioContext: meterCtx } : {}),
+        positiveSpeechThreshold: testing.sileroPositive,
+        negativeSpeechThreshold: testing.sileroNegative,
+        minSpeechMs: testing.speechMs,
+        preSpeechPadMs: testing.preSpeechPadMs,
+        redemptionMs: testing.silenceMs,
+        submitUserSpeechOnPause: true,
         onSpeechStart: onSileroSpeechStart,
+        onSpeechRealStart: onSileroSpeechRealStart,
+        onVADMisfire: onSileroMisfire,
         onSpeechEnd: onSileroSpeechEnd,
-        onVADMisfire: () => {},
       });
-      instance.start();
+      if (stream !== shared) { try { await instance.destroy(); } catch {} return; }
       sileroVad = instance;
       vadMode = 'silero';
     } catch { vadMode = 'energy'; sileroVad = null; }
+  }
+
+  /* ---------- holding phrases while a model turn runs ----------
+     The gallery fast path answers in milliseconds and never hears one. A model turn that has
+     kept the customer waiting fillerMs gets "one moment", and one more at secondFillerMs.
+     The reply waits for a phrase already playing rather than cutting it off mid-word. */
+  function cancelFillers() { fillerTimers.forEach(clearTimeout); fillerTimers = []; }
+  function scheduleFillers(id) {
+    cancelFillers();
+    if (muted) return;
+    for (const delay of [testing.fillerMs, testing.secondFillerMs]) {
+      fillerTimers.push(setTimeout(() => {
+        if (id !== sessionId || state !== 'thinking') return;
+        fillerDone = (async () => {
+          try {
+            const response = await fetch('/api/voice/filler?v=' + (fillerIndex++), { credentials: 'same-origin' });
+            if (!response.ok || id !== sessionId || state !== 'thinking') return;
+            const blob = await response.blob();
+            if (blob.size <= 44 || id !== sessionId || state !== 'thinking') return;
+            fillersPlayed++;
+            await playSingle(blob);
+          } catch {}
+        })();
+      }, delay));
+    }
   }
 
   /* ---------- chat turn: SSE spoken / designs / done / error ---------- */
   async function sendPrompt(id, prompt, transcriptId) {
     hideGallery();
     let spokenArrived = false;
+    const turn = ++turnCounter;
+    await conversationReady;
+    if (id !== sessionId || turn !== turnCounter) return;
+    beginTurnSpeech(id, turn);
+    scheduleFillers(id);
+    chatAbort = new AbortController();
+    const stale = () => id !== sessionId || turn !== turnCounter;
     try {
       const response = await fetch('/api/chat/send', {
         method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt, voice: true, ...(transcriptId ? { transcriptId } : {}) }),
+        body: JSON.stringify({ prompt, voice: true, ...(transcriptId ? { transcriptId } : {}), ...(conversationId ? { conversationId } : {}) }),
+        signal: chatAbort.signal,
       });
       if (!response.ok) { let data = {}; try { data = await response.json(); } catch {} throw new Error(data.error || 'Chat request failed.'); }
       const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = '';
       for (;;) {
         const { value, done } = await reader.read();
-        if (id !== sessionId) { try { await reader.cancel(); } catch {} return; }
+        if (stale()) { try { await reader.cancel(); } catch {} return; }
         if (done) break;
         pending += decoder.decode(value, { stream: true });
         const blocks = pending.split('\n\n'); pending = blocks.pop();
         for (const block of blocks) {
           const ev = block.match(/^event: (.+)$/m)?.[1], raw = block.match(/^data: (.+)$/m)?.[1]; if (!raw) continue;
           let data; try { data = JSON.parse(raw); } catch { continue; }
-          if (ev === 'spoken') { spokenArrived = true; if (!muted && data.text) void speakReply(id, data.text); else if (muted) setReply(data.text || ''); }
-          else if (ev === 'designs') { if (data.designs && data.designs.length) showGallery(data.designs); }
+          if (stale()) return;
+          if (ev === 'spoken') { spokenArrived = true; if (muted) setReply(data.text || ''); else queueSpeech(turn, data.text); }
+          else if (ev === 'designs') { cancelFillers(); if (data.designs && data.designs.length) showGallery(data.designs); }
           else if (ev === 'done') {
-            if (id !== sessionId) return;
-            if (muted) { enterListening(true); }
-            else if (!spokenArrived) { if (data.spoken) void speakReply(id, data.spoken); else enterListening(true); }
+            cancelFillers();
+            if (data.conversationId && !conversationId) conversationId = data.conversationId;
+            notifyParent('turn');
+            if (!muted && !spokenArrived && data.spoken) queueSpeech(turn, data.spoken);
+            finishTurnSpeech(turn);
           } else if (ev === 'error') throw new Error(data.error || 'Chat failed.');
         }
       }
     } catch (error) {
-      if (id !== sessionId) return;
+      if (stale()) return;
+      abortTurn();
       stateEl.textContent = 'Sorry';
       await sleep(1500);
-      if (id === sessionId) enterListening(true);
+      if (id === sessionId && (state === 'thinking' || state === 'speaking')) enterListening(true);
     }
   }
 
@@ -779,22 +957,26 @@ window.KellyOrb = KellyOrb;
     const supportedTypes = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4'];
     mimeType = (window.MediaRecorder && supportedTypes.find((t) => MediaRecorder.isTypeSupported(t))) || null;
     startMeter();
-    await initVad();
-    if (id !== sessionId) return;
+    conversationReady = openConversation(id);
+    // The Silero model loads while the greeting plays, so the welcome is not held up by it.
+    const vadReady = initVad();
     lastActivityAt = performance.now(); repromptedYet = false; repromptAt = 0;
     await playPrompt('greeting');
+    await vadReady;
     if (id !== sessionId || state !== 'greeting') return;
     enterListening(true);
   }
   function teardownSession(reason) {
-    if (sessionActive) reportSession('end', { turns: sessionTurns, ...(reason ? { reason } : {}) });
+    if (sessionActive) { reportSession('end', { turns: sessionTurns, ...(reason ? { reason } : {}) }); notifyParent('ended'); }
+    abortTurn(); fillerDone = Promise.resolve();
+    sileroDiscard = true; sileroRunning = false; sileroSpeechAt = 0;
     sessionId++;
     sessionActive = false;
     setCapturing(false); speechSince = 0; silenceSince = 0; repromptedYet = false; repromptAt = 0;
     cancelAnimationFrame(listenRaf); listenRaf = 0;
     stopMeter();
     if (recorder) { try { recorder.ondataavailable = recorder.onstop = recorder.onerror = null; if (recorder.state !== 'inactive') recorder.stop(); } catch {} recorder = null; }
-    if (sileroVad) { try { sileroVad.pause?.(); sileroVad.destroy?.(); } catch {} sileroVad = null; }
+    if (sileroVad) { const old = sileroVad; sileroVad = null; Promise.resolve().then(() => old.destroy?.()).catch(() => {}).finally(() => { sileroDiscard = false; }); }
     vadMode = 'energy';
     if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }
     stopSpeaking();
@@ -809,7 +991,9 @@ window.KellyOrb = KellyOrb;
 
   function onPress() {
     if (state === 'idle') void startSession();
-    else if (state === 'greeting' || state === 'speaking') { stopSpeaking(); enterListening(true); }
+    else if (state === 'greeting' || state === 'speaking' || (state === 'thinking' && turnSpeech && turnSpeech.spoke)) {
+      abortTurn(); stopSpeaking(); enterListening(true);
+    }
     else if (state === 'listening' || state === 'thinking') endSessionManual();
   }
 

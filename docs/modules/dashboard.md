@@ -102,11 +102,17 @@ listen again — no further tap until the customer presses to end it.
 - **One conversation per session** — each press creates a conversation (`POST
   /api/conversations`, titled "Talk HH:MM") and every turn of that session carries its
   `conversationId`, so one customer's order never answers the next customer's question.
-- **Holding phrases** — when a model turn keeps the customer waiting 2.5 s, the page plays one
-  of the trade's `fillers` ("One moment, let me check.") from `GET /api/voice/filler?v=N`
-  (cached exactly like the greeting and warmed at startup), and one more at 14 s. The gallery
-  fast path answers in milliseconds and never hears one. A reply waits for a phrase already
-  playing instead of cutting it off.
+- **Holding phrases** — when a model turn has not produced a spoken line 1.2 s after the
+  question was sent (about 3.5 s after the customer stopped, since transcription takes ~2 s),
+  the page plays one of the trade's `fillers` ("One moment, let me check.") from `GET
+  /api/voice/filler?v=N` (cached exactly like the greeting and warmed at startup), and one
+  more at 12 s. The gallery fast path answers in milliseconds and never hears one.
+- **Reply speech queue** — a Codex turn can send more than one spoken line (an acknowledgement,
+  then the answer). The page queues them per turn: lines play in order, a line waits for a
+  filler that is already playing, nothing cuts anything off, and the mic stays muted until
+  the turn has finished and the queue is empty (the orb shows Thinking between lines). A
+  press while Kelly speaks, or between two of her lines, drops the rest of that turn
+  (including the chat stream) and listens; a stale turn can never change a newer one.
 - **Embedded in chat** — `/talk?embed=1&conversationId=<id>&captions=1` joins the owner's open
   conversation instead of creating one, and posts `{type:"kelly-talk", event:"turn"|"ended",
   conversationId}` to `window.parent` (same origin only); the chat page's Talk overlay uses it

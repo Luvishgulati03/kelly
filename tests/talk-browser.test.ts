@@ -244,7 +244,9 @@ test("talk page: hands-free orb, greeting, VAD turns, reprompt/sleep, mute, desi
     await page2.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
     await page2.waitForFunction(() => document.querySelector("#state")?.textContent === "Tap to talk", { timeout: 15000 });
     assert.ok(page2Requests.some(url => url.includes("/api/voice/reprompt")), "reprompt was requested after repromptMs of silence");
-    assert.equal(repromptCalls, 1, "reprompt was requested exactly once");
+    // Counted on this page only: under CPU load the first page's longer session can reach its
+    // own reprompt before it is ended, which a server-wide counter would wrongly add here.
+    assert.equal(page2Requests.filter(url => url.includes("/api/voice/reprompt")).length, 1, "reprompt was requested exactly once");
     assert.equal(await page2.evaluate(() => (window as any).KellyTalk.testing.micActive), false, "mic released once the session sleeps");
     await page2.close();
 
