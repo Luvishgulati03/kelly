@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 // @ts-expect-error JavaScript launcher intentionally has no build step.
-import { shellQuote, terminalCommand, waitReady, assertFree, supervise, resolveTunnelMode, maybeKeepAwake } from "../bin/start.mjs";
+import { shellQuote, terminalCommand, waitReady, assertFree, supervise, resolveTunnelMode, resolvePublicOrigin, maybeKeepAwake } from "../bin/start.mjs";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 
@@ -18,10 +18,40 @@ test("terminal launch also preserves --public alongside --demo --trade", () => {
 });
 
 test("resolveTunnelMode: --public sets funnel for both the demo and a real install; without it, off", () => {
-  assert.equal(resolveTunnelMode(["--demo", "--trade", "boutique", "--public"]), "funnel");
-  assert.equal(resolveTunnelMode(["--public"]), "funnel");
-  assert.equal(resolveTunnelMode(["--demo", "--trade", "boutique"]), "off");
-  assert.equal(resolveTunnelMode([]), "off");
+  assert.equal(resolveTunnelMode(["--demo", "--trade", "boutique", "--public"], {}), "funnel");
+  assert.equal(resolveTunnelMode(["--public"], {}), "funnel");
+  assert.equal(resolveTunnelMode(["--demo", "--trade", "boutique"], {}), "off");
+  assert.equal(resolveTunnelMode([], {}), "off");
+});
+
+test("resolveTunnelMode: bare --public picks cloudflare when KELLY_CLOUDFLARE_TUNNEL is set (env or repo .env), funnel otherwise", () => {
+  assert.equal(resolveTunnelMode(["--public"], { KELLY_CLOUDFLARE_TUNNEL: "kelly-test" }), "cloudflare");
+  assert.equal(resolveTunnelMode(["--demo", "--trade", "boutique", "--public"], { KELLY_CLOUDFLARE_TUNNEL: "kelly-test" }), "cloudflare");
+  assert.equal(resolveTunnelMode(["--public"], {}), "funnel");
+  assert.equal(resolveTunnelMode(["--public"], { KELLY_CLOUDFLARE_TUNNEL: "" }), "funnel");
+});
+
+test("resolveTunnelMode: --public tailscale / --public cloudflare force one transport regardless of env", () => {
+  assert.equal(resolveTunnelMode(["--public", "tailscale"], { KELLY_CLOUDFLARE_TUNNEL: "kelly-test" }), "tailscale");
+  assert.equal(resolveTunnelMode(["--public", "cloudflare"], {}), "cloudflare");
+  assert.equal(resolveTunnelMode(["--demo", "--public", "cloudflare"], {}), "cloudflare");
+});
+
+test("terminalCommand: preserves an explicit --public transport for the forwarded Terminal window", () => {
+  assert.match(
+    terminalCommand("/a b/node", "/repo/kelly.mjs", true, "boutique", "cloudflare"),
+    /'--foreground' '--demo' '--trade' 'boutique' '--public' 'cloudflare'$/,
+  );
+  assert.match(
+    terminalCommand("/a b/node", "/repo/kelly.mjs", false, undefined, "tailscale"),
+    /'--foreground' '--public' 'tailscale'$/,
+  );
+});
+
+test("resolvePublicOrigin: derives https://<KELLY_PUBLIC_HOST> unless KELLY_PUBLIC_ORIGIN is already set", () => {
+  assert.equal(resolvePublicOrigin({ KELLY_PUBLIC_HOST: "kelly-test.example.com" }), "https://kelly-test.example.com");
+  assert.equal(resolvePublicOrigin({ KELLY_PUBLIC_HOST: "kelly-test.example.com", KELLY_PUBLIC_ORIGIN: "https://already-set.example.com" }), "https://already-set.example.com");
+  assert.equal(resolvePublicOrigin({}), undefined);
 });
 
 test("maybeKeepAwake: spawns caffeinate -i -w <pid> only on darwin with an active tunnel", () => {

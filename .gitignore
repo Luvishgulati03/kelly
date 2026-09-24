@@ -4,6 +4,7 @@ __pycache__/
 *.py[cod]
 .env
 .env.local
+.env.bak
 data/*.json
 data/*.jsonl
 data/*.db

@@ -7,10 +7,68 @@ beyond loopback, never installs a binary, and never runs without an admin accoun
 once a tunnel is configured.
 
 Primary transport is Tailscale Serve, tailnet-only. Cloudflare Tunnel is the fallback for a
-shop that cannot put a tailnet on the tablet. Tailscale Funnel is a third, public mode — see
-"Public link (Tailscale Funnel)" below — for a demo or storefront link anyone can open.
+shop that cannot put a tailnet on the tablet, and is also the simplest way to put Kelly on your
+own domain — see "Your own domain (Cloudflare)" right below. Tailscale Funnel is a third,
+public mode — see "Public link (Tailscale Funnel)" below — for a demo or storefront link anyone
+can open without owning a domain.
 
-## Setup: Tailscale (recommended)
+## Your own domain (Cloudflare) — recommended
+
+The simplest way to reach Kelly at `https://kelly-test.<your-domain>` instead of a tailnet or a
+Tailscale-issued hostname.
+
+**Requirements:** your domain's DNS is on Cloudflare (a free Cloudflare account is enough — you
+do not need a paid plan), and `cloudflared` installed on the Mac.
+
+1. Install `cloudflared`:
+   ```bash
+   brew install cloudflared
+   ```
+2. Run the one setup command, giving it the public hostname you want:
+   ```bash
+   kelly tunnel setup kelly-test.example.com
+   ```
+   The first time, this opens your browser so you can log into Cloudflare and pick the domain
+   (`cloudflared tunnel login`) — approve it there and return to the terminal, which waits for
+   you. Kelly then creates a named tunnel (`kelly-test` by default; pass `--name` to change it),
+   points `kelly-test.example.com` at it in Cloudflare DNS, and writes `KELLY_TUNNEL=cloudflare`,
+   `KELLY_CLOUDFLARE_TUNNEL`, and `KELLY_PUBLIC_HOST` into the repo's `.env` (a `.env.bak` copy
+   of the previous file is kept alongside it). Every step is skipped automatically if it was
+   already done, so running the command again is safe.
+
+   Check readiness at any time without changing anything:
+   ```bash
+   kelly tunnel setup --status
+   ```
+   This reports whether `cloudflared` is installed, whether you are logged in (never the
+   contents of the credential file), the tunnel name and whether it exists, `KELLY_PUBLIC_HOST`,
+   and whether DNS for that host resolves.
+3. Create the accounts and start Kelly:
+   ```bash
+   kelly users add owner --role admin --demo boutique
+   kelly users add counter --role counter --demo boutique
+   kelly start --demo --trade boutique --public
+   ```
+   Because `KELLY_CLOUDFLARE_TUNNEL` is now set, `--public` automatically chooses Cloudflare
+   over Tailscale Funnel (`--public cloudflare` forces it explicitly; `--public tailscale`
+   forces Tailscale Funnel instead). Kelly is reachable at `https://kelly-test.example.com`.
+
+**Stop it:** Ctrl+C in Kelly's window stops Kelly and the `cloudflared` process together.
+
+**Remove it later:**
+```bash
+cloudflared tunnel delete kelly-test
+```
+and delete the `kelly-test.example.com` DNS record from the Cloudflare dashboard (Websites →
+your domain → DNS).
+
+**Security note.** As with Tailscale Funnel below, anyone with the link reaches Kelly's login
+page — there is no additional network-level gate by default. Kelly's own password is the gate
+(same throttling as any other login). For an extra lock, add a Cloudflare Access policy for the
+hostname in the Cloudflare Zero Trust dashboard (Access → Applications) requiring, for example,
+an email login before the tablet ever reaches Kelly's own login page.
+
+## Setup: Tailscale (recommended for a tailnet)
 
 1. Install Tailscale on the Mac (`https://tailscale.com/download`) and sign it into
    your tailnet. Install the Tailscale app on the tablet and sign it into the same
@@ -41,7 +99,8 @@ serve the port Kelly is already listening on.
 
 ## Public link (Tailscale Funnel)
 
-Use this for a demo or storefront link anyone can open — not just devices on your tailnet.
+Use this for a demo or storefront link anyone can open — not just devices on your tailnet — when
+you would rather not set up a Cloudflare domain (see "Your own domain (Cloudflare)" above).
 Unlike Tailscale Serve above, Funnel is public: anyone with the URL reaches Kelly's login page.
 Start it manually each time; Kelly never installs a login item or a LaunchAgent, and nothing
 starts on its own when the Mac boots.
@@ -70,7 +129,12 @@ starts on its own when the Mac boots.
    This sets `KELLY_TUNNEL=funnel` for the demo instead of the usual tunnel-off default (every
    other demo isolation — separate data, memory, knowledge, and catalogue — is unchanged).
    `--public` also works without `--demo` for a real install (`kelly start --public`), meaning
-   the same thing: Tailscale Funnel instead of tunnel-off.
+   the same thing: a public tunnel instead of tunnel-off.
+
+   Bare `--public` only picks Funnel when the repo's `.env` has no `KELLY_CLOUDFLARE_TUNNEL` —
+   if you have already run `kelly tunnel setup` (see "Your own domain (Cloudflare)" above),
+   `--public` picks Cloudflare instead. Pass `--public tailscale` to force Funnel regardless
+   (or `--public cloudflare` to force Cloudflare).
 
    Kelly prints the public `https://…` link once Funnel is up, the same way Serve does. Because
    a tunnel is active and this is darwin, Kelly also runs `caffeinate -i -w <kelly pid>` beside
@@ -98,10 +162,11 @@ login (5 wrong passwords locks that account for 15 minutes).
   `brew install --cask tailscale`; Kelly never downloads it for you. Kelly also looks for the
   CLI at `/Applications/Tailscale.app/Contents/MacOS/Tailscale` if it is not on PATH.
 
-## Setup: Cloudflare Tunnel (fallback)
+## Setup: Cloudflare Tunnel (manual, fallback)
 
-Use this when the tablet cannot join a tailnet (a shared shop iPad on guest wifi,
-for example).
+`kelly tunnel setup <hostname>` above does all of this automatically and is the recommended
+path. Use the manual steps below only if you want to create or route the tunnel yourself (for
+example, reusing a tunnel already managed outside Kelly).
 
 1. Install `cloudflared` on the Mac and create a named tunnel and a DNS route for
    it, following Cloudflare's own tunnel setup for your account. Kelly does not

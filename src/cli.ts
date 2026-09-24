@@ -543,7 +543,24 @@ async function main(): Promise<void> {
       if (sub === "status") print(runtime.tunnel.status());
       else if (sub === "start") print(await runtime.startTunnel());
       else if (sub === "stop") { await runtime.tunnel.stop(); print(runtime.tunnel.status()); }
-      else throw new Error("Usage: henry tunnel status|start|stop");
+      else if (sub === "setup") {
+        // `kelly tunnel setup <hostname> [--name kelly-test]` puts Kelly on the owner's own
+        // Cloudflare domain; `kelly tunnel setup --status` reports readiness without changing
+        // anything. See src/remote/cloudflare-setup.ts.
+        const setupArgs = args.slice(2);
+        const { runCloudflareTunnelSetup, runCloudflareTunnelStatus, createDefaultCloudflareSetupDeps } = await import("./remote/cloudflare-setup.ts");
+        const deps = createDefaultCloudflareSetupDeps();
+        if (setupArgs.includes("--status")) {
+          await runCloudflareTunnelStatus(deps);
+        } else {
+          const hostname = setupArgs[0] && !setupArgs[0].startsWith("--") ? setupArgs[0] : undefined;
+          if (!hostname) throw new Error("Usage: kelly tunnel setup <hostname> [--name kelly-test]");
+          const nameIndex = setupArgs.indexOf("--name");
+          const name = nameIndex >= 0 ? setupArgs[nameIndex + 1] : undefined;
+          await runCloudflareTunnelSetup(hostname, { name }, deps);
+        }
+      }
+      else throw new Error("Usage: henry tunnel status|start|stop|setup");
     } else if (command === "users") {
       // --demo boutique|electrical targets the same data dir `kelly start --demo --trade <t>`
       // resolves (bin/start.mjs), so the owner can create the demo's own accounts. Auth storage
