@@ -174,3 +174,62 @@ English prompts exactly.
   `docs/architecture.md`'s reflex lane) is the other lever that doesn't
   require a faster or lighter model at all — it just needs more turns to
   qualify for the existing fast lane.
+
+## Tier A/B (2026-09-24)
+
+Following the fix above, `voice.counterTier` ("auto" | "t0" | "t1", default `"auto"`) lets an
+admin opt a voice/counter turn into Codex's cheap `t0` dispatch (`CODEX_T0_MODEL`, `gpt-5.5`)
+instead of whatever `routeIntentTier` would otherwise pick (`t1`, `gpt-5.6-sol`, low reasoning,
+for this prompt). `/api/chat/send` only reads the setting for `voice:true` turns; a non-voice
+turn is unaffected, and `"auto"` leaves today's routing untouched.
+
+Measured with `scripts/talk-bench.mjs --base http://127.0.0.1:7397 --runs 2 --prompts boutique`
+against the same throwaway `--demo --trade boutique` instance as above (owner's live demo on
+7338/8765 untouched the whole time), once with `--tier t1` and once with `--tier t0` (the script
+sets `voice.counterTier` via `POST /api/voice/settings` before each run and restores the
+previous value — `"auto"` — after).
+
+The two gallery-browse prompts are fastpath turns that never call a model either way, so tier
+has no effect on them (their `done ms` differences run-to-run are STT/Kokoro TTS noise, not the
+tier change — see medians below). The quote turn is the one this lever targets:
+
+```
+"how much for two salwar suits with lining, my own fabric, needed by Friday" (medians, n=2)
+tier | stt ms | 1st token ms | 1st spoken ms | done ms | tts 1st frame ms | tts total ms | total ms
+t1   | 2460   | 18361         | 17909         | 24652   | 7082              | 12169        | 27450
+t0   | 2057   | 9906          | 14998         | 16647   | 3061              | 3061         | 20116
+```
+
+`done ms` dropped from 24652 to 16647 (~32% faster), and `total ms` (customer-stops-speaking to
+Kelly's-voice-starts-answering) from 27450 to 20116 — t0 is faster on every column, consistent
+with `docs/talk-latency.md`'s existing finding that the model call dominates this turn's latency.
+
+**Correctness verdict: t0's quote did NOT match t1's.** Both runs' transcripts were identical
+("how much for two salwar suits with lining, my own fabric, needed by Friday", WER 0.00 on
+every run) and both runs' quotes were read from `data/demo-boutique/data/commerce.db`'s `quotes`
+table (`complete: true` on every one):
+
+- **t1** (both runs, `run.completed` `tier:"t1" model:"gpt-5.6-sol"`): 2 × `SUIT-LINING`
+  (₹1,700 + 5% GST = ₹1,785) **plus** `URGENT-48H` (the Friday delivery surcharge, ₹400 + 5% GST
+  = ₹420) — `subtotalPaise: 210000, taxPaise: 10500, totalPaise: 220500` on both runs, identical.
+- **t0** (both runs, `run.completed` `tier:"t0" model:"gpt-5.5"`): 2 × `SUIT-LINING` only — the
+  `URGENT-48H` line is **missing** from both runs — `subtotalPaise: 170000, taxPaise: 8500,
+  totalPaise: 178500`, i.e. ₹42,000 short of t1's total (in paise: 220500 vs 178500).
+
+`t0`'s cheaper/faster model read "needed by Friday" but never applied Kelly's urgent-delivery
+surcharge rule that `t1` (`gpt-5.6-sol`) correctly reasoned about, on both t0 runs — not a
+one-off miss. This matches the UI's own warning text ("fast answers sooner; check quotes before
+trusting it"): `t0` is a real latency win but is NOT a safe default for pricing/quote turns in
+this trade pack as configured today. `voice.counterTier` therefore ships opt-in and defaulting to
+`"auto"` (unchanged routing) is the right default; an operator who turns on `t0` for the counter
+should treat every quote it produces as needing a human glance before it is read out as final,
+exactly as the pane's help text says.
+
+### Decision (2026-09-24)
+
+The fast tier is not offered on the Switchboard. On this quote prompt it left out the urgent
+delivery surcharge on both runs (₹1,785 instead of ₹2,205), and a quicker wrong price is worse
+at a counter than a slow right one. `voice.counterTier` stays as a setting (and `KELLY_COUNTER_TIER`)
+so `scripts/talk-bench.mjs --tier t0` can re-test it when models or the prompt change; the default
+remains `auto`. The waiting time on quote turns is covered for now by the spoken acknowledgement
+and the holding phrase.

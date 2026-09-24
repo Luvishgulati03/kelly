@@ -7,6 +7,11 @@
 // Usage:
 //   node scripts/talk-bench.mjs --base http://127.0.0.1:7397 [--token <dashboard token>]
 //     [--runs 3] [--prompts default|boutique|electrical] [--json out.json]
+//     [--tier auto|t0|t1]
+//
+// `--tier` sets `voice.counterTier` via POST /api/voice/settings before the run (see
+// docs/talk-latency.md's "Tier A/B" section) and restores whatever value was there before,
+// once the run finishes (success or failure).
 //
 // Never point this at the owner's real demo (ports 7338/8765) or a production
 // Kelly instance without an explicit, approved reason.
@@ -19,7 +24,7 @@ import path from "node:path";
 // ---------------------------------------------------------------------------
 
 function parseArgs(argv) {
-  const args = { base: "http://127.0.0.1:7338", runs: 3, prompts: "default", json: undefined, token: undefined };
+  const args = { base: "http://127.0.0.1:7338", runs: 3, prompts: "default", json: undefined, token: undefined, tier: undefined };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === "--base") args.base = argv[++i];
@@ -27,6 +32,7 @@ function parseArgs(argv) {
     else if (arg === "--runs") args.runs = Number(argv[++i]) || 1;
     else if (arg === "--prompts") args.prompts = argv[++i];
     else if (arg === "--json") args.json = argv[++i];
+    else if (arg === "--tier") args.tier = argv[++i];
     else if (arg === "--help") { args.help = true; }
   }
   return args;
@@ -460,37 +466,75 @@ function printTable(prompt, runs) {
 }
 
 // ---------------------------------------------------------------------------
+// voice.counterTier: read/set via /api/voice/settings for --tier
+// ---------------------------------------------------------------------------
+
+async function getVoiceSettings(base, token) {
+  const response = await fetch(`${base}/api/voice/settings`, { headers: authHeaders(token) });
+  if (!response.ok) throw new Error(`/api/voice/settings -> ${response.status} ${await response.text().catch(() => "")}`);
+  const json = await response.json();
+  return json.settings;
+}
+
+async function setCounterTier(base, token, counterTier) {
+  const { json } = await postJson(base, token, "/api/voice/settings", { counterTier });
+  if (json.error) throw new Error(`Could not set voice.counterTier: ${json.error}`);
+  return json.settings;
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
-    console.log("node scripts/talk-bench.mjs --base http://127.0.0.1:7397 [--token <dashboard token>] [--runs 3] [--prompts default|boutique|electrical] [--json out.json]");
+    console.log("node scripts/talk-bench.mjs --base http://127.0.0.1:7397 [--token <dashboard token>] [--runs 3] [--prompts default|boutique|electrical] [--json out.json] [--tier auto|t0|t1]");
     return;
   }
   const prompts = PROMPT_SETS[args.prompts];
   if (!prompts) throw new Error(`Unknown --prompts value: ${args.prompts} (use default, boutique, or electrical)`);
+  if (args.tier !== undefined && !["auto", "t0", "t1"].includes(args.tier)) {
+    throw new Error(`Unknown --tier value: ${args.tier} (use auto, t0, or t1)`);
+  }
 
   const shotsDir = path.join(process.cwd(), "data", ".tmp-shots");
   await mkdir(shotsDir, { recursive: true }).catch(() => undefined);
 
-  console.log(`talk-bench: base=${args.base} runs=${args.runs} prompts=${args.prompts} auth=${args.token ? "token" : "loopback-bypass"}`);
-
-  const results = {};
-  for (const prompt of prompts) {
-    const runs = [];
-    for (let i = 0; i < args.runs; i += 1) {
-      const run = await benchOnce(args.base, args.token, prompt, { shotsDir });
-      runs.push(run);
-    }
-    const medians = printTable(prompt, runs);
-    results[prompt] = { runs, medians };
+  // --tier sets voice.counterTier for the duration of this run only; the previous value is
+  // restored afterward (success or failure) so a benchmark run never leaves the demo instance
+  // in a different state than it found it.
+  let previousCounterTier;
+  if (args.tier !== undefined) {
+    const before = await getVoiceSettings(args.base, args.token);
+    previousCounterTier = before.counterTier;
+    await setCounterTier(args.base, args.token, args.tier);
   }
 
-  if (args.json) {
-    await writeFile(args.json, JSON.stringify(results, null, 2), "utf8");
-    console.log(`\nWrote ${args.json}`);
+  console.log(`talk-bench: base=${args.base} runs=${args.runs} prompts=${args.prompts} tier=${args.tier ?? "unset"} auth=${args.token ? "token" : "loopback-bypass"}`);
+
+  try {
+    const results = {};
+    for (const prompt of prompts) {
+      const runs = [];
+      for (let i = 0; i < args.runs; i += 1) {
+        const run = await benchOnce(args.base, args.token, prompt, { shotsDir });
+        runs.push(run);
+      }
+      const medians = printTable(prompt, runs);
+      results[prompt] = { runs, medians };
+    }
+
+    if (args.json) {
+      await writeFile(args.json, JSON.stringify({ tier: args.tier ?? null, results }, null, 2), "utf8");
+      console.log(`\nWrote ${args.json}`);
+    }
+  } finally {
+    if (previousCounterTier !== undefined) {
+      await setCounterTier(args.base, args.token, previousCounterTier).catch((error) => {
+        console.error(`talk-bench: could not restore voice.counterTier to "${previousCounterTier}": ${error.message}`);
+      });
+    }
   }
 }
 

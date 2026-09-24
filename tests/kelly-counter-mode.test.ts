@@ -8,6 +8,7 @@ import { HenryRuntime } from "../src/runtime.ts";
 import { startDashboard } from "../src/dashboard/server.ts";
 import { createUser, resetLoginThrottleForTests } from "../src/dashboard/auth.ts";
 import { readVoiceSettings, updateVoiceSettings, VOICE_SETTINGS_DEFAULTS } from "../src/voice/transcripts.ts";
+import type { RunOptions } from "../src/providers/runner.ts";
 import { splitSentences } from "../src/voice/speakable.ts";
 
 /**
@@ -51,6 +52,32 @@ test("voice.counterMode defaults to review, validates input, and KELLY_COUNTER_M
   assert.equal(savedWithOverrideActive.counterMode, "conversation");
   const raw = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as { voice: { counterMode: string } };
   assert.equal(raw.voice.counterMode, "conversation");
+});
+
+test("voice.counterTier defaults to auto, validates input, and KELLY_COUNTER_TIER overrides a valid read", () => {
+  const root = tempDir("kelly-counter-tier-settings-");
+  const settingsPath = path.join(root, "settings.json");
+
+  assert.equal(readVoiceSettings(settingsPath).counterTier, "auto");
+  assert.equal(VOICE_SETTINGS_DEFAULTS.counterTier, "auto");
+
+  const updated = updateVoiceSettings(settingsPath, { counterTier: "t0" });
+  assert.equal(updated.counterTier, "t0");
+  assert.equal(readVoiceSettings(settingsPath).counterTier, "t0", "persisted through settings.json");
+
+  // Invalid input is ignored, not stored.
+  const rejected = updateVoiceSettings(settingsPath, { counterTier: "t9" as unknown as "t0" });
+  assert.equal(rejected.counterTier, "t0", "an invalid patch value leaves the persisted tier untouched");
+
+  // A valid env override wins over whatever is persisted, for this read only.
+  assert.equal(readVoiceSettings(settingsPath, { KELLY_COUNTER_TIER: "t1" }).counterTier, "t1");
+  // An invalid env override is ignored; the persisted value applies.
+  assert.equal(readVoiceSettings(settingsPath, { KELLY_COUNTER_TIER: "t9" }).counterTier, "t0");
+  // The override never gets baked into what a later save persists.
+  const savedWithOverrideActive = updateVoiceSettings(settingsPath, { retentionDays: 45 });
+  assert.equal(savedWithOverrideActive.counterTier, "t0");
+  const raw2 = JSON.parse(fs.readFileSync(settingsPath, "utf8")) as { voice: { counterTier: string } };
+  assert.equal(raw2.voice.counterTier, "t0");
 });
 
 /* ------------------------------------------------------------------ *
@@ -338,6 +365,48 @@ test("chat/send falls back to plain token streaming when a voice reply does not 
     const events = parseSse(await response.text());
     assert.ok(!events.some((e) => e.event === "spoken"), "no fence, so no early spoken event");
     assert.ok(events.some((e) => e.event === "token" && (e.data as { text: string }).text.includes("Sure, here is the answer")));
+  });
+});
+
+/* ------------------------------------------------------------------ *
+ * voice.counterTier forwarded (or not) as RunOptions.tier
+ * ------------------------------------------------------------------ */
+
+test("a voice turn with counterTier t0 passes tier:\"t0\" to the agent run; auto passes no tier; a non-voice turn never reads the setting", async () => {
+  await withVoiceDashboard(async (base, runtime) => {
+    const auth = { authorization: "Bearer counter-voice-test-token" };
+    const seenOptions: RunOptions[] = [];
+    (runtime.agent as unknown as { run: unknown }).run = async (_prompt: string, options?: RunOptions) => {
+      seenOptions.push(options ?? {});
+      return { runId: "tier-capture", provider: "codex", exitCode: 0, durationMs: 1, events: [], response: "```spoken\nOk.\n```\nOk." };
+    };
+
+    updateVoiceSettings(runtime.config.settingsPath, { counterTier: "t0" });
+    await fetch(`${base}/api/chat/send`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "how much for two salwar suits with lining", voice: true }),
+    }).then((r) => r.text());
+    assert.equal(seenOptions.length, 1);
+    assert.equal(seenOptions[0].tier, "t0", "a voice turn with counterTier t0 pins the run to tier t0");
+
+    updateVoiceSettings(runtime.config.settingsPath, { counterTier: "auto" });
+    await fetch(`${base}/api/chat/send`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "how much for two salwar suits with lining, take two", voice: true }),
+    }).then((r) => r.text());
+    assert.equal(seenOptions.length, 2);
+    assert.equal(seenOptions[1].tier, undefined, "counterTier auto never sets a tier — routing is unchanged");
+
+    updateVoiceSettings(runtime.config.settingsPath, { counterTier: "t1" });
+    await fetch(`${base}/api/chat/send`, {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ prompt: "how much for two salwar suits with lining, take three" }),
+    }).then((r) => r.text());
+    assert.equal(seenOptions.length, 3);
+    assert.equal(seenOptions[2].tier, undefined, "a non-voice turn never reads voice.counterTier");
   });
 });
 

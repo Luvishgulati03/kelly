@@ -47,11 +47,28 @@ export function isCounterMode(value: unknown): value is CounterMode {
   return value === "review" || value === "conversation" || value === "talk";
 }
 
+/**
+ * `counterTier` opts a voice/counter turn into a faster Codex dispatch tier (see
+ * `DispatchTier`/`resolveProviderRoute` in `src/providers/runner.ts`). "auto" (default) leaves
+ * today's routing untouched — `src/agent/henry.ts` picks the tier itself
+ * (`options.tier ?? routeIntentTier(prompt)`). "t0"/"t1" pin a voice turn's tier explicitly, the
+ * same way a caller can already pin `RunOptions.tier`. It is a durable setting
+ * (`voice.counterTier` in `data/settings.json`), with `KELLY_COUNTER_TIER` as a process-level
+ * override — set, valid, and it wins over whatever is persisted; set and invalid, it is ignored
+ * and the persisted/default value applies instead. Non-voice turns never read this setting.
+ */
+export type CounterTier = "auto" | "t0" | "t1";
+
+export function isCounterTier(value: unknown): value is CounterTier {
+  return value === "auto" || value === "t0" || value === "t1";
+}
+
 export interface VoiceSettings {
   retentionDays: number;
   recordAudio: boolean;
   audioRetentionDays: number;
   counterMode: CounterMode;
+  counterTier: CounterTier;
 }
 
 export const VOICE_SETTINGS_DEFAULTS: Readonly<VoiceSettings> = Object.freeze({
@@ -59,6 +76,7 @@ export const VOICE_SETTINGS_DEFAULTS: Readonly<VoiceSettings> = Object.freeze({
   recordAudio: false,
   audioRetentionDays: 7,
   counterMode: "review",
+  counterTier: "auto",
 });
 
 const RETENTION_RANGE = { min: 1, max: 365 };
@@ -81,6 +99,7 @@ function readPersistedVoiceSettings(settingsPath: string): VoiceSettings {
     recordAudio: record.recordAudio === true,
     audioRetentionDays: clampDays(record.audioRetentionDays, VOICE_SETTINGS_DEFAULTS.audioRetentionDays, AUDIO_RETENTION_RANGE),
     counterMode: isCounterMode(record.counterMode) ? record.counterMode : VOICE_SETTINGS_DEFAULTS.counterMode,
+    counterTier: isCounterTier(record.counterTier) ? record.counterTier : VOICE_SETTINGS_DEFAULTS.counterTier,
   };
 }
 
@@ -91,9 +110,11 @@ function readPersistedVoiceSettings(settingsPath: string): VoiceSettings {
 export function readVoiceSettings(settingsPath: string, env: NodeJS.ProcessEnv = process.env): VoiceSettings {
   const persisted = readPersistedVoiceSettings(settingsPath);
   const envOverride = env.KELLY_COUNTER_MODE;
+  const tierOverride = env.KELLY_COUNTER_TIER;
   return {
     ...persisted,
     counterMode: isCounterMode(envOverride) ? envOverride : persisted.counterMode,
+    counterTier: isCounterTier(tierOverride) ? tierOverride : persisted.counterTier,
   };
 }
 
@@ -108,6 +129,7 @@ export function updateVoiceSettings(settingsPath: string, patch: Partial<VoiceSe
     recordAudio: patch.recordAudio === undefined ? current.recordAudio : patch.recordAudio === true,
     audioRetentionDays: patch.audioRetentionDays === undefined ? current.audioRetentionDays : clampDays(patch.audioRetentionDays, current.audioRetentionDays, AUDIO_RETENTION_RANGE),
     counterMode: patch.counterMode === undefined ? current.counterMode : isCounterMode(patch.counterMode) ? patch.counterMode : current.counterMode,
+    counterTier: patch.counterTier === undefined ? current.counterTier : isCounterTier(patch.counterTier) ? patch.counterTier : current.counterTier,
   };
   updateSettings(settingsPath, { voice: next });
   return readVoiceSettings(settingsPath);

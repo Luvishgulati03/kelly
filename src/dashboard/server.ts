@@ -17,7 +17,7 @@ import { domainPolicy, setDomainEnabled } from "../knowledge/gate.ts";
 import { executeExplicitApproval } from "../approval/explicit.ts";
 import { LocalVoiceService, VoiceError, voiceConfigFromEnv, type VoiceLanguage } from "../voice/index.ts";
 import { createSpokenFenceFilter, extractQuoteIdFromReply, speakableSummary, splitSentences, stripForSpeech, stripSpokenBlock } from "../voice/speakable.ts";
-import { isCounterMode, isTranscriptState, isTranscriptSurface, readVoiceSettings, updateVoiceSettings } from "../voice/transcripts.ts";
+import { isCounterMode, isCounterTier, isTranscriptState, isTranscriptSurface, readVoiceSettings, updateVoiceSettings } from "../voice/transcripts.ts";
 // Roman Hinglish conversion is intentionally retained but disabled. Native Whisper output
 // is clearer for the owner and safer for brands, measurements, and model identifiers.
 // import { toRomanHinglish } from "../voice/roman.ts";
@@ -1197,6 +1197,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           ...(typeof input.recordAudio === "boolean" ? { recordAudio: input.recordAudio } : {}),
           ...(typeof input.audioRetentionDays === "number" ? { audioRetentionDays: input.audioRetentionDays } : {}),
           ...(isCounterMode(input.counterMode) ? { counterMode: input.counterMode } : {}),
+          ...(isCounterTier(input.counterTier) ? { counterTier: input.counterTier } : {}),
         });
         // "Recording off" must mean nothing on disk, not just nothing new.
         const discarded = before.recordAudio && !settings.recordAudio ? runtime.voiceTranscripts.discardAllAudio() : 0;
@@ -1599,12 +1600,18 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
               const visible = spokenFilter ? spokenFilter.push(raw) : raw;
               if (visible.trim()) sseWrite(response, "token", { text: visible.endsWith("\n") ? visible : `${visible}\n` });
             };
+            // Opt-in faster tier for voice/counter turns (docs/talk-latency.md): "auto" (the
+            // default) leaves routing exactly as it was — options.tier stays unset and
+            // src/agent/henry.ts picks the tier itself. A non-voice turn never reads this
+            // setting at all, so nothing here changes for chat.html.
+            const counterTier = voiceMode ? readVoiceSettings(runtime.config.settingsPath).counterTier : "auto";
             // Same surface-session model as the REPL, one surface PER CONVERSATION:
             // provider-side context persists across messages in a thread and never
             // bleeds between threads.
             const runOptions = {
                 surface: conversation.surface,
                 catalogueQuery: prompt,
+                ...(voiceMode && counterTier !== "auto" ? { tier: counterTier } : {}),
                 // Claude's stream-json carries a top-level `text` per token (handled by
                 // `emitToken` above, unchanged). Codex's `--json` JSONL never has that; its
                 // agent text is nested as `{"type":"item.completed","item":{"type":

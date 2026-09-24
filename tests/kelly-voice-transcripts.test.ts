@@ -40,11 +40,11 @@ function storeIn(root: string): { store: VoiceTranscriptStore; settingsPath: str
 test("voice settings default to 60 days of text and no recording", () => {
   const root = tempDir("kelly-vs-");
   const settingsPath = path.join(root, "settings.json");
-  assert.deepEqual(readVoiceSettings(settingsPath), { retentionDays: 60, recordAudio: false, audioRetentionDays: 7, counterMode: "review" });
+  assert.deepEqual(readVoiceSettings(settingsPath), { retentionDays: 60, recordAudio: false, audioRetentionDays: 7, counterMode: "review", counterTier: "auto" });
   assert.deepEqual(readVoiceSettings(settingsPath), VOICE_SETTINGS_DEFAULTS);
 
   const updated = updateVoiceSettings(settingsPath, { recordAudio: true, retentionDays: 90 });
-  assert.deepEqual(updated, { retentionDays: 90, recordAudio: true, audioRetentionDays: 7, counterMode: "review" });
+  assert.deepEqual(updated, { retentionDays: 90, recordAudio: true, audioRetentionDays: 7, counterMode: "review", counterTier: "auto" });
   assert.deepEqual(readVoiceSettings(settingsPath), updated, "persisted through settings.json");
 
   const clamped = updateVoiceSettings(settingsPath, { retentionDays: 9999, audioRetentionDays: 0 });
@@ -342,7 +342,7 @@ test("dashboard serves transcript history, settings, and usage, and never leaks 
     assert.equal(missingAudio.status, 404, "no recording is kept, so none is served");
 
     const changed = await (await fetch(`${base}/api/voice/settings`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ recordAudio: true, retentionDays: 30 }) })).json() as { settings: { retentionDays: number; recordAudio: boolean } };
-    assert.deepEqual(changed.settings, { retentionDays: 30, recordAudio: true, audioRetentionDays: 7, counterMode: "review" });
+    assert.deepEqual(changed.settings, { retentionDays: 30, recordAudio: true, audioRetentionDays: 7, counterMode: "review", counterTier: "auto" });
 
     const usage = await (await fetch(`${base}/api/usage`)).json() as { windowDays: number; days: unknown[]; limits: Record<string, unknown>; today: { runs: number } };
     assert.equal(usage.windowDays, 7);
