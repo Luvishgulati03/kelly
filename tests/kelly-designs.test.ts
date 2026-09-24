@@ -243,13 +243,16 @@ test("parseDesignsBlock reads a fenced JSON array, a {ids:[...]} object, and a D
 async function withBoutiqueDashboard(run: (base: string, runtime: HenryRuntime) => Promise<void>): Promise<void> {
   const savedTrade = process.env.KELLY_TRADE;
   const savedDataDir = process.env.HENRY_DATA_DIR;
+  const savedKellyDataDir = process.env.KELLY_DATA_DIR;
   process.env.KELLY_TRADE = "boutique";
   setActiveProfile("kelly");
   const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-designs-dashboard-"));
-  // auth.ts's user store is keyed off HENRY_DATA_DIR directly (not the runtime config), so
-  // each dashboard instance needs its own value to avoid "user already exists" collisions
-  // across tests in the same process (see tests/kelly-remote-auth.test.ts's own harness).
+  // auth.ts's user store is keyed off the active profile's DATA_DIR variable (KELLY_DATA_DIR
+  // here, then HENRY_DATA_DIR), not the runtime config, so each dashboard instance needs its
+  // own value to avoid "user already exists" collisions across tests in the same process
+  // (see tests/kelly-remote-auth.test.ts's own harness).
   process.env.HENRY_DATA_DIR = path.join(tempRoot, "data");
+  process.env.KELLY_DATA_DIR = path.join(tempRoot, "data");
   const runtime = await HenryRuntime.create(tempRoot);
   runtime.config.port = 0;
   runtime.config.host = "127.0.0.1";
@@ -268,6 +271,7 @@ async function withBoutiqueDashboard(run: (base: string, runtime: HenryRuntime) 
     runtime.close();
     if (savedTrade === undefined) delete process.env.KELLY_TRADE; else process.env.KELLY_TRADE = savedTrade;
     if (savedDataDir === undefined) delete process.env.HENRY_DATA_DIR; else process.env.HENRY_DATA_DIR = savedDataDir;
+    if (savedKellyDataDir === undefined) delete process.env.KELLY_DATA_DIR; else process.env.KELLY_DATA_DIR = savedKellyDataDir;
   }
 }
 

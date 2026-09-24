@@ -13,34 +13,40 @@ test("dashboard exposes local health and status APIs", async () => {
   runtime.config.port = 0;
   const server = startDashboard(runtime);
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-  const base = `http://127.0.0.1:${address.port}`;
-  const health = await (await fetch(`${base}/api/health`)).json() as { ok: boolean };
-  const status = await (await fetch(`${base}/api/status`)).json() as { name: string; user: string };
-  const tracesResponse = await fetch(`${base}/api/engram/traces?limit=999`);
-  const traces = await tracesResponse.json() as { available: boolean; traces?: unknown[] };
-  const observatory = await (await fetch(`${base}/memory`)).text();
-  assert.equal(health.ok, true);
-  assert.equal(status.name, "Henry");
-  assert.equal(status.user, "Luvish");
-  assert.equal(tracesResponse.status, 200);
-  assert.equal(traces.available, true);
-  assert.match(observatory, /context traces/);
-  assert.match(observatory, /<details class='hmn-trace-row'>/);
-  const traceRendererStart = observatory.indexOf("function renderRecallTraces");
-  const traceRendererEnd = observatory.indexOf("function refreshRecallTraces");
-  assert.ok(traceRendererStart >= 0 && traceRendererEnd > traceRendererStart);
-  const traceRenderer = observatory.slice(traceRendererStart, traceRendererEnd);
-  assert.match(traceRenderer, /memory\.score/);
-  assert.match(traceRenderer, /memory\.why/);
-  assert.match(traceRenderer, /memory\.source/);
-  assert.match(traceRenderer, /memory\.outcome/);
-  assert.doesNotMatch(traceRenderer, /memory\.content|trace\.query/);
-  const crossOrigin = await fetch(`${base}/api/ask`, { method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: JSON.stringify({ prompt: "hello" }) });
-  assert.equal(crossOrigin.status, 403);
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  runtime.close();
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
+    const health = await (await fetch(`${base}/api/health`)).json() as { ok: boolean };
+    const status = await (await fetch(`${base}/api/status`)).json() as { name: string; user: string };
+    const tracesResponse = await fetch(`${base}/api/engram/traces?limit=999`);
+    const traces = await tracesResponse.json() as { available: boolean; traces?: unknown[] };
+    const observatory = await (await fetch(`${base}/memory`)).text();
+    assert.equal(health.ok, true);
+    assert.equal(status.name, "Henry");
+    assert.equal(status.user, "Luvish");
+    assert.equal(tracesResponse.status, 200);
+    assert.equal(traces.available, true);
+    assert.match(observatory, /context traces/);
+    assert.match(observatory, /<details class='hmn-trace-row'>/);
+    const traceRendererStart = observatory.indexOf("function renderRecallTraces");
+    const traceRendererEnd = observatory.indexOf("function refreshRecallTraces");
+    assert.ok(traceRendererStart >= 0 && traceRendererEnd > traceRendererStart);
+    const traceRenderer = observatory.slice(traceRendererStart, traceRendererEnd);
+    assert.match(traceRenderer, /memory\.score/);
+    assert.match(traceRenderer, /memory\.why/);
+    assert.match(traceRenderer, /memory\.source/);
+    assert.match(traceRenderer, /memory\.outcome/);
+    assert.doesNotMatch(traceRenderer, /memory\.content|trace\.query/);
+    const crossOrigin = await fetch(`${base}/api/ask`, { method: "POST", headers: { origin: "https://evil.example", "content-type": "application/json" }, body: JSON.stringify({ prompt: "hello" }) });
+    assert.equal(crossOrigin.status, 403);
+  } finally {
+    // A failed assertion must still tear down: an open server or SSE stream keeps
+    // this test file's process alive forever (the suite then hangs instead of failing).
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    runtime.close();
+  }
 });
 
 test("web chat: page serves, SSE send streams tokens, transcript persists, clear resets", async () => {
@@ -60,37 +66,43 @@ test("web chat: page serves, SSE send streams tokens, transcript persists, clear
 
   const server = startDashboard(runtime);
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
 
-  const page = await fetch(`${base}/chat`);
-  assert.equal(page.status, 200);
-  assert.match(await page.text(), /Message Henry/);
+    const page = await fetch(`${base}/chat`);
+    assert.equal(page.status, 200);
+    assert.match(await page.text(), /Message Henry/);
 
-  const send = await fetch(`${base}/api/chat/send`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "hi" }),
-  });
-  assert.equal(send.status, 200);
-  assert.match(send.headers.get("content-type") || "", /text\/event-stream/);
-  const stream = await send.text();
-  assert.match(stream, /event: token/);
-  assert.match(stream, /Hello /);
-  assert.match(stream, /event: done/);
-  assert.match(stream, /Hello Luvish!/);
+    const send = await fetch(`${base}/api/chat/send`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt: "hi" }),
+    });
+    assert.equal(send.status, 200);
+    assert.match(send.headers.get("content-type") || "", /text\/event-stream/);
+    const stream = await send.text();
+    assert.match(stream, /event: token/);
+    assert.match(stream, /Hello /);
+    assert.match(stream, /event: done/);
+    assert.match(stream, /Hello Luvish!/);
 
-  const history = await (await fetch(`${base}/api/chat/history`)).json() as { messages: Array<{ role: string; text: string }> };
-  assert.equal(history.messages.length, 2, "user + henry messages must persist");
-  assert.equal(history.messages[0].role, "user");
-  assert.equal(history.messages[1].text, "Hello Luvish!");
+    const history = await (await fetch(`${base}/api/chat/history`)).json() as { messages: Array<{ role: string; text: string }> };
+    assert.equal(history.messages.length, 2, "user + henry messages must persist");
+    assert.equal(history.messages[0].role, "user");
+    assert.equal(history.messages[1].text, "Hello Luvish!");
 
-  const clear = await fetch(`${base}/api/chat/clear`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-  assert.equal(clear.status, 200);
-  const cleared = await (await fetch(`${base}/api/chat/history`)).json() as { messages: unknown[] };
-  assert.equal(cleared.messages.length, 0);
+    const clear = await fetch(`${base}/api/chat/clear`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    assert.equal(clear.status, 200);
+    const cleared = await (await fetch(`${base}/api/chat/history`)).json() as { messages: unknown[] };
+    assert.equal(cleared.messages.length, 0);
 
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  runtime.close();
+  } finally {
+    // A failed assertion must still tear down: an open server or SSE stream keeps
+    // this test file's process alive forever (the suite then hangs instead of failing).
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    runtime.close();
+  }
 });
 
 test("web chat: deep research acknowledges before Luna streams the report", async () => {
@@ -132,6 +144,7 @@ test("web chat: deep research acknowledges before Luna streams the report", asyn
       "Sourced report.",
     ]);
   } finally {
+    server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     runtime.close();
   }
@@ -186,6 +199,7 @@ test("web chat: shared reflex bypasses providers and limited runs never become e
     assert.equal(afterDelegated.messages.at(-1)?.role, "user");
     assert.ok(!afterDelegated.messages.some((message) => message.text === "Started — I'll report back."), "limited delegated work must not leave a stale acknowledgement in history");
   } finally {
+    server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     runtime.close();
   }
@@ -244,6 +258,7 @@ test("web chat: same-conversation delegated research serializes", async () => {
       "report:2",
     ]);
   } finally {
+    server.closeAllConnections();
     await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
     runtime.close();
   }
@@ -260,26 +275,32 @@ test("logs page serves and /api/logs returns the activity journal newest-first",
 
   const server = startDashboard(runtime);
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-  const base = `http://127.0.0.1:${address.port}`;
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
 
-  const page = await fetch(`${base}/logs`);
-  assert.equal(page.status, 200);
-  assert.match(page.url, /\/#logs$|\/$/, "the log is a pane of the switchboard; /logs lands on it");
-  const pageText = await page.text();
-  assert.match(pageText, /switchboard/);
-  assert.match(pageText, /data-f="telegram"/);
-  assert.match(pageText, /id="pane-logs"/);
+    const page = await fetch(`${base}/logs`);
+    assert.equal(page.status, 200);
+    assert.match(page.url, /\/#logs$|\/$/, "the log is a pane of the switchboard; /logs lands on it");
+    const pageText = await page.text();
+    assert.match(pageText, /switchboard/);
+    assert.match(pageText, /data-f="telegram"/);
+    assert.match(pageText, /id="pane-logs"/);
 
-  const logs = await (await fetch(`${base}/api/logs?limit=50`)).json() as { events: Array<{ kind: string; message: string }> };
-  assert.ok(logs.events.length >= 2);
-  const kinds = logs.events.map((event) => event.kind);
-  assert.ok(kinds.includes("memory.saved") && kinds.includes("run.failed"));
-  assert.equal(logs.events[0].message, "second event", "newest first");
+    const logs = await (await fetch(`${base}/api/logs?limit=50`)).json() as { events: Array<{ kind: string; message: string }> };
+    assert.ok(logs.events.length >= 2);
+    const kinds = logs.events.map((event) => event.kind);
+    assert.ok(kinds.includes("memory.saved") && kinds.includes("run.failed"));
+    assert.equal(logs.events[0].message, "second event", "newest first");
 
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  runtime.close();
+  } finally {
+    // A failed assertion must still tear down: an open server or SSE stream keeps
+    // this test file's process alive forever (the suite then hangs instead of failing).
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    runtime.close();
+  }
 });
 
 test("web chat races: same-conversation provider sessions serialize, both replies persist, and clear rejects late replies", async () => {
@@ -298,50 +319,56 @@ test("web chat races: same-conversation provider sessions serialize, both replie
 
   const server = startDashboard(runtime);
   await new Promise<void>((resolve) => server.once("listening", () => resolve()));
-  const address = server.address();
-  assert.ok(address && typeof address !== "string");
-  const base = `http://127.0.0.1:${address.port}`;
-  const send = (prompt: string): Promise<Response> => fetch(`${base}/api/chat/send`, {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }),
-  });
-  const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-  const waitForGates = async (count: number): Promise<void> => {
-    const deadline = Date.now() + 5_000;
-    while (gates.size < count && Date.now() < deadline) await sleep(10);
-    assert.equal(gates.size, count, `${count} send(s) should be blocked in flight`);
-  };
+  try {
+    const address = server.address();
+    assert.ok(address && typeof address !== "string");
+    const base = `http://127.0.0.1:${address.port}`;
+    const send = (prompt: string): Promise<Response> => fetch(`${base}/api/chat/send`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ prompt }),
+    });
+    const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+    const waitForGates = async (count: number): Promise<void> => {
+      const deadline = Date.now() + 5_000;
+      while (gates.size < count && Date.now() < deadline) await sleep(10);
+      assert.equal(gates.size, count, `${count} send(s) should be blocked in flight`);
+    };
 
-  // Same-conversation sends must not concurrently resume one provider session.
-  const alpha = send("alpha");
-  const beta = send("beta");
-  await waitForGates(1);
-  assert.equal(gates.has("beta"), false, "the second turn waits outside the shared provider session");
-  gates.get("alpha")!();
-  await waitForGates(2);
-  gates.get("beta")!();
-  await Promise.all([alpha, beta].map(async (pending) => (await pending).text()));
-  const history = await (await fetch(`${base}/api/chat/history`)).json() as { messages: Array<{ role: string; text: string }> };
-  assert.equal(history.messages.filter((m) => m.role === "henry").length, 2, "neither overlapping reply may be dropped by the other's write");
-  assert.equal(history.messages.length, 4);
-  assert.deepEqual(history.messages.map((message) => `${message.role}:${message.text}`), [
-    "user:alpha",
-    "henry:reply:alpha",
-    "user:beta",
-    "henry:reply:beta",
-  ]);
+    // Same-conversation sends must not concurrently resume one provider session.
+    const alpha = send("alpha");
+    const beta = send("beta");
+    await waitForGates(1);
+    assert.equal(gates.has("beta"), false, "the second turn waits outside the shared provider session");
+    gates.get("alpha")!();
+    await waitForGates(2);
+    gates.get("beta")!();
+    await Promise.all([alpha, beta].map(async (pending) => (await pending).text()));
+    const history = await (await fetch(`${base}/api/chat/history`)).json() as { messages: Array<{ role: string; text: string }> };
+    assert.equal(history.messages.filter((m) => m.role === "henry").length, 2, "neither overlapping reply may be dropped by the other's write");
+    assert.equal(history.messages.length, 4);
+    assert.deepEqual(history.messages.map((message) => `${message.role}:${message.text}`), [
+      "user:alpha",
+      "henry:reply:alpha",
+      "user:beta",
+      "henry:reply:beta",
+    ]);
 
-  // Clear while a send is still running: its reply must not reappear afterwards.
-  gates.clear();
-  const gamma = send("gamma");
-  await waitForGates(1);
-  await fetch(`${base}/api/chat/clear`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-  gates.get("gamma")!();
-  await (await gamma).text();
-  const after = await (await fetch(`${base}/api/chat/history`)).json() as { messages: unknown[] };
-  assert.equal(after.messages.length, 0, "a reply that finishes after clear must not resurrect into the fresh transcript");
+    // Clear while a send is still running: its reply must not reappear afterwards.
+    gates.clear();
+    const gamma = send("gamma");
+    await waitForGates(1);
+    await fetch(`${base}/api/chat/clear`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    gates.get("gamma")!();
+    await (await gamma).text();
+    const after = await (await fetch(`${base}/api/chat/history`)).json() as { messages: unknown[] };
+    assert.equal(after.messages.length, 0, "a reply that finishes after clear must not resurrect into the fresh transcript");
 
-  await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-  runtime.close();
+  } finally {
+    // A failed assertion must still tear down: an open server or SSE stream keeps
+    // this test file's process alive forever (the suite then hangs instead of failing).
+    server.closeAllConnections();
+    await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
+    runtime.close();
+  }
 });
 
 test("dispatch registry: /api/dispatch records an agent, /api/agents returns the contract shape, and /api/events streams an agent event", async () => {

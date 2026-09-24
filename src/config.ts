@@ -10,6 +10,10 @@ import { parseTradeId, tradePack, type TradeId } from "./trade/index.ts";
 // - Kelly: uses ~/.kelly state by default, does NOT load Henry's .env
 // This ensures Kelly can coexist with Henry without cross-talk.
 function loadProfileEnv(): void {
+  // Test isolation (tests/isolate.mjs): the owner's repo/cwd .env must never reach a test
+  // process. dotenv only fills variables that are unset, so a test that deletes e.g.
+  // KELLY_TUNNEL before the first loadConfig() would otherwise get the owner's value back.
+  if (process.env.HENRY_TEST_ISOLATION === "1") return;
   const profile = getActiveProfile();
   if (profile.id === "henry") {
     // Henry's historic behavior: repo .env + cwd .env
