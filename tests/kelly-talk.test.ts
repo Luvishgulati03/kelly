@@ -9,6 +9,7 @@ import { startDashboard } from "../src/dashboard/server.ts";
 import { createUser, resetLoginThrottleForTests } from "../src/dashboard/auth.ts";
 import { updateVoiceSettings, isCounterMode } from "../src/voice/transcripts.ts";
 import { summarizeUsage } from "../src/dashboard/usage.ts";
+import { tradePack } from "../src/trade/index.ts";
 
 /**
  * KELLY TALK (backend), behind `voice.counterMode: "talk"`.
@@ -228,9 +229,20 @@ test("greeting: synthesises once, serves audio/wav, and is served from the disk 
       const callsAfterSecond = Number(fs.readFileSync(countPath, "utf8"));
       assert.equal(callsAfterSecond, callsAfterFirst, "a second request is served from the in-memory cache, no new synthesis");
 
+      // Holding phrases: served like the greeting, the variant index wraps around the pack's list.
+      const filler = await fetch(`${first.base}/api/voice/filler?v=0`, { headers: { cookie } });
+      assert.equal(filler.status, 200);
+      assert.equal(filler.headers.get("content-type"), "audio/wav");
+      const fillerBytes = Buffer.from(await filler.arrayBuffer());
+      const wrapped = await fetch(`${first.base}/api/voice/filler?v=${tradePack("electrical").fillers.length}`, { headers: { cookie } });
+      assert.equal(wrapped.status, 200);
+      assert.deepEqual(Buffer.from(await wrapped.arrayBuffer()), fillerBytes, "v wraps to the first filler");
+      const junk = await fetch(`${first.base}/api/voice/filler?v=not-a-number`, { headers: { cookie } });
+      assert.equal(junk.status, 200, "a malformed variant falls back to the first filler");
+
       const cacheDir = path.join(tempRoot, "data", "voice", "cache");
       const files = fs.readdirSync(cacheDir).filter((f) => f.endsWith(".wav"));
-      assert.ok(files.length >= 1, "a .wav file was written to the disk cache");
+      assert.equal(files.length, 2 + tradePack("electrical").fillers.length, "greeting, reprompt and every filler are cached on disk");
     } finally {
       await first.close();
     }

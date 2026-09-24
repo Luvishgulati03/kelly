@@ -24,6 +24,9 @@ export interface TradePack {
   greeting: string;
   /** Kelly Talk "still there?" re-prompt, spoken after a period of silence. */
   reprompt: string;
+  /** Kelly Talk holding phrases, spoken once a model turn has kept the customer waiting a
+   *  couple of seconds, so the silence reads as work rather than a dead tablet. Rotated. */
+  fillers: string[];
   /** Fields Kelly must know before pricing. */
   quoteIntake: string[];
   galleryCategories: string[];

@@ -79,22 +79,41 @@ when the mode is `"talk"`, or via `?page=talk` while previewing in `"review"`). 
 per tap of the orb: greet, listen, reply (spoken + typed captions behind `?captions=1`),
 listen again — no further tap until the customer presses to end it.
 
-- **Greeting / reprompt audio** — `GET /api/voice/greeting` and `GET /api/voice/reprompt`
+- **Greeting / reprompt / filler audio** — `GET /api/voice/greeting`, `GET /api/voice/reprompt` and `GET /api/voice/filler?v=N`
   synthesise each trade's fixed phrase (`<shop>` substituted from `config.shopName`) **once
   per process** and cache the WAV bytes in memory and on disk under
   `<dataDir>/voice/cache/<sha256 of the text>.wav`, so a restart is instant. Both routes 404
   with a JSON body when TTS is disabled. Both are warmed best-effort at dashboard startup,
   immediately after the existing Kokoro "Ready." warm-up, logging `voice.tts.warm` with
   `{kind: "greeting" | "reprompt", ms}`.
-- **Speech detection** — Silero VAD (`@ricky0123/vad-web` + `onnxruntime-web`, served from
-  `/vendor/vad/*`, see below) when it loads, with the page's own energy-level VAD as the
-  automatic fallback if the bundle 404s or `MicVAD` fails to initialise. Thresholds: 0.55
-  speech-start / 0.35 speech-end (Silero), or a 0.12 RMS energy threshold with a 250 ms
-  minimum speech run and a 700 ms (1400 ms after 4 s of talking) end-of-turn silence window
-  for the energy fallback. A 25 s hard cap ends any one utterance; an 8 s silence after a
-  reply re-prompts ("Still there?"); a further 15 s of silence ends the session with a chime.
-  Playback and capture are half-duplex — a press on the orb while Kelly is speaking
-  interrupts her and returns to listening immediately.
+- **Speech detection** — Silero VAD v5 (`@ricky0123/vad-web` 0.0.31 + `onnxruntime-web`, served
+  from `/vendor/vad/*`, see below), with the page's own energy-level VAD as the automatic
+  fallback if the bundle 404s or `MicVAD` fails to initialise. Silero is handed the session's
+  one microphone stream (`getStream`/`resumeStream` return it, `pauseStream` is a no-op, it
+  shares the meter's `AudioContext`), because the library's defaults would open a second
+  microphone and stop the tracks on pause. It runs only while listening and is paused while
+  Kelly speaks (half-duplex). Its timing is in milliseconds in this version: `minSpeechMs`
+  250, `preSpeechPadMs` 300, `redemptionMs` 700, switched to 1400 mid-utterance once the person
+  has talked for 4 s (`setOptions`); the 25 s hard cap submits the speech so far by pausing
+  with `submitUserSpeechOnPause`. Thresholds 0.55 speech-start / 0.35 speech-end. The energy
+  fallback uses a 0.12 RMS threshold with the same 250 ms / 700 ms / 1400 ms / 25 s rules.
+  An 8 s silence re-prompts ("Still there?"); a further 15 s ends the session with a chime.
+  A press on the orb while Kelly is speaking interrupts her and returns to listening.
+- **One conversation per session** — each press creates a conversation (`POST
+  /api/conversations`, titled "Talk HH:MM") and every turn of that session carries its
+  `conversationId`, so one customer's order never answers the next customer's question.
+- **Holding phrases** — when a model turn keeps the customer waiting 2.5 s, the page plays one
+  of the trade's `fillers` ("One moment, let me check.") from `GET /api/voice/filler?v=N`
+  (cached exactly like the greeting and warmed at startup), and one more at 14 s. The gallery
+  fast path answers in milliseconds and never hears one. A reply waits for a phrase already
+  playing instead of cutting it off.
+- **Embedded in chat** — `/talk?embed=1&conversationId=<id>&captions=1` joins the owner's open
+  conversation instead of creating one, and posts `{type:"kelly-talk", event:"turn"|"ended",
+  conversationId}` to `window.parent` (same origin only); the chat page's Talk overlay uses it
+  to refresh the thread live.
+- **Dropped from the plan** — ending the turn sooner or later depending on the last word
+  ("aur", "and") needs live partial transcripts; whisper.cpp only transcribes after the person
+  stops, so the rule is not implemented. The 4 s length rule covers the long-request case.
 - **Vendor VAD assets** — `GET /vendor/vad/<name>` serves a fixed allowlist of basenames
   straight from `node_modules` (no copy into `src/`), `cache-control: public, max-age=86400`:
   - from `@ricky0123/vad-web/dist/`: `bundle.min.js`, `vad.worklet.bundle.min.js`,
@@ -110,9 +129,10 @@ listen again — no further tap until the customer presses to end it.
   `talk.session.ended` activity events. `GET /api/usage`'s `talk: {sessions, turns}` and the
   switchboard's Usage pane ("talk sessions: N (M turns)") are rolled up from
   `talk.session.ended`.
-- Still planned: a Silero-side hard cap (today's 25 s cap only fires inside the energy-VAD
-  path), tuning the thresholds above against real shop-floor audio, and the quotation PDF
-  (unrelated, tracked separately in `context.md`).
+- Still planned: tuning the thresholds above against real shop-floor audio (no published
+  Hindi or Hinglish numbers exist; these are general defaults made more conservative), voice
+  barge-in (today only a press interrupts), and the quotation PDF (tracked in `context.md`).
+  Latency per stage is measured by `scripts/talk-bench.mjs` (see `docs/talk-latency.md`).
 
 ## APIs
 

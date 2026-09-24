@@ -10,6 +10,7 @@ export const boutiqueTradePack: TradePack = {
   accent: { copper: "#c86b85", copper2: "#f0a3b8", dim: "rgba(200,107,133,.16)" },
   greeting: "Namaste, welcome to <shop>. Boliye, what can I show you today?",
   reprompt: "I am here. What would you like to see or get stitched?",
+  fillers: ["One moment, let me check.", "Ek second, checking the rate card.", "Just a moment, almost there."],
   promptBlock: [
     "You are the counter assistant of a ladies' boutique. Customers ask for stitching quotations (suits or salwar kameez, blouses, lehengas, sarees fall and pico, kurtis, gowns, dupattas) and to see designs.",
     "Before pricing, know the garment, the work type (plain, lining, embroidery, hand work), the fabric source (customer's own fabric or fabric from the shop), the quantity, and the delivery date. Ask ONE short question for whatever is missing.",

@@ -474,8 +474,14 @@ async function engramTraces(runtime: HenryRuntime, limit: number): Promise<{ ava
 // (a different `<shop>` string) simply gets its own cache entry rather than serving stale audio.
 const ttsPromptCache = new Map<string, Buffer>();
 
-function talkPromptText(kind: "greeting" | "reprompt", runtime: HenryRuntime): string {
-  const template = kind === "greeting" ? runtime.trade.greeting : runtime.trade.reprompt;
+type TalkPromptKind = "greeting" | "reprompt" | "filler";
+
+/** The fixed phrases Kelly Talk plays. `variant` picks a filler (rotated by the page). */
+function talkPromptText(kind: TalkPromptKind, runtime: HenryRuntime, variant = 0): string {
+  const fillers = runtime.trade.fillers.length ? runtime.trade.fillers : ["One moment."];
+  const template = kind === "greeting" ? runtime.trade.greeting
+    : kind === "reprompt" ? runtime.trade.reprompt
+    : fillers[((variant % fillers.length) + fillers.length) % fillers.length];
   return template.replaceAll("<shop>", runtime.config.shopName);
 }
 
@@ -734,7 +740,7 @@ const COUNTER_EXACT_ROUTES = new Set([
   "/chat", "/voice", "/counter", "/talk", "/logout",
   "/api/health", "/api/status", "/api/skills",
   "/api/voice/status", "/api/voice/transcribe", "/api/voice/speak",
-  "/api/voice/greeting", "/api/voice/reprompt", "/api/voice/talk/session",
+  "/api/voice/greeting", "/api/voice/reprompt", "/api/voice/filler", "/api/voice/talk/session",
 ]);
 
 /**
@@ -798,10 +804,11 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
   // startup; a synthesis failure here is not fatal — the first real request just tries (and
   // reports) its own synthesis normally.
   if (voice.ttsEnabled()) {
-    for (const kind of ["greeting", "reprompt"] as const) {
+    const phrases: Array<[TalkPromptKind, number]> = [["greeting", 0], ["reprompt", 0], ...runtime.trade.fillers.map((_, i): [TalkPromptKind, number] => ["filler", i])];
+    for (const [kind, variant] of phrases) {
       const warmStarted = Date.now();
-      void synthesizeCachedPrompt(voice, runtime.config.dataDir, talkPromptText(kind, runtime))
-        .then(() => runtime.activity.record("voice.tts.warm", `Talk ${kind} warmed up`, { voice: true, kind, ms: Date.now() - warmStarted }))
+      void synthesizeCachedPrompt(voice, runtime.config.dataDir, talkPromptText(kind, runtime, variant))
+        .then(() => runtime.activity.record("voice.tts.warm", `Talk ${kind} warmed up`, { voice: true, kind, variant, ms: Date.now() - warmStarted }))
         .catch(() => undefined);
     }
   }
@@ -1198,11 +1205,12 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         json(response, 200, { settings, discarded, pruned, stats: runtime.voiceTranscripts.stats() });
         return;
       }
-      if (request.method === "GET" && (route === "/api/voice/greeting" || route === "/api/voice/reprompt")) {
+      if (request.method === "GET" && (route === "/api/voice/greeting" || route === "/api/voice/reprompt" || route === "/api/voice/filler")) {
         if (!voice.ttsEnabled()) { json(response, 404, { error: "Speech is unavailable." }); return; }
-        const kind = route === "/api/voice/greeting" ? "greeting" : "reprompt";
+        const kind: TalkPromptKind = route === "/api/voice/greeting" ? "greeting" : route === "/api/voice/reprompt" ? "reprompt" : "filler";
+        const variant = Math.max(0, Math.min(99, Number.parseInt(url.searchParams.get("v") ?? "0", 10) || 0));
         try {
-          const audio = await synthesizeCachedPrompt(voice, runtime.config.dataDir, talkPromptText(kind, runtime));
+          const audio = await synthesizeCachedPrompt(voice, runtime.config.dataDir, talkPromptText(kind, runtime, variant));
           response.writeHead(200, { "content-type": "audio/wav", "content-length": audio.length, "cache-control": "private, max-age=3600", "x-content-type-options": "nosniff" });
           response.end(audio);
         } catch (error) {
