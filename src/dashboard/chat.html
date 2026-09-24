@@ -246,6 +246,30 @@
   }
   #jump.show { display: block; }
 
+  /* ---------- talk modal ---------- */
+  #talkModal {
+    border: none; padding: 0; margin: 0; background: transparent; color: var(--text);
+    position: fixed; inset: 0; max-width: 100vw; max-height: 100vh; width: 100%; height: 100%;
+    display: none;
+  }
+  #talkModal[open] { display: flex; align-items: center; justify-content: center; }
+  #talkModal::backdrop { background: rgba(0,0,0,.6); }
+  #talkPanel {
+    width: 100%; height: 100%; background: var(--surface); position: relative;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #talkClose {
+    position: absolute; top: 10px; right: 10px; z-index: 2;
+    width: 30px; height: 30px; border-radius: 50%; border: 1px solid var(--border);
+    background: var(--surface-2); color: var(--text-dim); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1;
+  }
+  #talkClose:hover { color: var(--text); border-color: var(--text-faint); }
+  #talkFrame { flex: 1 1 auto; width: 100%; height: 100%; border: none; background: var(--bg); }
+  @media (min-width: 641px) {
+    #talkPanel { width: 560px; height: 720px; max-width: calc(100vw - 40px); max-height: calc(100vh - 40px); border: 1px solid var(--border); border-radius: 14px; box-shadow: 0 20px 60px rgba(0,0,0,.5); }
+  }
+
   #scroller::-webkit-scrollbar { width: 10px; }
   #scroller::-webkit-scrollbar-thumb { background: var(--border); border-radius: 8px; border: 2px solid var(--bg); }
   @media (max-width: 760px) {
@@ -282,6 +306,12 @@
   <div class="header-right">
     <a href="/" class="chip">Switchboard</a>
     <a href="/talk" class="chip" id="openTalk" title="Hands-free voice counter">Talk</a>
+    <dialog id="talkModal" aria-label="Talk">
+      <div id="talkPanel">
+        <button id="talkClose" aria-label="Close talk" title="Close talk">✕</button>
+        <iframe id="talkFrame" allow="microphone; autoplay" title="Talk"></iframe>
+      </div>
+    </dialog>
     <span class="chip" id="provider">…</span>
     <a class="btn" href="/" title="Mission control">Dashboard</a>
   </div>
@@ -333,6 +363,10 @@
   var composerTop = document.getElementById("composertop");
   var attachBtn = document.getElementById("attach");
   var filePicker = document.getElementById("filepicker");
+  var openTalk = document.getElementById("openTalk");
+  var talkModal = document.getElementById("talkModal");
+  var talkClose = document.getElementById("talkClose");
+  var talkFrame = document.getElementById("talkFrame");
   var streaming = false;
   var aborter = null;
 
@@ -988,6 +1022,43 @@
 
   newchat.addEventListener("click", function () { if (!streaming) createConversation(); });
   toggleSide.addEventListener("click", function () { sidebar.classList.toggle("collapsed"); });
+
+  /* ---------- talk modal ---------- */
+  function talkSrc() {
+    var src = "/talk?embed=1&captions=1";
+    if (activeId) src += "&conversationId=" + encodeURIComponent(activeId);
+    return src;
+  }
+  function openTalkModal() {
+    talkFrame.src = talkSrc();
+    if (typeof talkModal.showModal === "function") talkModal.showModal();
+    else talkModal.setAttribute("open", "");
+  }
+  function closeTalkModal() {
+    if (!talkModal.open) return;
+    talkModal.close();
+    talkFrame.src = "about:blank";
+    refreshAfterTalk();
+  }
+  function refreshAfterTalk() {
+    if (activeId) openConversation(activeId);
+    loadConversations();
+  }
+  openTalk.addEventListener("click", function (event) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    openTalkModal();
+  });
+  talkClose.addEventListener("click", closeTalkModal);
+  talkModal.addEventListener("cancel", function (event) { event.preventDefault(); closeTalkModal(); });
+  window.addEventListener("message", function (event) {
+    if (event.origin !== location.origin) return;
+    var data = event.data;
+    if (!data || data.type !== "kelly-talk") return;
+    if (data.event !== "turn" && data.event !== "ended") return;
+    if (data.conversationId) activeId = data.conversationId;
+    refreshAfterTalk();
+  });
 
   /* ---------- agent activity strip (display only — no dispatch control) ---------- */
   var agentsById = {};
