@@ -39,6 +39,8 @@ export interface RunResult {
   stdout: string;
   stderr: string;
   exitCode: number | null;
+  /** true when the command was killed because it exceeded runTimeoutMs (see TunnelDeps). */
+  timedOut?: boolean;
 }
 
 export interface TunnelDeps {
@@ -48,6 +50,13 @@ export interface TunnelDeps {
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   hasAdminAccount: () => boolean;
+  /**
+   * Milliseconds before a tunnel command (tailscale serve/funnel/status, stop) is treated as
+   * hung and aborted. Defaults to TUNNEL_RUN_TIMEOUT_MS. Needed because a freshly installed
+   * Tailscale.app whose Network Extension is still "activated waiting for user" approval makes
+   * every CLI call block forever with no error, and no output.
+   */
+  runTimeoutMs?: number;
 }
 
 const TAILSCALE_HEALTH_INTERVAL_MS = 30_000;
@@ -57,6 +66,13 @@ const STOP_GRACE_MS = 5_000;
 const CONSECUTIVE_FAILURE_THRESHOLD = 3;
 const MAX_MESSAGE_LEN = 240;
 const MAX_BUFFER_LEN = 4_000;
+/** Default ceiling for a single tunnel command before it's treated as hung. See TunnelDeps.runTimeoutMs. */
+const TUNNEL_RUN_TIMEOUT_MS = 20_000;
+/** Grace period between SIGTERM and SIGKILL when a spawned tunnel command times out. */
+const RUN_KILL_GRACE_MS = 2_000;
+
+export const TAILSCALE_NOT_RESPONDING_MESSAGE =
+  "Tailscale is installed but not responding. Open the Tailscale app, and if macOS asked, approve its network extension in System Settings > General > Login Items & Extensions > Network Extensions (or Privacy & Security), then sign in from the menu-bar icon and start Kelly again.";
 
 /**
  * Fallback location for the Tailscale CLI on macOS when `tailscale` is not on PATH and
@@ -100,6 +116,7 @@ export class TunnelManager {
   private status_: TunnelStatus;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly now: () => number;
+  private readonly runTimeoutMs: number;
 
   // tailscale / funnel
   private healthLoopPromise?: Promise<void>;
@@ -120,6 +137,7 @@ export class TunnelManager {
     this.status_ = { mode: config.mode, active: false, restarts: 0 };
     this.sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.now = deps.now ?? (() => Date.now());
+    this.runTimeoutMs = deps.runTimeoutMs ?? TUNNEL_RUN_TIMEOUT_MS;
   }
 
   get active(): boolean {
@@ -206,6 +224,92 @@ export class TunnelManager {
     }
   }
 
+  /**
+   * Runs a tailscale/funnel CLI command with a hang guard: this.deps.run when the caller
+   * injected one (raced against runTimeoutMs, since deps.run is an opaque promise this cannot
+   * kill anything itself on timeout), else a direct this.deps.spawn (which can be killed).
+   * Never rejects on a hang; resolves with { timedOut: true } instead, so callers always get
+   * a plain status error rather than sitting forever (see TAILSCALE_NOT_RESPONDING_MESSAGE).
+   */
+  private async execTunnelCommand(cmd: string, args: string[]): Promise<RunResult> {
+    if (this.deps.run) return this.runWithTimeout(this.deps.run(cmd, args));
+    if (this.deps.spawn) return this.spawnWithTimeout(cmd, args);
+    throw new Error("no tunnel command runner configured");
+  }
+
+  private runWithTimeout(promise: Promise<RunResult>): Promise<RunResult> {
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        resolve({ stdout: "", stderr: "", exitCode: null, timedOut: true });
+      }, this.runTimeoutMs);
+      timer.unref?.();
+      promise.then(
+        (result) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          resolve(result);
+        },
+        (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          reject(error as Error);
+        },
+      );
+    });
+  }
+
+  /**
+   * Fallback default runner used when the caller only injected `spawn` (not `run`). Unlike
+   * runWithTimeout, this one actually owns the child process, so a timeout sends SIGTERM and,
+   * if it is still alive after RUN_KILL_GRACE_MS, SIGKILL.
+   */
+  private spawnWithTimeout(cmd: string, args: string[]): Promise<RunResult> {
+    return new Promise((resolve) => {
+      let settled = false;
+      let child: ChildProcess;
+      try {
+        child = this.deps.spawn!(cmd, args, { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+      } catch (error) {
+        resolve({ stdout: "", stderr: errMessage(error), exitCode: null });
+        return;
+      }
+      let stdout = "";
+      let stderr = "";
+      child.stdout?.on("data", (chunk: Buffer | string) => { stdout += String(chunk); });
+      child.stderr?.on("data", (chunk: Buffer | string) => { stderr += String(chunk); });
+      const finish = (exitCode: number | null, timedOut = false): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ stdout, stderr, exitCode, timedOut });
+      };
+      child.once("error", () => finish(null));
+      child.once("close", (code: number | null) => finish(code));
+      const timer = setTimeout(() => {
+        try {
+          child.kill("SIGTERM");
+        } catch {
+          /* process already gone */
+        }
+        const killTimer = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {
+            /* already gone */
+          }
+        }, RUN_KILL_GRACE_MS);
+        killTimer.unref?.();
+        finish(null, true);
+      }, this.runTimeoutMs);
+      timer.unref?.();
+    });
+  }
+
   private async record(kind: ActivityKind, message: string, metadata?: Record<string, unknown>): Promise<void> {
     try {
       await this.activity.record(kind, bounded(message), metadata);
@@ -226,12 +330,14 @@ export class TunnelManager {
   // ---------------------------------------------------------------------
 
   private async startTailscale(): Promise<TunnelStatus> {
-    if (!this.deps.run) return this.fail("no tunnel command runner configured");
+    if (!this.deps.run && !this.deps.spawn) return this.fail("no tunnel command runner configured");
+    let serveResult: RunResult;
     try {
-      await this.deps.run(this.resolvedTailscalePath, ["serve", "--bg", "--https=443", `http://127.0.0.1:${this.config.port}`]);
+      serveResult = await this.execTunnelCommand(this.resolvedTailscalePath, ["serve", "--bg", "--https=443", `http://127.0.0.1:${this.config.port}`]);
     } catch (error) {
       return this.fail(`tailscale serve failed to start: ${errMessage(error)}`);
     }
+    if (serveResult.timedOut) return this.fail(TAILSCALE_NOT_RESPONDING_MESSAGE);
     const ok = await this.refreshTailscaleUrl();
     if (ok) {
       await this.record("remote.started", "Tailscale tunnel is active", { mode: "tailscale", binary: this.status_.binary });
@@ -249,13 +355,14 @@ export class TunnelManager {
    * and prints a one-line reminder that the link is public.
    */
   private async startFunnel(): Promise<TunnelStatus> {
-    if (!this.deps.run) return this.fail("no tunnel command runner configured");
+    if (!this.deps.run && !this.deps.spawn) return this.fail("no tunnel command runner configured");
     let result: RunResult;
     try {
-      result = await this.deps.run(this.resolvedTailscalePath, ["funnel", "--bg", "--https=443", `http://127.0.0.1:${this.config.port}`]);
+      result = await this.execTunnelCommand(this.resolvedTailscalePath, ["funnel", "--bg", "--https=443", `http://127.0.0.1:${this.config.port}`]);
     } catch (error) {
       return this.fail(`tailscale funnel failed to start: ${errMessage(error)}`);
     }
+    if (result.timedOut) return this.fail(TAILSCALE_NOT_RESPONDING_MESSAGE);
     const known = classifyTailscaleFailure(`${result.stdout}\n${result.stderr}`, "funnel");
     if (known) return this.fail(known);
     if (result.exitCode !== 0) {
@@ -274,7 +381,7 @@ export class TunnelManager {
 
   /** Re-reads `tailscale status --json` and derives the https URL from Self.DNSName. Returns whether it succeeded. */
   private async refreshTailscaleUrl(): Promise<boolean> {
-    if (!this.deps.run) {
+    if (!this.deps.run && !this.deps.spawn) {
       this.status_.lastError = "no tunnel command runner configured";
       return false;
     }
@@ -283,9 +390,13 @@ export class TunnelManager {
     // this function's; only the caller knows how many consecutive failures came before it.
     let result: RunResult;
     try {
-      result = await this.deps.run(this.resolvedTailscalePath || this.config.tailscalePath, ["status", "--json"]);
+      result = await this.execTunnelCommand(this.resolvedTailscalePath || this.config.tailscalePath, ["status", "--json"]);
     } catch (error) {
       this.status_.lastError = `could not read tailscale status: ${errMessage(error)}`;
+      return false;
+    }
+    if (result.timedOut) {
+      this.status_.lastError = TAILSCALE_NOT_RESPONDING_MESSAGE;
       return false;
     }
     if (result.exitCode !== 0) {
@@ -343,9 +454,9 @@ export class TunnelManager {
   }
 
   private async stopTailscale(): Promise<void> {
-    if (this.deps.run) {
+    if (this.deps.run || this.deps.spawn) {
       try {
-        await this.deps.run(this.resolvedTailscalePath || this.config.tailscalePath, ["serve", "--https=443", "off"]);
+        await this.execTunnelCommand(this.resolvedTailscalePath || this.config.tailscalePath, ["serve", "--https=443", "off"]);
       } catch {
         /* best effort; the process is going down regardless */
       }
@@ -357,9 +468,9 @@ export class TunnelManager {
   }
 
   private async stopFunnel(): Promise<void> {
-    if (this.deps.run) {
+    if (this.deps.run || this.deps.spawn) {
       try {
-        await this.deps.run(this.resolvedTailscalePath || this.config.tailscalePath, ["funnel", "--https=443", "off"]);
+        await this.execTunnelCommand(this.resolvedTailscalePath || this.config.tailscalePath, ["funnel", "--https=443", "off"]);
       } catch {
         /* best effort; the process is going down regardless */
       }

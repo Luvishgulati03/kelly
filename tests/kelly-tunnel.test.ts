@@ -4,7 +4,7 @@ import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { TunnelManager, type TunnelConfig, type TunnelDeps } from "../src/remote/tunnel.ts";
+import { TunnelManager, TAILSCALE_NOT_RESPONDING_MESSAGE, type TunnelConfig, type TunnelDeps, type RunResult } from "../src/remote/tunnel.ts";
 import type { ActivityLog } from "../src/activity.ts";
 import type { ActivityEvent } from "../src/types.ts";
 import { HenryRuntime } from "../src/runtime.ts";
@@ -33,6 +33,20 @@ async function waitFor(predicate: () => boolean, maxTicks = 2000): Promise<void>
     await new Promise((resolve) => setImmediate(resolve));
   }
   throw new Error("condition not met in time");
+}
+
+/**
+ * Like waitFor, but polls on a real wall-clock interval instead of setImmediate ticks. Needed
+ * for the hang-guard tests below: their timeout uses a real `setTimeout` (independent of the
+ * injectable `sleep`), so a tight setImmediate loop can burn through maxTicks long before the
+ * real timer fires.
+ */
+async function waitForReal(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const start = Date.now();
+  while (!predicate()) {
+    if (Date.now() - start > timeoutMs) throw new Error("condition not met in time");
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
 }
 
 function baseConfig(mode: TunnelConfig["mode"], extra: Partial<TunnelConfig> = {}): TunnelConfig {
@@ -370,6 +384,160 @@ test("cloudflare: status() never contains a token-like string even when stderr h
   const statusJson = JSON.stringify(manager.status());
   assert.ok(!statusJson.includes(secret));
   for (const event of events) assert.ok(!JSON.stringify(event).includes(secret));
+
+  await manager.stop();
+});
+
+// ---------------------------------------------------------------------------
+// hang guard: a Network Extension stuck "activated waiting for user" makes every
+// tailscale CLI call block forever with no output; the runner must time out instead.
+// ---------------------------------------------------------------------------
+
+/** A `run` that never settles, simulating a hung `tailscale` CLI call. */
+function neverResolvingRun(): NonNullable<TunnelDeps["run"]> {
+  return () => new Promise<RunResult>(() => {});
+}
+
+test("hang guard: start() resolves with the not-responding error within a second when the runner never settles", async () => {
+  const { activity, events } = fakeActivityLog();
+  const deps: TunnelDeps = {
+    which: async () => true,
+    run: neverResolvingRun(),
+    hasAdminAccount: () => true,
+    sleep: instantSleep(),
+    runTimeoutMs: 50,
+  };
+  const manager = new TunnelManager(baseConfig("tailscale"), activity, deps);
+  const started = Date.now();
+  const status = await manager.start();
+  const elapsedMs = Date.now() - started;
+  assert.ok(elapsedMs < 1000, `start() took ${elapsedMs}ms, expected well under 1000ms`);
+  assert.equal(status.active, false);
+  assert.equal(status.lastError, TAILSCALE_NOT_RESPONDING_MESSAGE);
+  // record() bounds/truncates long messages (MAX_MESSAGE_LEN); the full sentence lives
+  // untruncated on status().lastError, so the activity log only needs to carry its start.
+  assert.ok(events.some((e) => e.kind === "remote.failed" && TAILSCALE_NOT_RESPONDING_MESSAGE.startsWith(e.message.replace(/\.\.\.$/, ""))));
+  await manager.stop();
+});
+
+test("hang guard: stop() returns without hanging even when the runner never settles", async () => {
+  const { activity } = fakeActivityLog();
+  const deps: TunnelDeps = {
+    which: async () => true,
+    run: neverResolvingRun(),
+    hasAdminAccount: () => true,
+    sleep: instantSleep(),
+    runTimeoutMs: 50,
+  };
+  const manager = new TunnelManager(baseConfig("tailscale"), activity, deps);
+  await manager.start();
+  const started = Date.now();
+  await manager.stop();
+  const elapsedMs = Date.now() - started;
+  assert.ok(elapsedMs < 1000, `stop() took ${elapsedMs}ms, expected well under 1000ms`);
+});
+
+test("hang guard: funnel start() also resolves with the not-responding error when the runner never settles", async () => {
+  const { activity } = fakeActivityLog();
+  const deps: TunnelDeps = {
+    which: async () => true,
+    run: neverResolvingRun(),
+    hasAdminAccount: () => true,
+    sleep: instantSleep(),
+    runTimeoutMs: 50,
+  };
+  const manager = new TunnelManager(baseConfig("funnel"), activity, deps);
+  const status = await manager.start();
+  assert.equal(status.active, false);
+  assert.equal(status.lastError, TAILSCALE_NOT_RESPONDING_MESSAGE);
+  await manager.stop();
+});
+
+test("hang guard: health-loop timeouts don't spam remote.failed every tick, only on the active->inactive transition", async () => {
+  const { activity, events } = fakeActivityLog();
+  const { run } = tailscaleRunMock([tailscaleStatusJson("kellymac.tail1234.ts.net.")]);
+  let statusCalls = 0;
+  const deps: TunnelDeps = {
+    which: async () => true,
+    hasAdminAccount: () => true,
+    sleep: instantSleep(),
+    runTimeoutMs: 50,
+    run: async (cmd, args) => {
+      if (args[0] === "status") {
+        statusCalls++;
+        // First call (the initial connect) succeeds; every health-loop call after that hangs.
+        if (statusCalls === 1) return run(cmd, args);
+        return new Promise<RunResult>(() => {});
+      }
+      return run(cmd, args);
+    },
+  };
+  const manager = new TunnelManager(baseConfig("tailscale"), activity, deps);
+  const status = await manager.start();
+  assert.equal(status.active, true);
+
+  await waitForReal(() => manager.active === false, 5000);
+  await waitForReal(() => statusCalls >= 6, 5000);
+
+  const failedNotResponding = events.filter((e) => e.kind === "remote.failed" && e.message === TAILSCALE_NOT_RESPONDING_MESSAGE);
+  // refreshTailscaleUrl never itself calls record() on a timeout (only status_.lastError is
+  // set); only the health loop's own "three failures in a row" transition does, and only once.
+  assert.equal(failedNotResponding.length, 0);
+  assert.equal(manager.status().lastError, TAILSCALE_NOT_RESPONDING_MESSAGE);
+  const threeInARow = events.filter((e) => e.kind === "remote.failed" && e.message.includes("three times"));
+  assert.equal(threeInARow.length, 1);
+
+  await manager.stop();
+});
+
+// ---------------------------------------------------------------------------
+// hang guard: no `run` injected, only `spawn` (the default-runner fallback) — the timeout
+// must actually kill the hung child process.
+// ---------------------------------------------------------------------------
+
+interface NeverExitingChild extends EventEmitter {
+  stdout: EventEmitter;
+  stderr: EventEmitter;
+  killCalls: string[];
+  kill: (signal?: string) => boolean;
+}
+
+function neverExitingChild(): NeverExitingChild {
+  const child = new EventEmitter() as NeverExitingChild;
+  child.stdout = new EventEmitter();
+  child.stderr = new EventEmitter();
+  child.killCalls = [];
+  // Never emits "close"/"exit"/"error" — simulates a hung tailscale CLI subprocess.
+  child.kill = (signal?: string) => {
+    child.killCalls.push(signal ?? "");
+    return true;
+  };
+  return child;
+}
+
+test("hang guard: with only `spawn` injected (no `run`), a hung command is killed with SIGTERM then SIGKILL", async () => {
+  const { activity } = fakeActivityLog();
+  const spawned: NeverExitingChild[] = [];
+  const deps: TunnelDeps = {
+    which: async () => true,
+    hasAdminAccount: () => true,
+    sleep: instantSleep(),
+    runTimeoutMs: 50,
+    spawn: (() => {
+      const child = neverExitingChild();
+      spawned.push(child);
+      return child;
+    }) as unknown as TunnelDeps["spawn"],
+  };
+  const manager = new TunnelManager(baseConfig("tailscale"), activity, deps);
+  const status = await manager.start();
+  assert.equal(status.active, false);
+  assert.equal(status.lastError, TAILSCALE_NOT_RESPONDING_MESSAGE);
+  assert.equal(spawned.length, 1);
+  assert.equal(spawned[0].killCalls[0], "SIGTERM");
+
+  await waitForReal(() => spawned[0].killCalls.includes("SIGKILL"), 5000);
+  assert.equal(spawned[0].killCalls[1], "SIGKILL");
 
   await manager.stop();
 });
