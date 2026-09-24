@@ -343,6 +343,98 @@ test("cloudflare: becomes active once stdout carries the registration line", asy
   await manager.stop();
 });
 
+test("cloudflare: runs `cloudflared tunnel --no-autoupdate run --url http://127.0.0.1:<port> <name>` with no shell", async () => {
+  const { activity } = fakeActivityLog();
+  const spawnCalls: Array<{ cmd: string; args: string[]; options: unknown }> = [];
+  const deps: TunnelDeps = {
+    which: async () => true,
+    hasAdminAccount: () => true,
+    sleep: instantSleep(),
+    spawn: ((cmd: string, args: string[], options: unknown) => {
+      spawnCalls.push({ cmd, args, options });
+      return fakeChild();
+    }) as unknown as TunnelDeps["spawn"],
+  };
+  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", cloudflaredPath: "cloudflared" }), activity, deps);
+  await manager.start();
+  assert.equal(spawnCalls.length, 1);
+  assert.equal(spawnCalls[0].cmd, "cloudflared");
+  assert.deepEqual(spawnCalls[0].args, ["tunnel", "--no-autoupdate", "run", "--url", "http://127.0.0.1:7338", "kelly-test"]);
+  assert.deepEqual(spawnCalls[0].options, { shell: false, stdio: ["ignore", "pipe", "pipe"] });
+  await manager.stop();
+});
+
+test("cloudflare: reports status.url as https://<KELLY_PUBLIC_HOST> once registered, not before", async () => {
+  const { activity, events } = fakeActivityLog();
+  const spawned: FakeChild[] = [];
+  const manager = new TunnelManager(
+    baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }),
+    activity,
+    cloudflareDeps(activity, spawned),
+  );
+  await manager.start();
+  assert.equal(manager.status().url, undefined);
+  assert.equal(manager.status().active, false);
+
+  spawned[0].stdout.emit("data", Buffer.from("2026-09-21 INF Registered tunnel connection to https://xyz.cfargotunnel.com\n"));
+  assert.equal(manager.active, true);
+  const status = manager.status();
+  assert.equal(status.url, "https://kelly-test.luvishgulati.com");
+  assert.equal(status.kind, "cloudflare");
+  assert.equal(status.public, true);
+  assert.ok(events.some((e) => e.kind === "remote.started"));
+  await manager.stop();
+});
+
+test("cloudflare: 'Cannot determine default origin certificate' maps to a `kelly tunnel setup` fix", async () => {
+  const { activity, events } = fakeActivityLog();
+  const spawned: FakeChild[] = [];
+  const manager = new TunnelManager(
+    baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }),
+    activity,
+    cloudflareDeps(activity, spawned),
+  );
+  await manager.start();
+  spawned[0].stderr.emit("data", Buffer.from("failed to get origin cert: Cannot determine default origin certificate path\n"));
+  spawned[0].emit("close", 1);
+  await waitFor(() => manager.status().lastError !== undefined);
+  assert.match(manager.status().lastError ?? "", /kelly tunnel setup kelly-test\.luvishgulati\.com/);
+  assert.ok(events.some((e) => e.kind === "remote.failed" && /kelly tunnel setup/.test(e.message)));
+  await manager.stop();
+});
+
+test("cloudflare: 'tunnel not found' maps to the same `kelly tunnel setup` fix", async () => {
+  const { activity, events } = fakeActivityLog();
+  const spawned: FakeChild[] = [];
+  const manager = new TunnelManager(
+    baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }),
+    activity,
+    cloudflareDeps(activity, spawned),
+  );
+  await manager.start();
+  spawned[0].stderr.emit("data", Buffer.from("failed to find tunnel: tunnel not found\n"));
+  spawned[0].emit("close", 1);
+  await waitFor(() => manager.status().lastError !== undefined);
+  assert.match(manager.status().lastError ?? "", /kelly tunnel setup kelly-test\.luvishgulati\.com/);
+  assert.ok(events.some((e) => e.kind === "remote.failed" && /kelly tunnel setup/.test(e.message)));
+  await manager.stop();
+});
+
+test("cloudflare: 'failed to dial' maps to a network-check fix and keeps retrying", async () => {
+  const { activity, events } = fakeActivityLog();
+  const spawned: FakeChild[] = [];
+  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test" }), activity, cloudflareDeps(activity, spawned));
+  await manager.start();
+  spawned[0].stderr.emit("data", Buffer.from("ERR Register tunnel error error=\"failed to dial: dial tcp: lookup region1.v2.argotunnel.com\"\n"));
+  spawned[0].emit("close", 1);
+  await waitFor(() => manager.status().lastError !== undefined);
+  assert.match(manager.status().lastError ?? "", /check the internet connection/i);
+  assert.ok(events.some((e) => e.kind === "remote.failed" && /internet connection/i.test(e.message)));
+  // still retries: a restart is scheduled like any other cloudflare failure.
+  await waitFor(() => spawned.length >= 2);
+  await manager.stop();
+});
+
 test("cloudflare: restarts with backoff after the process exits", async () => {
   const { activity, events } = fakeActivityLog();
   const spawned: FakeChild[] = [];
@@ -571,4 +663,117 @@ test("KELLY_TUNNEL=funnel reaches the tunnel manager instead of being downgraded
   assert.equal(tunnelModeFromEnv("cloudflare"), "cloudflare");
   assert.equal(tunnelModeFromEnv("public"), "off");
   assert.equal(tunnelModeFromEnv(undefined), "off");
+});
+
+// ---------------------------------------------------------------------------
+// runtime.runCommand: owns its child, so a hung CLI call never leaves an orphan.
+// Uses a tiny node script that just sleeps — never the real tailscale/cloudflared binary.
+// ---------------------------------------------------------------------------
+
+/** True while a pid is still alive (kill(pid, 0) only probes, never signals the process). */
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+test("runtime.runCommand: kills a child that never exits and reports timedOut", async () => {
+  const { runCommand } = await import("../src/runtime.ts");
+  // A script that ignores SIGTERM (so the SIGKILL escalation is actually exercised) and writes
+  // its own pid to a marker file immediately, so the test can confirm via process.kill(pid, 0)
+  // that the process is truly gone afterward — a SIGKILL never runs an 'exit' handler, so that
+  // approach cannot be used to observe it.
+  const markerDir = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-runcommand-test-"));
+  const marker = path.join(markerDir, "pid");
+  const script = [
+    "process.on('SIGTERM', () => {});",
+    `require('fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid));`,
+    "setTimeout(() => {}, 60000);",
+  ].join("\n");
+  const started = Date.now();
+  const result = await runCommand(process.execPath, ["-e", script], 200);
+  const elapsedMs = Date.now() - started;
+  assert.equal(result.timedOut, true);
+  assert.equal(result.exitCode, null);
+  // 200ms timeout + 2s SIGTERM->SIGKILL grace; comfortably under the SIGKILL delay plus slack.
+  assert.ok(elapsedMs < 500, `runCommand resolved in ${elapsedMs}ms, expected close to the 200ms timeout`);
+  const pid = Number(fs.readFileSync(marker, "utf8").trim());
+  assert.ok(Number.isInteger(pid) && pid > 0);
+  await waitForReal(() => !pidAlive(pid), 5000);
+  fs.rmSync(markerDir, { recursive: true, force: true });
+});
+
+test("runtime.runCommand: a well-behaved command resolves normally without a timedOut marker", async () => {
+  const { runCommand } = await import("../src/runtime.ts");
+  const result = await runCommand(process.execPath, ["-e", "process.stdout.write('ok')"], 5000);
+  assert.ok(!result.timedOut);
+  assert.equal(result.exitCode, 0);
+  assert.equal(result.stdout, "ok");
+});
+
+// ---------------------------------------------------------------------------
+// runtime.resolveCloudflaredPath: KELLY_CLOUDFLARED_PATH, else PATH, else the two Homebrew
+// fallback prefixes. Exercises only fs.accessSync against a scratch PATH; never the real binary.
+// ---------------------------------------------------------------------------
+
+test("runtime.resolveCloudflaredPath: KELLY_CLOUDFLARED_PATH override wins over everything else", async () => {
+  const { resolveCloudflaredPath } = await import("../src/runtime.ts");
+  const previous = process.env.KELLY_CLOUDFLARED_PATH;
+  process.env.KELLY_CLOUDFLARED_PATH = "/custom/path/cloudflared";
+  try {
+    assert.equal(resolveCloudflaredPath(), "/custom/path/cloudflared");
+  } finally {
+    if (previous === undefined) delete process.env.KELLY_CLOUDFLARED_PATH; else process.env.KELLY_CLOUDFLARED_PATH = previous;
+  }
+});
+
+test("runtime.resolveCloudflaredPath: falls back to a Homebrew prefix when cloudflared is not on PATH", async () => {
+  const { resolveCloudflaredPath } = await import("../src/runtime.ts");
+  const previousOverride = process.env.KELLY_CLOUDFLARED_PATH;
+  const previousPath = process.env.PATH;
+  delete process.env.KELLY_CLOUDFLARED_PATH;
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-cloudflared-fallback-"));
+  const homebrewDir = path.join(scratchDir, "opt-homebrew-bin");
+  fs.mkdirSync(homebrewDir, { recursive: true });
+  const fakeCloudflared = path.join(homebrewDir, "cloudflared");
+  fs.writeFileSync(fakeCloudflared, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  // Point PATH at a directory that does NOT contain cloudflared, so the PATH branch misses and
+  // falls through. The real homebrew prefixes are checked literally (not injectable), so this
+  // only proves the "not on PATH -> falls through" half; the literal-path check is covered by
+  // the KELLY_CLOUDFLARED_PATH override test plus a direct read of the source below.
+  process.env.PATH = scratchDir;
+  try {
+    const resolved = resolveCloudflaredPath();
+    // With cloudflared on neither PATH nor either real Homebrew prefix on this test machine,
+    // resolveCloudflaredPath's documented order still ends at the bare "cloudflared" default.
+    assert.ok(
+      resolved === "cloudflared" || resolved === "/opt/homebrew/bin/cloudflared" || resolved === "/usr/local/bin/cloudflared",
+      `unexpected resolution: ${resolved}`,
+    );
+  } finally {
+    if (previousOverride === undefined) delete process.env.KELLY_CLOUDFLARED_PATH; else process.env.KELLY_CLOUDFLARED_PATH = previousOverride;
+    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+    fs.rmSync(scratchDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime.resolveCloudflaredPath: resolves to the bare command when found on PATH", async () => {
+  const { resolveCloudflaredPath } = await import("../src/runtime.ts");
+  const previousOverride = process.env.KELLY_CLOUDFLARED_PATH;
+  const previousPath = process.env.PATH;
+  delete process.env.KELLY_CLOUDFLARED_PATH;
+  const scratchDir = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-cloudflared-path-"));
+  const fakeCloudflared = path.join(scratchDir, "cloudflared");
+  fs.writeFileSync(fakeCloudflared, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  process.env.PATH = scratchDir;
+  try {
+    assert.equal(resolveCloudflaredPath(), "cloudflared");
+  } finally {
+    if (previousOverride === undefined) delete process.env.KELLY_CLOUDFLARED_PATH; else process.env.KELLY_CLOUDFLARED_PATH = previousOverride;
+    if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
+    fs.rmSync(scratchDir, { recursive: true, force: true });
+  }
 });

@@ -1,5 +1,5 @@
 import fs from "node:fs/promises";
-import { constants as fsConstants } from "node:fs";
+import fsSync, { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import type { HenryConfig } from "./config.ts";
@@ -55,8 +55,23 @@ import { voicePrompt } from "./designs/vocabulary.ts";
 import { TunnelManager, type TunnelConfig, type TunnelMode, type TunnelStatus } from "./remote/tunnel.ts";
 import { hasUserWithRole } from "./dashboard/auth.ts";
 
-/** Runs a binary with no shell and captures its output; the default TunnelDeps runner. */
-function runCommand(cmd: string, args: string[]): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+/** Ceiling for a single runCommand() call before its child is treated as hung and killed. */
+const RUN_COMMAND_TIMEOUT_MS = 20_000;
+/** Grace period between SIGTERM and SIGKILL when a runCommand() child times out. */
+const RUN_COMMAND_KILL_GRACE_MS = 2_000;
+
+/**
+ * Runs a binary with no shell and captures its output; the default TunnelDeps runner.
+ *
+ * Owns the child process end-to-end: a call that outlives `timeoutMs` (default 20s) gets
+ * SIGTERM, then SIGKILL after RUN_COMMAND_KILL_GRACE_MS if it is still alive, and the promise
+ * resolves (never rejects) with `timedOut: true`. This exists because TunnelManager can only
+ * race an opaque `deps.run` promise (see tunnel.ts execTunnelCommand) — it never gets a handle
+ * to the child, so it cannot kill anything itself. A hung `tailscale` or `cloudflared` CLI call
+ * (e.g. a Network Extension stuck "activated waiting for user") must never leave an orphan
+ * process running after Kelly gives up on it.
+ */
+export function runCommand(cmd: string, args: string[], timeoutMs = RUN_COMMAND_TIMEOUT_MS): Promise<{ stdout: string; stderr: string; exitCode: number | null; timedOut?: boolean }> {
   return new Promise((resolve, reject) => {
     let child: ReturnType<typeof spawn>;
     try {
@@ -67,10 +82,39 @@ function runCommand(cmd: string, args: string[]): Promise<{ stdout: string; stde
     }
     let stdout = "";
     let stderr = "";
+    let settled = false;
     child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
     child.stderr?.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
-    child.once("error", reject);
-    child.once("close", (code) => resolve({ stdout, stderr, exitCode: code }));
+    const finish = (exitCode: number | null, timedOut = false): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({ stdout, stderr, exitCode, timedOut });
+    };
+    child.once("error", (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.once("close", (code) => finish(code));
+    const timer = setTimeout(() => {
+      try {
+        child.kill("SIGTERM");
+      } catch {
+        /* process already gone */
+      }
+      const killTimer = setTimeout(() => {
+        try {
+          child.kill("SIGKILL");
+        } catch {
+          /* already gone */
+        }
+      }, RUN_COMMAND_KILL_GRACE_MS);
+      killTimer.unref?.();
+      finish(null, true);
+    }, timeoutMs);
+    timer.unref?.();
   });
 }
 
@@ -93,6 +137,38 @@ async function whichBinary(binary: string): Promise<boolean> {
     try { await fs.access(path.join(dir, binary), fsConstants.X_OK); return true; } catch { /* keep looking */ }
   }
   return false;
+}
+
+/**
+ * Fallback locations for the cloudflared CLI on macOS, in order: KELLY_CLOUDFLARED_PATH (an
+ * explicit operator override), else "cloudflared" resolved via PATH, else the two common
+ * Homebrew install prefixes. Needed because the dashboard/launch agent can start with a PATH
+ * that never included Homebrew (e.g. launched from Finder or launchd, not a login shell).
+ * Synchronous and side-effect free: only fs.accessSync checks, never installs anything.
+ */
+const CLOUDFLARED_HOMEBREW_FALLBACKS = ["/opt/homebrew/bin/cloudflared", "/usr/local/bin/cloudflared"];
+
+export function resolveCloudflaredPath(): string {
+  const override = process.env.KELLY_CLOUDFLARED_PATH?.trim();
+  if (override) return override;
+  const dirs = (process.env.PATH || "").split(path.delimiter).filter(Boolean);
+  for (const dir of dirs) {
+    try {
+      fsSync.accessSync(path.join(dir, "cloudflared"), fsSync.constants.X_OK);
+      return "cloudflared";
+    } catch {
+      /* keep looking */
+    }
+  }
+  for (const candidate of CLOUDFLARED_HOMEBREW_FALLBACKS) {
+    try {
+      fsSync.accessSync(candidate, fsSync.constants.X_OK);
+      return candidate;
+    } catch {
+      /* keep looking */
+    }
+  }
+  return "cloudflared";
 }
 
 export function tunnelModeFromEnv(value: string | undefined): TunnelMode {
@@ -588,8 +664,9 @@ export class HenryRuntime {
         mode: tunnelModeFromEnv(process.env.KELLY_TUNNEL),
         port: Number(process.env.KELLY_TUNNEL_PORT) || this.config.port,
         tailscalePath: process.env.KELLY_TAILSCALE_PATH?.trim() || "tailscale",
-        cloudflaredPath: process.env.KELLY_CLOUDFLARED_PATH?.trim() || "cloudflared",
+        cloudflaredPath: resolveCloudflaredPath(),
         cloudflareTunnel: process.env.KELLY_CLOUDFLARE_TUNNEL?.trim() || undefined,
+        publicHost: process.env.KELLY_PUBLIC_HOST?.trim() || undefined,
       };
       this._tunnel = new TunnelManager(tunnelConfig, this.activity, {
         run: runCommand,

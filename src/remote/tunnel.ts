@@ -21,9 +21,9 @@ export interface TunnelStatus {
   restarts: number;
   lastError?: string;
   binary?: string;
-  /** "serve" for tailscale/funnel modes (tailnet-only vs public); undefined for cloudflare/off. */
-  kind?: "serve" | "funnel";
-  /** true only for funnel mode: the link is reachable by anyone, not just tailnet members. */
+  /** "serve"/"funnel" for the tailscale family (tailnet-only vs public); "cloudflare" for cloudflare mode. */
+  kind?: "serve" | "funnel" | "cloudflare";
+  /** true for funnel mode and cloudflare mode: the link is reachable by anyone, not just tailnet members. */
   public?: boolean;
 }
 
@@ -33,6 +33,10 @@ export interface TunnelConfig {
   tailscalePath: string;
   cloudflaredPath: string;
   cloudflareTunnel?: string;
+  /** KELLY_PUBLIC_HOST, e.g. "kelly-test.luvishgulati.com". Cloudflare mode reports this exact
+   *  hostname as status().url once cloudflared confirms a registered connection, instead of
+   *  scraping the CLI's own log line for a hostname. */
+  publicHost?: string;
 }
 
 export interface RunResult {
@@ -110,6 +114,29 @@ function classifyTailscaleFailure(output: string, kind: "serve" | "funnel"): str
   return undefined;
 }
 
+/**
+ * Maps common `cloudflared tunnel run` stderr text to a plain-English sentence with the fix,
+ * instead of surfacing the CLI's own wording. `hostOrTunnel` (KELLY_PUBLIC_HOST, falling back
+ * to the tunnel name) is only used to make the suggested setup command concrete; it never
+ * changes which failure was matched. Returns undefined when nothing known matches, so the
+ * caller falls back to the generic "cloudflared exited (code N)" message.
+ */
+function classifyCloudflareFailure(output: string, hostOrTunnel?: string): string | undefined {
+  const text = output.toLowerCase();
+  if (!text.trim()) return undefined;
+  const setupTarget = hostOrTunnel ?? "<hostname>";
+  if (text.includes("cannot determine default origin certificate") || text.includes("cert.pem")) {
+    return `Cloudflare tunnel is not set up on this Mac yet. Run \`kelly tunnel setup ${setupTarget}\`, then try again.`;
+  }
+  if (text.includes("tunnel not found") || (text.includes("credentials file") && (text.includes("not found") || text.includes("missing") || text.includes("no such file")))) {
+    return `Cloudflare tunnel is not set up on this Mac yet. Run \`kelly tunnel setup ${setupTarget}\`, then try again.`;
+  }
+  if (text.includes("failed to dial") || text.includes("network is unreachable") || text.includes("no such host") || text.includes("connection refused")) {
+    return "Could not reach Cloudflare. Check the internet connection on this Mac; Kelly keeps retrying.";
+  }
+  return undefined;
+}
+
 export class TunnelManager {
   private _active = false;
   private stopped = true;
@@ -128,6 +155,9 @@ export class TunnelManager {
   private cfBuffer = "";
   private cfBackoff = BACKOFF_INITIAL_MS;
   private cfStopping = false;
+  /** Set by onCloudflareOutput when a known failure phrase appears; read by onCloudflareExit
+   *  so the plain-English fix (not the generic "exited (code N)") is what the operator sees. */
+  private cfClassifiedError?: string;
 
   constructor(
     private readonly config: TunnelConfig,
@@ -154,8 +184,8 @@ export class TunnelManager {
       restarts: this.status_.restarts,
       lastError: this._active ? undefined : this.status_.lastError,
       binary: this.status_.binary,
-      kind: tailscaleFamily ? (this.config.mode === "funnel" ? "funnel" : "serve") : undefined,
-      public: this.config.mode === "funnel" ? true : undefined,
+      kind: tailscaleFamily ? (this.config.mode === "funnel" ? "funnel" : "serve") : this.config.mode === "cloudflare" ? "cloudflare" : undefined,
+      public: this.config.mode === "funnel" || this.config.mode === "cloudflare" ? true : undefined,
     };
   }
 
@@ -499,9 +529,20 @@ export class TunnelManager {
       return;
     }
     this.cfBuffer = "";
+    this.cfClassifiedError = undefined;
     let child: ChildProcess;
     try {
-      child = this.deps.spawn(this.config.cloudflaredPath, ["tunnel", "run", this.config.cloudflareTunnel ?? ""], {
+      // --no-autoupdate is a `tunnel` flag, not a `run` flag, so it sits before `run`.
+      // --url means cloudflared needs no ~/.cloudflared/config.yml ingress at all; the named
+      // tunnel (created by `kelly tunnel setup`) already owns the DNS route to this hostname.
+      child = this.deps.spawn(this.config.cloudflaredPath, [
+        "tunnel",
+        "--no-autoupdate",
+        "run",
+        "--url",
+        `http://127.0.0.1:${this.config.port}`,
+        this.config.cloudflareTunnel ?? "",
+      ], {
         shell: false,
         stdio: ["ignore", "pipe", "pipe"],
       });
@@ -523,15 +564,28 @@ export class TunnelManager {
 
   private onCloudflareOutput(chunk: string): void {
     this.cfBuffer = (this.cfBuffer + chunk).slice(-MAX_BUFFER_LEN);
+    if (!this.cfClassifiedError) {
+      const known = classifyCloudflareFailure(this.cfBuffer, this.config.publicHost ?? this.config.cloudflareTunnel);
+      if (known) this.cfClassifiedError = known;
+    }
     if (this._active || !this.cfBuffer.includes("Registered tunnel connection")) return;
     this._active = true;
     this.status_.since = new Date(this.now()).toISOString();
     this.status_.lastError = undefined;
     this.cfBackoff = BACKOFF_INITIAL_MS;
-    // Hostname only, never the surrounding line: a query string or adjacent token in the
-    // same log line must not leak into status/activity metadata.
-    const match = this.cfBuffer.match(/https:\/\/[A-Za-z0-9.-]+/);
-    this.status_.url = match ? match[0] : undefined;
+    this.cfClassifiedError = undefined;
+    // Prefer the operator-declared public hostname (KELLY_PUBLIC_HOST) so the dashboard and the
+    // trusted-origin check agree on the exact domain, e.g. https://kelly-test.luvishgulati.com,
+    // instead of whatever hostname happens to be in the log line (a *.trycloudflare.com quick
+    // tunnel has none of its own). Falls back to scraping the log line when publicHost is unset.
+    if (this.config.publicHost) {
+      this.status_.url = `https://${this.config.publicHost}`;
+    } else {
+      // Hostname only, never the surrounding line: a query string or adjacent token in the
+      // same log line must not leak into status/activity metadata.
+      const match = this.cfBuffer.match(/https:\/\/[A-Za-z0-9.-]+/);
+      this.status_.url = match ? match[0] : undefined;
+    }
     void this.record(
       "remote.started",
       this.status_.url ? "Cloudflare tunnel connected" : "Cloudflare tunnel connected (hostname comes from the Cloudflare config)",
@@ -546,8 +600,11 @@ export class TunnelManager {
       this.cfStopping = false;
       return;
     }
-    this.status_.lastError = `cloudflared exited (code ${String(code)}); reconnecting`;
-    void this.record("remote.failed", `cloudflared exited unexpectedly (code ${String(code)})`, {
+    // A known failure phrase (missing cert, missing tunnel, network) explains itself better
+    // than a bare exit code; fall back to the generic message when nothing matched.
+    const classified = this.cfClassifiedError;
+    this.status_.lastError = classified ?? `cloudflared exited (code ${String(code)}); reconnecting`;
+    void this.record("remote.failed", classified ?? `cloudflared exited unexpectedly (code ${String(code)})`, {
       mode: "cloudflare", binary: this.status_.binary, restarts: this.status_.restarts,
     });
     this.scheduleCloudflareRestart();
