@@ -619,9 +619,93 @@ function wantsHtml(request: http.IncomingMessage): boolean {
   return (request.headers.accept || "").includes("text/html");
 }
 
-function localOrigin(request: http.IncomingMessage): boolean {
+const LOOPBACK_ORIGIN_RE = /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/;
+
+/**
+ * Parses `value` as an https origin and returns it normalized (`https://<host>`, no path,
+ * no trailing slash) — or undefined when it isn't a valid https URL. Used for both the
+ * tunnel-reported URL and `KELLY_PUBLIC_ORIGIN`, so the same exact-match comparison (no
+ * wildcard, no suffix match) applies to either source.
+ */
+function normalizeHttpsOrigin(value: string | undefined | null): string | undefined {
+  if (!value) return undefined;
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:") return undefined;
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The tunnel's current public https origin, straight from `runtime.tunnel.status().url`
+ * (Tailscale Serve/Funnel or cloudflared) — never the request's own Host/X-Forwarded-Host,
+ * which the tunnel side (or anyone in front of it) controls. `status()` throwing, or
+ * reporting no URL (tunnel configured but not yet up), yields no trusted origin: callers
+ * must fail closed, not fall back to trusting the request.
+ */
+function tunnelPublicOrigin(runtime: HenryRuntime): string | undefined {
+  try {
+    return normalizeHttpsOrigin(runtime.tunnel.status().url);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Every https origin this server currently trusts as "the tunnel" for same-origin purposes:
+ * the live tunnel hostname (if any) plus the operator-declared `KELLY_PUBLIC_ORIGIN` (for a
+ * Cloudflare hostname the tunnel's own status never reports). Read fresh per call — no
+ * caching — so a tunnel restart (new hostname) or an env change takes effect immediately.
+ */
+function trustedPublicOrigins(runtime: HenryRuntime): string[] {
+  const origins: string[] = [];
+  const fromTunnel = tunnelPublicOrigin(runtime);
+  if (fromTunnel) origins.push(fromTunnel);
+  const fromEnv = normalizeHttpsOrigin(process.env.KELLY_PUBLIC_ORIGIN);
+  if (fromEnv && !origins.includes(fromEnv)) origins.push(fromEnv);
+  return origins;
+}
+
+/**
+ * CSRF gate for every mutating route (and the sole call site below): same-origin means a
+ * loopback Origin (as before), OR an Origin that is an EXACT match — not a prefix/suffix
+ * match — against one of `trustedPublicOrigins`. `https://evil.ts.net` and
+ * `https://<real-tunnel-host>.evil.com` are both rejected by construction, since neither is
+ * string-equal to the trusted origin. A missing Origin header stays allowed, same as before
+ * (a non-browser client presenting a valid session cookie never sent one).
+ */
+function localOrigin(request: http.IncomingMessage, runtime: HenryRuntime): boolean {
   const origin = request.headers.origin;
-  return !origin || /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(origin);
+  if (!origin) return true;
+  if (LOOPBACK_ORIGIN_RE.test(origin)) return true;
+  return trustedPublicOrigins(runtime).includes(origin);
+}
+
+
+/**
+ * True when this request arrived over the tunnel's public https origin rather than
+ * loopback — decides both the session cookie's `Secure` flag and whether the login
+ * throttle below adds the forwarded-IP dimension. Prefers the Origin header (present on
+ * every fetch/XHR and, in practice, on the login form POST too); falls back to
+ * X-Forwarded-Proto + X-Forwarded-Host (set by Tailscale Serve/Funnel and cloudflared) for
+ * a plain top-level navigation that omitted Origin. Both checks are matched against the
+ * SAME trusted-origin allowlist as localOrigin() above — never the request's own bare Host
+ * header alone.
+ */
+function tunnelRequest(request: http.IncomingMessage, runtime: HenryRuntime): boolean {
+  const trusted = trustedPublicOrigins(runtime);
+  if (trusted.length === 0) return false;
+  const origin = request.headers.origin;
+  if (origin && trusted.includes(origin)) return true;
+  const proto = request.headers["x-forwarded-proto"];
+  const forwardedHost = request.headers["x-forwarded-host"];
+  if (typeof proto === "string" && proto.split(",")[0]?.trim().toLowerCase() === "https" && typeof forwardedHost === "string") {
+    const candidate = normalizeHttpsOrigin(`https://${forwardedHost.split(",")[0]?.trim()}`);
+    if (candidate && trusted.includes(candidate)) return true;
+  }
+  return false;
 }
 
 function loopback(host: string): boolean { return host === "127.0.0.1" || host === "localhost" || host === "::1" || host === "[::1]"; }
@@ -830,10 +914,17 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       }
       // The counter role (shop tablet) only ever reaches chat and counter voice: it reads
       // no approvals, changes no settings, and sees no owner transcript history — only the
-      // routes chat.html and voice.html actually call. GET / and /index.html send it
-      // straight to /chat instead of the mission-control dashboard it cannot use.
+      // routes chat.html, voice.html, counter.html and talk.html actually call. GET / and
+      // /index.html send it to its counter home instead of mission control.
       if (!publicPath && user && user.role !== "admin") {
-        if (request.method === "GET" && (route === "/" || url.pathname === "/index.html")) { redirect(response, "/chat"); return; }
+        if (request.method === "GET" && (route === "/" || url.pathname === "/index.html")) {
+          // The counter's home follows the owner's counter mode: the hands-free Talk page, the
+          // conversation page, or chat (review). Login lands on "/", so this also decides
+          // where a counter login ends up.
+          const mode = readVoiceSettings(runtime.config.settingsPath).counterMode;
+          redirect(response, mode === "talk" ? "/talk" : mode === "conversation" ? "/counter" : "/chat");
+          return;
+        }
         // Designs is read-only for the counter role: GET list/image/thumb, never the
         // owner's write routes (POST/PATCH/DELETE stay admin-only, same as everywhere else).
         const designsWrite = route.startsWith("/api/designs") && request.method !== "GET";
@@ -851,7 +942,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       }
       if (request.method === "GET" && route === "/logout") {
         endSession(request.headers.cookie);
-        redirect(response, "/login", { "set-cookie": clearedSessionCookie() });
+        redirect(response, "/login", { "set-cookie": clearedSessionCookie({ secure: tunnelRequest(request, runtime) }) });
         return;
       }
       if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
@@ -1182,7 +1273,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         return;
       }
 
-      if (!localOrigin(request)) { json(response, 403, { error: "cross-origin request rejected" }); return; }
+      if (!localOrigin(request, runtime)) { json(response, 403, { error: "cross-origin request rejected" }); return; }
       // Below the CSRF line with every other mutating route: the login form posts
       // same-origin, so the localOrigin check above is exactly the protection it wants.
       if (request.method === "GET" && route === "/api/voice/settings") {
@@ -1376,6 +1467,8 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         const form = await formBody(request);
         const username = (form.get("username") || "").trim();
         const password = form.get("password") || "";
+        // Locked by username alone (see throttleKey in auth.ts): behind a tunnel the peer is
+        // always 127.0.0.1 and a forwarded client IP is client-controlled, so neither is used.
         const lockedSeconds = loginLockedFor(username);
         if (lockedSeconds > 0) {
           const minutes = Math.max(1, Math.ceil(lockedSeconds / 60));
@@ -1402,9 +1495,11 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
           return;
         }
         clearLoginFailures(username);
-        // Both dashboard roles land on "/" — admin gets mission control, counter is bounced
-        // straight to /chat by the auth gate above on the next request.
-        redirect(response, "/", { "set-cookie": issueSession(account).cookie });
+        // Both dashboard roles land on "/" — admin gets mission control, counter is sent to
+        // its home by the auth gate above (Talk, the conversation page, or chat by mode). Secure is set only
+        // when this login actually arrived over the tunnel's public https origin — local
+        // http://127.0.0.1 keeps working with a non-Secure cookie.
+        redirect(response, "/", { "set-cookie": issueSession(account, { secure: tunnelRequest(request, runtime) }).cookie });
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/settings/provider") {

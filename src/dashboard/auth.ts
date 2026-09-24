@@ -285,8 +285,14 @@ export function verifyLogin(username: string, password: string): SessionUser | u
   return passwordMatches(password, row) ? toSessionUser(row) : undefined;
 }
 
-/** Mints a session row and returns the Set-Cookie value for it. */
-export function issueSession(user: SessionUser): { cookie: string } {
+/**
+ * Mints a session row and returns the Set-Cookie value for it. `secure` (default false) adds
+ * the `Secure` attribute — server.ts sets it true only when the login actually arrived over
+ * the tunnel's public https origin, so the cookie is never sent back over plain http from the
+ * public side; local http://127.0.0.1 access keeps getting a non-Secure cookie, since Secure
+ * would otherwise make the browser drop it there.
+ */
+export function issueSession(user: SessionUser, opts: { secure?: boolean } = {}): { cookie: string } {
   const token = crypto.randomBytes(TOKEN_BYTES).toString("hex");
   const now = Date.now();
   db().prepare("INSERT INTO sessions (tokenHash, userId, expiresAt, createdAt) VALUES (?, ?, ?, ?)").run(
@@ -296,7 +302,8 @@ export function issueSession(user: SessionUser): { cookie: string } {
     new Date(now).toISOString(),
   );
   const maxAge = Math.floor(SESSION_TTL_MS / 1000);
-  return { cookie: `${SESSION_COOKIE}=${token}.${signToken(token)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${maxAge}` };
+  const secure = opts.secure ? "; Secure" : "";
+  return { cookie: `${SESSION_COOKIE}=${token}.${signToken(token)}; HttpOnly; SameSite=Lax${secure}; Path=/; Max-Age=${maxAge}` };
 }
 
 /** Resolves the caller from their cookie: HMAC first, then the database. Expired rows are purged on the way past, and a live session slides forward 7 days. */
@@ -341,9 +348,10 @@ export function endSession(cookieHeader: string | undefined): void {
   db().prepare("DELETE FROM sessions WHERE tokenHash = ?").run(hashToken(token));
 }
 
-/** Set-Cookie value that expires the session cookie in the browser. */
-export function clearedSessionCookie(): string {
-  return `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0`;
+/** Set-Cookie value that expires the session cookie in the browser. Same `secure` contract as issueSession above. */
+export function clearedSessionCookie(opts: { secure?: boolean } = {}): string {
+  const secure = opts.secure ? "; Secure" : "";
+  return `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax${secure}; Path=/; Max-Age=0`;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,6 +376,13 @@ interface LoginThrottleState {
 
 const loginThrottle = new Map<string, LoginThrottleState>();
 
+/**
+ * The throttle is keyed by username alone, whatever the client address. Behind a tunnel every
+ * request's socket peer is 127.0.0.1, and the forwarded client IP (X-Forwarded-For) can be set
+ * by the client itself, so neither may take part in the key: a per-IP key would let anyone try
+ * unlimited passwords by rotating a fake header. The cost is that five bad attempts lock that
+ * one account for the window, never any other account.
+ */
 function throttleKey(username: string): string {
   return username.trim().toLowerCase();
 }
@@ -375,7 +390,7 @@ function throttleKey(username: string): string {
 /** Records one bad password attempt. The 5th failure inside the window locks the account. */
 export function recordLoginFailure(username: string): void {
   const key = throttleKey(username);
-  if (!key) return;
+  if (!username.trim()) return;
   const now = Date.now();
   const state = loginThrottle.get(key) ?? { failures: [] };
   state.failures = state.failures.filter((at) => now - at < LOGIN_FAILURE_WINDOW_MS);
@@ -389,14 +404,14 @@ export function recordLoginFailure(username: string): void {
 
 /** Called on a successful login — a real login clears the failure count for that username. */
 export function clearLoginFailures(username: string): void {
-  const key = throttleKey(username);
-  if (key) loginThrottle.delete(key);
+  if (!username.trim()) return;
+  loginThrottle.delete(throttleKey(username));
 }
 
 /** Seconds remaining on an active lock, or 0 when the account is not locked (or the lock has expired). */
 export function loginLockedFor(username: string): number {
+  if (!username.trim()) return 0;
   const key = throttleKey(username);
-  if (!key) return 0;
   const state = loginThrottle.get(key);
   if (!state?.lockedUntil) return 0;
   const remainingMs = state.lockedUntil - Date.now();
