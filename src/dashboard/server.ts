@@ -1113,7 +1113,19 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         response.end(asset.bytes);
         return;
       }
-      if (request.method === "GET" && url.pathname === "/api/health") { json(response, 200, { ok: true, timestamp: new Date().toISOString() }); return; }
+      if (request.method === "GET" && url.pathname === "/api/health") {
+        // Unauthenticated on purpose (see the /login/logout/health allowlist above). The
+        // `remote.active` flag is the ONLY tunnel signal exposed here — no URL, mode, or
+        // error text — so a public caller learns "is a public link up" without learning
+        // anything a same-origin/CSRF check elsewhere relies on staying secret. This lets
+        // bin/start.mjs's waitForTunnelActive poll a route that never needs a session,
+        // instead of /api/remote (which requires dashboard auth once a tunnel is
+        // configured, so the loopback admin bypass is off and that poll would 401 forever).
+        let remoteActive = false;
+        try { remoteActive = runtime.tunnel.status().active; } catch { /* fail closed: not active */ }
+        json(response, 200, { ok: true, timestamp: new Date().toISOString(), remote: { active: remoteActive } });
+        return;
+      }
       if (request.method === "GET" && url.pathname === "/api/status") { json(response, 200, await runtime.status()); return; }
       if (request.method === "GET" && url.pathname === "/api/remote") { json(response, 200, runtime.tunnel.status()); return; }
       if (request.method === "GET" && url.pathname === "/api/resources") {

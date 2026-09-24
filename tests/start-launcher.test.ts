@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 // @ts-expect-error JavaScript launcher intentionally has no build step.
-import { shellQuote, terminalCommand, waitReady, assertFree, supervise, resolveTunnelMode, resolvePublicOrigin, maybeKeepAwake } from "../bin/start.mjs";
+import { shellQuote, terminalCommand, waitReady, assertFree, supervise, resolveTunnelMode, resolvePublicOrigin, maybeKeepAwake, waitForTunnelActive } from "../bin/start.mjs";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 
@@ -73,6 +73,74 @@ test("maybeKeepAwake: spawns caffeinate -i -w <pid> only on darwin with an activ
   assert.equal(calls[0].file, "/usr/bin/caffeinate");
   assert.deepEqual(calls[0].args, ["-i", "-w", "4242"]);
 });
+test("waitForTunnelActive: polls /api/health until remote.active:true instead of checking once", async () => {
+  const calls: string[] = [];
+  let call = 0;
+  const fetcher = async (url: string) => {
+    calls.push(url);
+    call++;
+    return { json: async () => ({ ok: true, remote: { active: call >= 3 } }) } as Response;
+  };
+  const active = await waitForTunnelActive("http://127.0.0.1:7338", { fetcher, timeoutMs: 5000, intervalMs: 0 });
+  assert.equal(active, true);
+  assert.ok(calls.length >= 3);
+  assert.equal(calls[0], "http://127.0.0.1:7338/api/health");
+});
+
+test("waitForTunnelActive: gives up and returns false once the deadline passes", async () => {
+  const fetcher = async () => ({ json: async () => ({ ok: true, remote: { active: false } }) }) as unknown as Response;
+  const started = Date.now();
+  const active = await waitForTunnelActive("http://127.0.0.1:7338", { fetcher, timeoutMs: 100, intervalMs: 20 });
+  assert.equal(active, false);
+  assert.ok(Date.now() - started < 2000);
+});
+
+test("waitForTunnelActive: a fetch failure (dashboard not answering yet) is swallowed and polling continues", async () => {
+  let call = 0;
+  const fetcher = async () => {
+    call++;
+    if (call < 2) throw new Error("ECONNREFUSED");
+    return { json: async () => ({ ok: true, remote: { active: true } }) } as unknown as Response;
+  };
+  const active = await waitForTunnelActive("http://127.0.0.1:7338", { fetcher, timeoutMs: 5000, intervalMs: 0 });
+  assert.equal(active, true);
+  assert.ok(call >= 2);
+});
+
+test("waitForTunnelActive: a health payload missing the remote field is tolerated and polling continues", async () => {
+  let call = 0;
+  const fetcher = async () => {
+    call++;
+    // An older dashboard build (or a transient partial response) with no `remote` field at
+    // all must not be treated as "active" nor crash the poll — it should just keep waiting.
+    if (call < 2) return { json: async () => ({ ok: true }) } as unknown as Response;
+    return { json: async () => ({ ok: true, remote: { active: true } }) } as unknown as Response;
+  };
+  const active = await waitForTunnelActive("http://127.0.0.1:7338", { fetcher, timeoutMs: 5000, intervalMs: 0 });
+  assert.equal(active, true);
+  assert.ok(call >= 2);
+});
+
+test("maybeKeepAwake: caffeinate spawn happens after a delayed connect (waitForTunnelActive result), not the first check", async () => {
+  const calls: Array<{ file: string; args: string[] }> = [];
+  const spawnProcess = (file: string, args: string[]) => { calls.push({ file, args }); return { fake: true }; };
+  let call = 0;
+  const fetcher = async () => {
+    call++;
+    // The tunnel only reports active on the third poll, simulating cloudflared registering a
+    // moment after `kelly start` announces the dashboard is ready.
+    return { json: async () => ({ ok: true, remote: { active: call >= 3 } }) } as Response;
+  };
+  const active = await waitForTunnelActive("http://127.0.0.1:7338", { fetcher, timeoutMs: 5000, intervalMs: 0 });
+  assert.equal(active, true);
+  assert.equal(calls.length, 0); // nothing spawned yet — maybeKeepAwake hasn't been called
+
+  const child = maybeKeepAwake("cloudflare", active, 4242, { platform: "darwin", spawnProcess });
+  assert.deepEqual(child, { fake: true });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, "/usr/bin/caffeinate");
+});
+
 test("readiness requires successful authenticated response", async () => {
   let authorization = "";
   await waitReady("http://127.0.0.1/health", { token: "test-token", fetcher: async (_: unknown, options: {headers: {authorization: string}}) => {

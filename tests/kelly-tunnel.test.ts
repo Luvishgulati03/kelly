@@ -5,6 +5,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { TunnelManager, TAILSCALE_NOT_RESPONDING_MESSAGE, type TunnelConfig, type TunnelDeps, type RunResult } from "../src/remote/tunnel.ts";
+import {
+  TUNNEL_STILL_CONNECTING_MESSAGE, connectedLines, failedLine,
+  waitForFirstTunnelTransition, watchTunnelTransitions, type TunnelAnnounceLine,
+} from "../src/remote/announce.ts";
 import type { ActivityLog } from "../src/activity.ts";
 import type { ActivityEvent } from "../src/types.ts";
 import { HenryRuntime } from "../src/runtime.ts";
@@ -758,6 +762,125 @@ test("runtime.resolveCloudflaredPath: falls back to a Homebrew prefix when cloud
     if (previousPath === undefined) delete process.env.PATH; else process.env.PATH = previousPath;
     fs.rmSync(scratchDir, { recursive: true, force: true });
   }
+});
+
+// ---------------------------------------------------------------------------
+// src/remote/announce.ts: the startup-announcement logic that fixes the "did not start"
+// false alarm — cloudflare's start() returns before the tunnel is actually up, so the caller
+// must wait for the manager's "status" event instead of trusting the one-shot return value.
+// ---------------------------------------------------------------------------
+
+function fakeTimers(): { deps: { setTimeout: (cb: () => void, ms: number) => unknown; clearTimeout: (h: unknown) => void }; fire: () => void; cleared: boolean[] } {
+  let pending: (() => void) | undefined;
+  const cleared: boolean[] = [];
+  return {
+    deps: {
+      setTimeout: (cb: () => void) => { pending = cb; return {}; },
+      clearTimeout: () => { cleared.push(true); pending = undefined; },
+    },
+    fire: () => { pending?.(); },
+    cleared,
+  };
+}
+
+test("announce: connecting then connected resolves with the started transition and prints the URL once", async () => {
+  const { activity, events } = fakeActivityLog();
+  const spawned: FakeChild[] = [];
+  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }), activity, cloudflareDeps(activity, spawned));
+  const status = await manager.start();
+  assert.equal(status.active, false);
+  assert.equal(status.lastError, undefined); // "still connecting", not a failure
+
+  const timers = fakeTimers();
+  const waiting = waitForFirstTunnelTransition(manager, 30_000, timers.deps);
+  spawned[0].stdout.emit("data", Buffer.from("Registered tunnel connection to https://xyz.cfargotunnel.com\n"));
+  const result = await waiting;
+  assert.notEqual(result, "timeout");
+  if (result === "timeout") throw new Error("unreachable");
+  assert.equal(result.kind, "remote.started");
+  assert.equal(result.status.active, true);
+  assert.equal(result.status.url, "https://kelly-test.luvishgulati.com");
+  assert.equal(timers.cleared.length, 1); // the listener detaches itself; the timeout never re-fires
+
+  const printed: TunnelAnnounceLine[] = [];
+  for (const line of connectedLines(result.status, false)) printed.push(line);
+  assert.equal(printed.length, 2);
+  assert.equal(printed[0].text, "Remote access: https://kelly-test.luvishgulati.com");
+  assert.match(printed[1].text, /Public link/);
+  assert.ok(events.some((e) => e.kind === "remote.started"));
+  await manager.stop();
+});
+
+test("announce: connecting then a real error resolves with the classified failure", async () => {
+  const { activity } = fakeActivityLog();
+  const spawned: FakeChild[] = [];
+  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }), activity, cloudflareDeps(activity, spawned));
+  await manager.start();
+
+  const timers = fakeTimers();
+  const waiting = waitForFirstTunnelTransition(manager, 30_000, timers.deps);
+  spawned[0].stderr.emit("data", Buffer.from("failed to get origin cert: Cannot determine default origin certificate path\n"));
+  spawned[0].emit("close", 1);
+  const result = await waiting;
+  assert.notEqual(result, "timeout");
+  if (result === "timeout") throw new Error("unreachable");
+  assert.equal(result.kind, "remote.failed");
+  assert.equal(result.status.active, false);
+  assert.match(result.status.lastError ?? "", /kelly tunnel setup kelly-test\.luvishgulati\.com/);
+
+  const line = failedLine(result.status.lastError ?? "", false);
+  assert.equal(line.text, `Remote access did not start: ${result.status.lastError}`);
+  await manager.stop();
+});
+
+test("announce: connecting past the timeout resolves 'timeout' without ever seeing a transition", async () => {
+  const { activity } = fakeActivityLog();
+  const spawned: FakeChild[] = [];
+  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test" }), activity, cloudflareDeps(activity, spawned));
+  await manager.start();
+
+  const timers = fakeTimers();
+  const waiting = waitForFirstTunnelTransition(manager, 30_000, timers.deps);
+  timers.fire(); // simulate the 30s deadline elapsing with no "Registered tunnel connection" yet
+  const result = await waiting;
+  assert.equal(result, "timeout");
+  assert.equal(TUNNEL_STILL_CONNECTING_MESSAGE.includes("still connecting"), true);
+
+  // A transition that arrives after the timeout must not resolve an already-settled promise
+  // or throw; the listener detached itself on timeout.
+  spawned[0].stdout.emit("data", Buffer.from("Registered tunnel connection\n"));
+  assert.equal(manager.active, true);
+  await manager.stop();
+});
+
+test("announce: watchTunnelTransitions prints 'lost' then 'reconnected' exactly once each", async () => {
+  const { activity } = fakeActivityLog();
+  const spawned: FakeChild[] = [];
+  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test" }), activity, cloudflareDeps(activity, spawned));
+  await manager.start();
+  spawned[0].stdout.emit("data", Buffer.from("Registered tunnel connection\n"));
+  assert.equal(manager.active, true);
+
+  const printed: TunnelAnnounceLine[] = [];
+  const unsubscribe = watchTunnelTransitions(manager, true, (line) => printed.push(line));
+
+  // Drop: cloudflared exits unexpectedly.
+  spawned[0].emit("close", 1);
+  assert.equal(manager.active, false);
+  assert.equal(printed.length, 1);
+  assert.match(printed[0].text, /^Remote access lost:/);
+
+  // Reconnect: the scheduled restart's replacement process registers.
+  await waitFor(() => spawned.length >= 2);
+  spawned[1].stdout.emit("data", Buffer.from("Registered tunnel connection to https://xyz.cfargotunnel.com\n"));
+  assert.equal(manager.active, true);
+  assert.equal(printed.length, 2);
+  assert.match(printed[1].text, /^Remote access reconnected: https:\/\//);
+
+  // A deliberate stop is not a "drop"; it must print nothing further.
+  await manager.stop();
+  assert.equal(printed.length, 2);
+  unsubscribe();
 });
 
 test("runtime.resolveCloudflaredPath: resolves to the bare command when found on PATH", async () => {

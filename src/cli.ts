@@ -28,6 +28,11 @@ import { isLongResearchAsk } from "./orchestration/luna.ts";
 import { getActiveProfile, isServiceExcluded, setActiveProfile } from "./profile.ts";
 import { runCommerceCommand } from "./commerce/commands.ts";
 import { runDesignsCommand } from "./designs/commands.ts";
+import {
+  TUNNEL_CONNECT_TIMEOUT_MS, TUNNEL_STILL_CONNECTING_MESSAGE,
+  connectedLines, failedLine, waitForFirstTunnelTransition, watchTunnelTransitions,
+  type TunnelAnnounceLine,
+} from "./remote/announce.ts";
 
 // `node bin/kelly.mjs` sets the process's active profile before importing this module. But
 // Kelly's own agent prompt tells the model to run commands as `npx tsx src/cli.ts <cmd>`
@@ -220,20 +225,52 @@ function announceTelegramPump(state: { armed: boolean; bridge: boolean; standup:
   console.log(note("info", `Telegram: watching ${surfaces.join(" + ")}.`));
 }
 
+function printTunnelLine(line: TunnelAnnounceLine): void {
+  console.log(line.level === "info" ? line.text : note(line.level, line.text));
+}
+
 /**
- * Starts the remote-access tunnel (src/remote/tunnel.ts) once the dashboard is up, and
- * prints exactly one line: the URL, or the plain reason it did not start. A no-op when
- * KELLY_TUNNEL is unset or "off". Never throws — a broken tunnel must not take the
+ * Starts the remote-access tunnel (src/remote/tunnel.ts) once the dashboard is up. A no-op
+ * when KELLY_TUNNEL is unset or "off". Never throws — a broken tunnel must not take the
  * dashboard or the repl down with it.
+ *
+ * Cloudflare mode's start() returns before cloudflared has actually registered the tunnel
+ * (see tunnel.ts's spawnCloudflared), so a status of "not active, no error" right after
+ * start() means "still connecting", never "did not start": this prints a placeholder line and
+ * waits (up to TUNNEL_CONNECT_TIMEOUT_MS) for the tunnel's first real status transition before
+ * reporting connected/failed/still-connecting. It then keeps watching for later drop/reconnect
+ * transitions (src/remote/announce.ts) for the rest of this process's life, printing at most
+ * one line per real change — never once per health-loop tick.
  */
 async function announceTunnel(runtime: HenryRuntime): Promise<void> {
   if ((process.env.KELLY_TUNNEL || "off") === "off") return;
   try {
+    const tunnel = runtime.tunnel;
     const status = await runtime.startTunnel();
-    if (status.active && status.url) console.log(note("ok", `Remote access: ${status.url}`));
-    else console.log(note("warn", `Remote access did not start: ${status.lastError || "not connected yet"}`));
+    let finalStatus = status;
+
+    if (status.active && status.url) {
+      for (const line of connectedLines(status, false)) printTunnelLine(line);
+    } else if (status.lastError) {
+      printTunnelLine(failedLine(status.lastError, false));
+    } else {
+      printTunnelLine({ level: "info", text: "Connecting remote access..." });
+      const first = await waitForFirstTunnelTransition(tunnel, TUNNEL_CONNECT_TIMEOUT_MS);
+      if (first === "timeout") {
+        printTunnelLine({ level: "warn", text: TUNNEL_STILL_CONNECTING_MESSAGE });
+      } else {
+        finalStatus = first.status;
+        if (first.kind === "remote.started" && first.status.active) {
+          for (const line of connectedLines(first.status, false)) printTunnelLine(line);
+        } else {
+          printTunnelLine(failedLine(first.status.lastError ?? "not connected yet", false));
+        }
+      }
+    }
+
+    watchTunnelTransitions(tunnel, finalStatus.active, printTunnelLine);
   } catch (error) {
-    console.log(note("warn", `Remote access did not start: ${error instanceof Error ? error.message : String(error)}`));
+    printTunnelLine(failedLine(error instanceof Error ? error.message : String(error), false));
   }
 }
 
@@ -433,7 +470,7 @@ async function main(): Promise<void> {
   const command = args[0] || "repl";
   // Standalone voice tools do not need the agent runtime, memory, or a provider.
   if (command === "voice") {
-    if (process.env.AGENT_PROFILE === "kelly") {
+    if (process.env.AGENT_PROFILE === "kelly" && process.env.HENRY_TEST_ISOLATION !== "1") {
       const dotenv = await import("dotenv");
       dotenv.config(); // Kelly reads only cwd .env; the launcher never loads Henry's repo .env.
     }
@@ -564,7 +601,8 @@ async function main(): Promise<void> {
     } else if (command === "users") {
       // --demo boutique|electrical targets the same data dir `kelly start --demo --trade <t>`
       // resolves (bin/start.mjs), so the owner can create the demo's own accounts. Auth storage
-      // (dashboard/auth.ts) keys off HENRY_DATA_DIR, not KELLY_DATA_DIR, so that is what we set.
+      // (dashboard/auth.ts) reads the active profile's own DATA_DIR first (KELLY_DATA_DIR, which
+      // bin/kelly.mjs defaults to ~/.kelly/data) and then HENRY_DATA_DIR, so both are set.
       const demoTrade = option("--demo");
       if (demoTrade !== undefined && demoTrade !== "boutique" && demoTrade !== "electrical") {
         throw new Error("--demo requires boutique or electrical");
@@ -572,6 +610,7 @@ async function main(): Promise<void> {
       if (demoTrade) {
         const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
         const demoDataDir = path.join(repoRoot, "data", demoTrade === "boutique" ? "demo-boutique" : "demo", "data");
+        process.env.KELLY_DATA_DIR = demoDataDir;
         process.env.HENRY_DATA_DIR = demoDataDir;
         console.log(note("info", `Using demo (${demoTrade}) data dir: ${demoDataDir}`));
       }

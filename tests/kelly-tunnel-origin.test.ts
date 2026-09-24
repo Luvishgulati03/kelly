@@ -216,3 +216,19 @@ test("a counter login lands on its counter home by mode: talk, conversation, rev
     assert.equal(settings.status, 403);
   }, { tunnel: { active: true, mode: "funnel", url: "https://kelly-mac.tail1234.ts.net" } });
 });
+
+test("/api/health reports remote.active:false with no tunnel, with no session cookie", async () => {
+  await withDashboard(async (base) => {
+    const health = await (await fetch(`${base}/api/health`)).json() as { ok: boolean; remote?: { active: boolean } };
+    assert.equal(health.ok, true);
+    assert.equal(health.remote?.active, false);
+  });
+});
+
+test("/api/health reports remote.active:true when a stubbed tunnel reports active, with no session cookie", async () => {
+  await withDashboard(async (base) => {
+    const health = await (await fetch(`${base}/api/health`)).json() as { ok: boolean; remote?: { active: boolean } };
+    assert.equal(health.ok, true);
+    assert.equal(health.remote?.active, true);
+  }, { tunnel: { active: true, mode: "tailscale", url: "https://kelly-mac.tail1234.ts.net" } });
+});

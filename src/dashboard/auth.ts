@@ -3,6 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
+import { getActiveProfile } from "../profile.ts";
 
 /**
  * Dashboard identity — multi-user auth so the same server can be reached over a
@@ -52,13 +53,16 @@ const MIN_PASSWORD_LENGTH = 10;
 const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
- * Mirrors config.ts's dataDir resolution (HENRY_DATA_DIR / legacy LAVU_DATA_DIR,
- * else <repo>/data) without importing the runtime — the frozen contract gives
- * these functions no config parameter, and root-anchoring keeps `henry` correct
- * when launched from any cwd (same lesson as config.ts's dotenv anchoring).
+ * Mirrors config.ts's dataDir resolution without importing the runtime: the active
+ * profile's own variable first (KELLY_DATA_DIR for Kelly, HENRY_DATA_DIR for Henry),
+ * then HENRY_DATA_DIR / legacy LAVU_DATA_DIR, else <repo>/data. Reading only
+ * HENRY_DATA_DIR made a Kelly started with KELLY_DATA_DIR (every demo) check logins
+ * against the repo's default database instead of its own. Root-anchoring keeps it
+ * correct when launched from any cwd (same lesson as config.ts's dotenv anchoring).
  */
 function dashboardDbPath(): string {
-  const configured = process.env.HENRY_DATA_DIR || process.env.LAVU_DATA_DIR || "data";
+  const profileVar = `${getActiveProfile().envPrefix}DATA_DIR`;
+  const configured = process.env[profileVar] || process.env.HENRY_DATA_DIR || process.env.LAVU_DATA_DIR || "data";
   const dataDir = path.isAbsolute(configured) ? configured : path.resolve(REPO_ROOT, configured);
   return path.join(dataDir, "dashboard", "dashboard.db");
 }

@@ -55,6 +55,33 @@ export function maybeKeepAwake(tunnelMode, remoteActive, pid, options = {}) {
   return child;
 }
 
+/**
+ * Polls `${dashboard}/api/health` for up to timeoutMs (default 30s) waiting for
+ * `remote.active: true`, instead of checking once. Cloudflare mode's own start() returns
+ * before cloudflared has actually registered the tunnel (see src/remote/tunnel.ts), so a
+ * single check right after startup almost always sees `active: false` and would skip
+ * caffeinate even though the tunnel comes up a moment later. `/api/health` (not
+ * `/api/remote`) on purpose: once a tunnel is configured the loopback admin auth bypass is
+ * off, so `/api/remote` needs a session and this poll would 401 forever; `/api/health` stays
+ * reachable logged-out and exposes only the minimal `remote.active` flag. Best-effort: any
+ * fetch failure (dashboard not ready to answer yet, network hiccup) or a missing
+ * `remote.active` field (older dashboard build) is swallowed and polling just continues
+ * until the deadline.
+ */
+export async function waitForTunnelActive(dashboard, options = {}) {
+  const { timeoutMs = 30000, fetcher = fetch, intervalMs = 500 } = options;
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetcher(`${dashboard}/api/health`, { signal: AbortSignal.timeout(5000) });
+      const status = await response.json();
+      if (status?.remote?.active) return true;
+    } catch { /* tunnel status not readable yet; keep polling until the deadline */ }
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  return false;
+}
+
 export async function assertFree(port) {
   await new Promise((resolve, reject) => {
     const probe = net.createServer();
@@ -263,12 +290,10 @@ export async function startKelly(args) {
     if (tunnelMode !== "off") {
       // Best-effort: the dashboard's own process already started/announced the tunnel; this
       // only decides whether to keep the Mac awake, so a failed check here must never crash
-      // the launcher or stop Kelly.
-      try {
-        const remote = await fetch(`${dashboard}/api/remote`, { signal: AbortSignal.timeout(5000) });
-        const status = await remote.json();
-        maybeKeepAwake(tunnelMode, Boolean(status?.active), process.pid);
-      } catch { /* tunnel status not readable yet; leave the Mac's sleep setting alone */ }
+      // the launcher or stop Kelly. Cloudflare in particular registers a moment after startup
+      // (see src/remote/tunnel.ts), so this polls instead of checking once.
+      const active = await waitForTunnelActive(dashboard);
+      maybeKeepAwake(tunnelMode, active, process.pid);
     }
   }, { env });
 }

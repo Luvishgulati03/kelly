@@ -1,4 +1,5 @@
 import path from "node:path";
+import { EventEmitter } from "node:events";
 import type { ChildProcess, spawn as spawnType } from "node:child_process";
 import type { ActivityLog } from "../activity.ts";
 import type { ActivityKind } from "../types.ts";
@@ -137,7 +138,19 @@ function classifyCloudflareFailure(output: string, hostOrTunnel?: string): strin
   return undefined;
 }
 
-export class TunnelManager {
+/**
+ * "status" is emitted every time record() logs a remote.started/remote.failed/remote.stopped
+ * transition, i.e. every point where status().active or status().lastError actually changed —
+ * never on a no-op health-loop tick. Callers (src/remote/announce.ts) use it both to await the
+ * very first connect/fail after start() returns "still connecting", and to notice later
+ * drop/reconnect transitions for the life of the process.
+ */
+export interface TunnelStatusEvent {
+  kind: ActivityKind;
+  status: TunnelStatus;
+}
+
+export class TunnelManager extends EventEmitter {
   private _active = false;
   private stopped = true;
   private status_: TunnelStatus;
@@ -164,6 +177,7 @@ export class TunnelManager {
     private readonly activity: ActivityLog,
     private readonly deps: TunnelDeps,
   ) {
+    super();
     this.status_ = { mode: config.mode, active: false, restarts: 0 };
     this.sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.now = deps.now ?? (() => Date.now());
@@ -341,6 +355,9 @@ export class TunnelManager {
   }
 
   private async record(kind: ActivityKind, message: string, metadata?: Record<string, unknown>): Promise<void> {
+    // Emitted synchronously, before the (possibly slow/failing) activity write, so a listener
+    // waiting on the very next transition (src/remote/announce.ts) never blocks on disk I/O.
+    this.emit("status", { kind, status: this.status() } satisfies TunnelStatusEvent);
     try {
       await this.activity.record(kind, bounded(message), metadata);
     } catch {
@@ -400,7 +417,9 @@ export class TunnelManager {
     }
     const ok = await this.refreshTailscaleUrl();
     if (ok) {
-      console.log("Public link: anyone with the URL can reach the login page. The account password is the only lock.");
+      // The public-link warning line lives in src/remote/announce.ts, driven by status().public,
+      // so cli.ts prints it exactly once for both funnel and cloudflare (never straight from here
+      // — this module never touches stdout; see the file header).
       await this.record("remote.started", "Tailscale Funnel is active (public)", { mode: "funnel", binary: this.status_.binary, public: true });
     } else {
       await this.record("remote.failed", this.status_.lastError ?? "tailscale did not report a reachable URL", { mode: "funnel", binary: this.status_.binary });
