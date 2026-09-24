@@ -95,8 +95,8 @@ async function whichBinary(binary: string): Promise<boolean> {
   return false;
 }
 
-function tunnelModeFromEnv(value: string | undefined): TunnelMode {
-  return value === "tailscale" || value === "cloudflare" ? value : "off";
+export function tunnelModeFromEnv(value: string | undefined): TunnelMode {
+  return value === "tailscale" || value === "funnel" || value === "cloudflare" ? value : "off";
 }
 
 function errorMessage(error: unknown): string {

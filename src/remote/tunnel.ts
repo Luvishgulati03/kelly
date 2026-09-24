@@ -11,7 +11,7 @@ import type { ActivityKind } from "../types.ts";
  * spawning is fully injected (TunnelDeps) so tests never run a real binary.
  */
 
-export type TunnelMode = "off" | "tailscale" | "cloudflare";
+export type TunnelMode = "off" | "tailscale" | "cloudflare" | "funnel";
 
 export interface TunnelStatus {
   mode: TunnelMode;
@@ -21,6 +21,10 @@ export interface TunnelStatus {
   restarts: number;
   lastError?: string;
   binary?: string;
+  /** "serve" for tailscale/funnel modes (tailnet-only vs public); undefined for cloudflare/off. */
+  kind?: "serve" | "funnel";
+  /** true only for funnel mode: the link is reachable by anyone, not just tailnet members. */
+  public?: boolean;
 }
 
 export interface TunnelConfig {
@@ -54,12 +58,40 @@ const CONSECUTIVE_FAILURE_THRESHOLD = 3;
 const MAX_MESSAGE_LEN = 240;
 const MAX_BUFFER_LEN = 4_000;
 
+/**
+ * Fallback location for the Tailscale CLI on macOS when `tailscale` is not on PATH and
+ * KELLY_TAILSCALE_PATH was left unset (config.tailscalePath is still the bare default
+ * "tailscale" in that case — see runtime.ts). Kelly never installs Tailscale; this only
+ * finds the binary the GUI app already ships.
+ */
+const TAILSCALE_APP_BUNDLE_PATH = "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
+
 function errMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
 function bounded(message: string): string {
   return message.length > MAX_MESSAGE_LEN ? `${message.slice(0, MAX_MESSAGE_LEN)}...` : message;
+}
+
+/**
+ * Maps common `tailscale serve`/`funnel` stderr/stdout text to a plain-English sentence with
+ * the fix, instead of surfacing the CLI's own wording. Returns undefined when nothing known
+ * matches, so the caller falls back to a generic exit-code message.
+ */
+function classifyTailscaleFailure(output: string, kind: "serve" | "funnel"): string | undefined {
+  const text = output.toLowerCase();
+  if (!text.trim()) return undefined;
+  if (text.includes("not logged in") || text.includes("logged out") || text.includes("needs login") || text.includes("stopped state") || text.includes("not running")) {
+    return "Tailscale is not signed in on this Mac. Run `tailscale up`, then try again.";
+  }
+  if (kind === "funnel" && text.includes("funnel") && (text.includes("not enabled") || text.includes("disabled") || text.includes("not available") || text.includes("acl") || text.includes("attribute"))) {
+    return "Tailscale Funnel is not enabled for this tailnet or node. In the Tailscale admin console, enable HTTPS certificates (https://login.tailscale.com/admin/dns) and the Funnel node attribute (https://login.tailscale.com/admin/acls), then try again.";
+  }
+  if (text.includes("https") && (text.includes("not enabled") || text.includes("cert"))) {
+    return "HTTPS certificates are not enabled for this tailnet. Enable them in the Tailscale admin console (https://login.tailscale.com/admin/dns), then try again.";
+  }
+  return undefined;
 }
 
 export class TunnelManager {
@@ -69,8 +101,10 @@ export class TunnelManager {
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly now: () => number;
 
-  // tailscale
+  // tailscale / funnel
   private healthLoopPromise?: Promise<void>;
+  /** Resolved at start(): either config.tailscalePath as-is, or the app-bundle fallback. */
+  private resolvedTailscalePath = "";
 
   // cloudflare
   private cfChild?: ChildProcess;
@@ -93,6 +127,7 @@ export class TunnelManager {
   }
 
   status(): TunnelStatus {
+    const tailscaleFamily = this.config.mode === "tailscale" || this.config.mode === "funnel";
     return {
       mode: this.config.mode,
       active: this._active,
@@ -101,6 +136,8 @@ export class TunnelManager {
       restarts: this.status_.restarts,
       lastError: this._active ? undefined : this.status_.lastError,
       binary: this.status_.binary,
+      kind: tailscaleFamily ? (this.config.mode === "funnel" ? "funnel" : "serve") : undefined,
+      public: this.config.mode === "funnel" ? true : undefined,
     };
   }
 
@@ -111,20 +148,36 @@ export class TunnelManager {
       return this.status();
     }
     this.stopped = false;
-    const binaryPath = this.config.mode === "tailscale" ? this.config.tailscalePath : this.config.cloudflaredPath;
+    const tailscaleFamily = this.config.mode === "tailscale" || this.config.mode === "funnel";
+    let binaryPath = tailscaleFamily ? this.config.tailscalePath : this.config.cloudflaredPath;
     this.status_.binary = path.basename(binaryPath);
 
     if (this.config.mode === "cloudflare" && !this.config.cloudflareTunnel) {
       return this.fail("KELLY_CLOUDFLARE_TUNNEL is not set. A named Cloudflare tunnel is required for cloudflare mode.");
     }
-    if (!(await this.which(binaryPath))) {
+    let found = await this.which(binaryPath);
+    let triedAppBundle = false;
+    if (!found && tailscaleFamily && binaryPath === "tailscale") {
+      triedAppBundle = true;
+      if (await this.which(TAILSCALE_APP_BUNDLE_PATH)) {
+        binaryPath = TAILSCALE_APP_BUNDLE_PATH;
+        this.status_.binary = path.basename(binaryPath);
+        found = true;
+      }
+    }
+    if (!found) {
+      if (tailscaleFamily) {
+        return this.fail(`${this.status_.binary} was not found on PATH${triedAppBundle ? ` or at ${TAILSCALE_APP_BUNDLE_PATH}` : ""}. Install Tailscale from https://tailscale.com/download (or \`brew install --cask tailscale\`), sign in, then try again.`);
+      }
       return this.fail(`${this.status_.binary} was not found on PATH. Kelly does not install binaries automatically; see docs/modules/remote-access.md.`);
     }
+    if (tailscaleFamily) this.resolvedTailscalePath = binaryPath;
     if (!this.deps.hasAdminAccount()) {
       return this.fail("Create an admin account first: kelly users add <name> --role admin");
     }
 
     if (this.config.mode === "tailscale") return this.startTailscale();
+    if (this.config.mode === "funnel") return this.startFunnel();
     return this.startCloudflare();
   }
 
@@ -132,6 +185,8 @@ export class TunnelManager {
     this.stopped = true;
     if (this.config.mode === "tailscale") {
       await this.stopTailscale();
+    } else if (this.config.mode === "funnel") {
+      await this.stopFunnel();
     } else if (this.config.mode === "cloudflare") {
       await this.stopCloudflare();
     }
@@ -173,7 +228,7 @@ export class TunnelManager {
   private async startTailscale(): Promise<TunnelStatus> {
     if (!this.deps.run) return this.fail("no tunnel command runner configured");
     try {
-      await this.deps.run(this.config.tailscalePath, ["serve", "--bg", "--https=443", `http://127.0.0.1:${this.config.port}`]);
+      await this.deps.run(this.resolvedTailscalePath, ["serve", "--bg", "--https=443", `http://127.0.0.1:${this.config.port}`]);
     } catch (error) {
       return this.fail(`tailscale serve failed to start: ${errMessage(error)}`);
     }
@@ -182,6 +237,36 @@ export class TunnelManager {
       await this.record("remote.started", "Tailscale tunnel is active", { mode: "tailscale", binary: this.status_.binary });
     } else {
       await this.record("remote.failed", this.status_.lastError ?? "tailscale did not report a reachable URL", { mode: "tailscale", binary: this.status_.binary });
+    }
+    this.beginTailscaleHealthLoop();
+    return this.status();
+  }
+
+  /**
+   * Runs `tailscale funnel --bg --https=443 http://127.0.0.1:<port>`, mapping the CLI's own
+   * stderr/stdout wording to a plain sentence with the fix (funnel-not-enabled, not signed in),
+   * then derives the URL exactly like serve mode. Requires an admin account (checked in start())
+   * and prints a one-line reminder that the link is public.
+   */
+  private async startFunnel(): Promise<TunnelStatus> {
+    if (!this.deps.run) return this.fail("no tunnel command runner configured");
+    let result: RunResult;
+    try {
+      result = await this.deps.run(this.resolvedTailscalePath, ["funnel", "--bg", "--https=443", `http://127.0.0.1:${this.config.port}`]);
+    } catch (error) {
+      return this.fail(`tailscale funnel failed to start: ${errMessage(error)}`);
+    }
+    const known = classifyTailscaleFailure(`${result.stdout}\n${result.stderr}`, "funnel");
+    if (known) return this.fail(known);
+    if (result.exitCode !== 0) {
+      return this.fail(`tailscale funnel exited ${String(result.exitCode)}: ${bounded(result.stderr || result.stdout || "unknown error")}`);
+    }
+    const ok = await this.refreshTailscaleUrl();
+    if (ok) {
+      console.log("Public link: anyone with the URL can reach the login page. The account password is the only lock.");
+      await this.record("remote.started", "Tailscale Funnel is active (public)", { mode: "funnel", binary: this.status_.binary, public: true });
+    } else {
+      await this.record("remote.failed", this.status_.lastError ?? "tailscale did not report a reachable URL", { mode: "funnel", binary: this.status_.binary });
     }
     this.beginTailscaleHealthLoop();
     return this.status();
@@ -198,7 +283,7 @@ export class TunnelManager {
     // this function's; only the caller knows how many consecutive failures came before it.
     let result: RunResult;
     try {
-      result = await this.deps.run(this.config.tailscalePath, ["status", "--json"]);
+      result = await this.deps.run(this.resolvedTailscalePath || this.config.tailscalePath, ["status", "--json"]);
     } catch (error) {
       this.status_.lastError = `could not read tailscale status: ${errMessage(error)}`;
       return false;
@@ -245,13 +330,13 @@ export class TunnelManager {
       if (ok) {
         consecutiveFailures = 0;
         backoff = BACKOFF_INITIAL_MS;
-        if (!wasActive) await this.record("remote.started", "Tailscale tunnel reconnected", { mode: "tailscale", binary: this.status_.binary });
+        if (!wasActive) await this.record("remote.started", this.config.mode === "funnel" ? "Tailscale Funnel reconnected" : "Tailscale tunnel reconnected", { mode: this.config.mode, binary: this.status_.binary });
         continue;
       }
       consecutiveFailures += 1;
       if (consecutiveFailures >= CONSECUTIVE_FAILURE_THRESHOLD && wasActive) {
         this._active = false;
-        await this.record("remote.failed", "Tailscale health check failed three times in a row; tunnel marked inactive", { mode: "tailscale", binary: this.status_.binary });
+        await this.record("remote.failed", "Tailscale health check failed three times in a row; tunnel marked inactive", { mode: this.config.mode, binary: this.status_.binary });
       }
       backoff = Math.min(backoff * 2, BACKOFF_MAX_MS);
     }
@@ -260,7 +345,7 @@ export class TunnelManager {
   private async stopTailscale(): Promise<void> {
     if (this.deps.run) {
       try {
-        await this.deps.run(this.config.tailscalePath, ["serve", "--https=443", "off"]);
+        await this.deps.run(this.resolvedTailscalePath || this.config.tailscalePath, ["serve", "--https=443", "off"]);
       } catch {
         /* best effort; the process is going down regardless */
       }
@@ -268,6 +353,20 @@ export class TunnelManager {
     if (this._active) {
       this._active = false;
       await this.record("remote.stopped", "Tailscale serve turned off", { mode: "tailscale", binary: this.status_.binary });
+    }
+  }
+
+  private async stopFunnel(): Promise<void> {
+    if (this.deps.run) {
+      try {
+        await this.deps.run(this.resolvedTailscalePath || this.config.tailscalePath, ["funnel", "--https=443", "off"]);
+      } catch {
+        /* best effort; the process is going down regardless */
+      }
+    }
+    if (this._active) {
+      this._active = false;
+      await this.record("remote.stopped", "Tailscale Funnel turned off", { mode: "funnel", binary: this.status_.binary });
     }
   }
 

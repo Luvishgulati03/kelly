@@ -1,13 +1,47 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 // @ts-expect-error JavaScript launcher intentionally has no build step.
-import { shellQuote, terminalCommand, waitReady, assertFree, supervise } from "../bin/start.mjs";
+import { shellQuote, terminalCommand, waitReady, assertFree, supervise, resolveTunnelMode, maybeKeepAwake } from "../bin/start.mjs";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 
 test("terminal launch quotes paths and preserves demo mode", () => {
   assert.equal(shellQuote("a'b"), "'a'\\''b'");
   assert.match(terminalCommand("/a b/node", "/repo/kelly.mjs", true), /'--foreground' '--demo'$/);
+});
+
+test("terminal launch also preserves --public alongside --demo --trade", () => {
+  assert.match(
+    terminalCommand("/a b/node", "/repo/kelly.mjs", true, "boutique", true),
+    /'--foreground' '--demo' '--trade' 'boutique' '--public'$/,
+  );
+});
+
+test("resolveTunnelMode: --public sets funnel for both the demo and a real install; without it, off", () => {
+  assert.equal(resolveTunnelMode(["--demo", "--trade", "boutique", "--public"]), "funnel");
+  assert.equal(resolveTunnelMode(["--public"]), "funnel");
+  assert.equal(resolveTunnelMode(["--demo", "--trade", "boutique"]), "off");
+  assert.equal(resolveTunnelMode([]), "off");
+});
+
+test("maybeKeepAwake: spawns caffeinate -i -w <pid> only on darwin with an active tunnel", () => {
+  const calls: Array<{ file: string; args: string[] }> = [];
+  const spawnProcess = (file: string, args: string[]) => { calls.push({ file, args }); return { fake: true }; };
+
+  assert.equal(maybeKeepAwake("off", true, 4242, { platform: "darwin", spawnProcess }), null);
+  assert.equal(calls.length, 0);
+
+  assert.equal(maybeKeepAwake("funnel", false, 4242, { platform: "darwin", spawnProcess }), null);
+  assert.equal(calls.length, 0);
+
+  assert.equal(maybeKeepAwake("funnel", true, 4242, { platform: "win32", spawnProcess }), null);
+  assert.equal(calls.length, 0);
+
+  const child = maybeKeepAwake("funnel", true, 4242, { platform: "darwin", spawnProcess });
+  assert.deepEqual(child, { fake: true });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].file, "/usr/bin/caffeinate");
+  assert.deepEqual(calls[0].args, ["-i", "-w", "4242"]);
 });
 test("readiness requires successful authenticated response", async () => {
   let authorization = "";

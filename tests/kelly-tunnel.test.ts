@@ -167,6 +167,118 @@ test("tailscale: health check failing three times in a row marks inactive, then 
 });
 
 // ---------------------------------------------------------------------------
+// funnel (public Tailscale Funnel)
+// ---------------------------------------------------------------------------
+
+function tailscaleFunnelRunMock(
+  statusOutcomes: RunOutcome[],
+  funnelOutcome: RunOutcome = { stdout: "", stderr: "", exitCode: 0 },
+): { run: NonNullable<TunnelDeps["run"]>; calls: Array<{ args: string[] }> } {
+  const calls: Array<{ args: string[] }> = [];
+  let statusIndex = 0;
+  const run: NonNullable<TunnelDeps["run"]> = async (_cmd, args) => {
+    calls.push({ args });
+    if (args[0] === "status") {
+      const outcome = statusOutcomes[Math.min(statusIndex, statusOutcomes.length - 1)];
+      statusIndex++;
+      if (outcome instanceof Error) throw outcome;
+      return outcome;
+    }
+    if (args[0] === "funnel") {
+      if (funnelOutcome instanceof Error) throw funnelOutcome;
+      return funnelOutcome;
+    }
+    return { stdout: "", stderr: "", exitCode: 0 };
+  };
+  return { run, calls };
+}
+
+test("funnel: happy path uses `tailscale funnel`, derives the URL, and marks the status public", async () => {
+  const { activity, events } = fakeActivityLog();
+  const { run, calls } = tailscaleFunnelRunMock([tailscaleStatusJson("kellymac.tail1234.ts.net.")]);
+  const deps: TunnelDeps = { which: async () => true, run, hasAdminAccount: () => true, sleep: instantSleep() };
+  const manager = new TunnelManager(baseConfig("funnel"), activity, deps);
+  const status = await manager.start();
+  assert.equal(status.active, true);
+  assert.equal(status.url, "https://kellymac.tail1234.ts.net");
+  assert.equal(status.kind, "funnel");
+  assert.equal(status.public, true);
+  assert.ok(calls.some((c) => c.args[0] === "funnel" && c.args.includes("--bg") && c.args.includes("--https=443")));
+  assert.ok(events.some((e) => e.kind === "remote.started" && e.metadata?.public === true));
+  await manager.stop();
+  assert.ok(calls.some((c) => c.args.join(" ") === "funnel --https=443 off"));
+});
+
+test("funnel: refuses to start with no admin account, same rule as other modes", async () => {
+  const { activity, events } = fakeActivityLog();
+  const deps: TunnelDeps = { which: async () => true, run: async () => ({ stdout: "", stderr: "", exitCode: 0 }), hasAdminAccount: () => false, sleep: instantSleep() };
+  const manager = new TunnelManager(baseConfig("funnel"), activity, deps);
+  const status = await manager.start();
+  assert.equal(status.active, false);
+  assert.match(status.lastError ?? "", /admin account/);
+  assert.equal(events.at(-1)?.kind, "remote.failed");
+});
+
+test("funnel: maps 'Funnel not enabled' stderr to a plain sentence with the admin console fix", async () => {
+  const { activity } = fakeActivityLog();
+  const deps: TunnelDeps = {
+    which: async () => true,
+    hasAdminAccount: () => true,
+    sleep: instantSleep(),
+    run: async (_cmd, args) => {
+      if (args[0] === "funnel") return { stdout: "", stderr: "Funnel not enabled for this tailnet", exitCode: 1 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    },
+  };
+  const manager = new TunnelManager(baseConfig("funnel"), activity, deps);
+  const status = await manager.start();
+  assert.equal(status.active, false);
+  assert.match(status.lastError ?? "", /Funnel is not enabled/);
+  assert.match(status.lastError ?? "", /login\.tailscale\.com\/admin\/acls/);
+  assert.match(status.lastError ?? "", /login\.tailscale\.com\/admin\/dns/);
+});
+
+test("funnel: maps 'not logged in' stderr to a plain `tailscale up` fix", async () => {
+  const { activity } = fakeActivityLog();
+  const deps: TunnelDeps = {
+    which: async () => true,
+    hasAdminAccount: () => true,
+    sleep: instantSleep(),
+    run: async (_cmd, args) => {
+      if (args[0] === "funnel") return { stdout: "", stderr: "tailscale: not logged in", exitCode: 1 };
+      return { stdout: "", stderr: "", exitCode: 0 };
+    },
+  };
+  const manager = new TunnelManager(baseConfig("funnel"), activity, deps);
+  const status = await manager.start();
+  assert.equal(status.active, false);
+  assert.match(status.lastError ?? "", /tailscale up/);
+});
+
+test("funnel: missing binary on PATH falls back to the macOS app bundle path", async () => {
+  const { activity } = fakeActivityLog();
+  const which = async (binary: string) => binary === "/Applications/Tailscale.app/Contents/MacOS/Tailscale";
+  const { run } = tailscaleFunnelRunMock([tailscaleStatusJson("kellymac.tail1234.ts.net.")]);
+  const deps: TunnelDeps = { which, run, hasAdminAccount: () => true, sleep: instantSleep() };
+  const manager = new TunnelManager(baseConfig("funnel"), activity, deps);
+  const status = await manager.start();
+  assert.equal(status.active, true);
+  assert.equal(status.binary, "Tailscale");
+  await manager.stop();
+});
+
+test("funnel: missing binary everywhere fails closed with an install fix, no app-bundle path found", async () => {
+  const { activity, events } = fakeActivityLog();
+  const deps: TunnelDeps = { which: async () => false, run: async () => ({ stdout: "", stderr: "", exitCode: 0 }), hasAdminAccount: () => true, sleep: instantSleep() };
+  const manager = new TunnelManager(baseConfig("funnel"), activity, deps);
+  const status = await manager.start();
+  assert.equal(status.active, false);
+  assert.match(status.lastError ?? "", /tailscale\.com\/download/);
+  assert.match(status.lastError ?? "", /brew install --cask tailscale/);
+  assert.equal(events.at(-1)?.kind, "remote.failed");
+});
+
+// ---------------------------------------------------------------------------
 // cloudflare
 // ---------------------------------------------------------------------------
 
@@ -282,4 +394,13 @@ test("runtime: tunnel defaults to off with no KELLY_TUNNEL set", async () => {
     if (originalEnv === undefined) delete process.env.KELLY_TUNNEL; else process.env.KELLY_TUNNEL = originalEnv;
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
+});
+
+test("KELLY_TUNNEL=funnel reaches the tunnel manager instead of being downgraded to off", async () => {
+  const { tunnelModeFromEnv } = await import("../src/runtime.ts");
+  assert.equal(tunnelModeFromEnv("funnel"), "funnel");
+  assert.equal(tunnelModeFromEnv("tailscale"), "tailscale");
+  assert.equal(tunnelModeFromEnv("cloudflare"), "cloudflare");
+  assert.equal(tunnelModeFromEnv("public"), "off");
+  assert.equal(tunnelModeFromEnv(undefined), "off");
 });

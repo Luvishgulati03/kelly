@@ -6,8 +6,9 @@ a device on the counter, a tablet, into that loopback address. Kelly never binds
 beyond loopback, never installs a binary, and never runs without an admin account
 once a tunnel is configured.
 
-Primary transport is Tailscale Serve. Cloudflare Tunnel is the fallback for a shop
-that cannot put a tailnet on the tablet.
+Primary transport is Tailscale Serve, tailnet-only. Cloudflare Tunnel is the fallback for a
+shop that cannot put a tailnet on the tablet. Tailscale Funnel is a third, public mode — see
+"Public link (Tailscale Funnel)" below — for a demo or storefront link anyone can open.
 
 ## Setup: Tailscale (recommended)
 
@@ -37,6 +38,65 @@ Kelly runs `tailscale serve --bg --https=443 http://127.0.0.1:<port>` and reads
 `tailscale status --json` to learn the https hostname. It never touches your
 Tailscale ACLs or account; it only asks the already-signed-in `tailscale` CLI to
 serve the port Kelly is already listening on.
+
+## Public link (Tailscale Funnel)
+
+Use this for a demo or storefront link anyone can open — not just devices on your tailnet.
+Unlike Tailscale Serve above, Funnel is public: anyone with the URL reaches Kelly's login page.
+Start it manually each time; Kelly never installs a login item or a LaunchAgent, and nothing
+starts on its own when the Mac boots.
+
+1. Install Tailscale on the Mac and sign in:
+   ```bash
+   brew install --cask tailscale
+   ```
+   Open Tailscale.app once and sign in to your tailnet.
+2. Enable HTTPS certificates and the Funnel node attribute for this tailnet in the Tailscale
+   admin console:
+   - HTTPS certificates: https://login.tailscale.com/admin/dns
+   - Funnel (ACLs / node attributes): https://login.tailscale.com/admin/acls
+3. Create the accounts the public demo will use, scoped to the demo's own data:
+   ```bash
+   kelly users add owner --role admin --demo boutique
+   kelly users add counter --role counter --demo boutique
+   ```
+   Kelly prints which data directory it used. Every password must be at least 10 characters —
+   use long, unique passwords for a public link, since the password is the only thing standing
+   between the internet and this login page.
+4. Start the public demo:
+   ```bash
+   kelly start --demo --trade boutique --public
+   ```
+   This sets `KELLY_TUNNEL=funnel` for the demo instead of the usual tunnel-off default (every
+   other demo isolation — separate data, memory, knowledge, and catalogue — is unchanged).
+   `--public` also works without `--demo` for a real install (`kelly start --public`), meaning
+   the same thing: Tailscale Funnel instead of tunnel-off.
+
+   Kelly prints the public `https://…` link once Funnel is up, the same way Serve does. Because
+   a tunnel is active and this is darwin, Kelly also runs `caffeinate -i -w <kelly pid>` beside
+   itself, logging "Keeping this Mac awake while Kelly is online." so the Mac cannot idle-sleep
+   while the demo is running; it never changes display-sleep settings, and it exits the moment
+   Kelly does.
+
+5. Stop it: Ctrl+C in Kelly's window stops Kelly, the tunnel, and `caffeinate` together. If
+   anything is left over (a crash, a killed terminal), turn Funnel off directly:
+   ```bash
+   tailscale funnel --https=443 off
+   ```
+
+**Security note.** Public means anyone who has the link can reach the login page — there is no
+tailnet or Cloudflare Access layer in front of it, only Kelly's own login. A counter account can
+open `/chat` and `/voice` (which run Codex on this Mac) but cannot reach mission control,
+approvals, settings, or any admin-only route. Failed logins are throttled the same as any other
+login (5 wrong passwords locks that account for 15 minutes).
+
+**Common failures and fixes**, from Kelly's own plain-language error:
+- *Funnel not enabled for this tailnet or node* — enable HTTPS certificates and the Funnel node
+  attribute in the admin console links above, then try again.
+- *Tailscale is not signed in on this Mac* — run `tailscale up`.
+- *Binary missing* — install Tailscale from https://tailscale.com/download or
+  `brew install --cask tailscale`; Kelly never downloads it for you. Kelly also looks for the
+  CLI at `/Applications/Tailscale.app/Contents/MacOS/Tailscale` if it is not on PATH.
 
 ## Setup: Cloudflare Tunnel (fallback)
 
@@ -70,6 +130,16 @@ kelly users add <username> --role admin|counter --password-stdin   # reads the p
 kelly users list                                  # JSON: username, role, createdAt, never a hash
 kelly users remove <username>
 kelly users set-password <username>                # same prompt/--password-stdin rules as add
+```
+
+Add `--demo boutique|electrical` to any of the subcommands above to manage accounts for a demo
+instance instead of the real install — the data directory Kelly uses is exactly the one
+`kelly start --demo --trade <t>` resolves (`data/demo-boutique/data` or `data/demo/data`, an
+absolute path). Kelly prints which data directory it used, e.g.:
+
+```bash
+kelly users add owner --role admin --demo boutique
+kelly users add counter --role counter --demo boutique
 ```
 
 Every password must be at least 10 characters; a shorter one is refused with a plain

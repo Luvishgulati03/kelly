@@ -545,6 +545,19 @@ async function main(): Promise<void> {
       else if (sub === "stop") { await runtime.tunnel.stop(); print(runtime.tunnel.status()); }
       else throw new Error("Usage: henry tunnel status|start|stop");
     } else if (command === "users") {
+      // --demo boutique|electrical targets the same data dir `kelly start --demo --trade <t>`
+      // resolves (bin/start.mjs), so the owner can create the demo's own accounts. Auth storage
+      // (dashboard/auth.ts) keys off HENRY_DATA_DIR, not KELLY_DATA_DIR, so that is what we set.
+      const demoTrade = option("--demo");
+      if (demoTrade !== undefined && demoTrade !== "boutique" && demoTrade !== "electrical") {
+        throw new Error("--demo requires boutique or electrical");
+      }
+      if (demoTrade) {
+        const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+        const demoDataDir = path.join(repoRoot, "data", demoTrade === "boutique" ? "demo-boutique" : "demo", "data");
+        process.env.HENRY_DATA_DIR = demoDataDir;
+        console.log(note("info", `Using demo (${demoTrade}) data dir: ${demoDataDir}`));
+      }
       const sub = args[1];
       if (sub === "add") {
         const username = args[2];
@@ -567,7 +580,7 @@ async function main(): Promise<void> {
         const password = await resolvePassword();
         console.log(setPassword(username, password) ? `Password updated for ${username}.` : `No such user: ${username}`);
       } else {
-        throw new Error("Usage: henry users add <username> --role admin|counter | list | remove <username> | set-password <username>");
+        throw new Error("Usage: henry users add <username> --role admin|counter [--demo boutique|electrical] | list | remove <username> | set-password <username>");
       }
     } else if (command === "memory") {
       const sub = args[1] || "search";

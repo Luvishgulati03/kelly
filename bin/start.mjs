@@ -11,8 +11,28 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const launcher = path.join(root, "bin/kelly.mjs");
 export const shellQuote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 
-export function terminalCommand(node, entry, demo = false, trade) {
-  return [node, entry, "start", "--foreground", ...(demo ? ["--demo"] : []), ...(trade ? ["--trade", trade] : [])].map(shellQuote).join(" ");
+export function terminalCommand(node, entry, demo = false, trade, publicFlag = false) {
+  return [node, entry, "start", "--foreground", ...(demo ? ["--demo"] : []), ...(trade ? ["--trade", trade] : []), ...(publicFlag ? ["--public"] : [])].map(shellQuote).join(" ");
+}
+
+/** `--public` (with or without `--demo`) turns on Tailscale Funnel; otherwise the tunnel stays off, as today. */
+export function resolveTunnelMode(args) {
+  return args.includes("--public") ? "funnel" : "off";
+}
+
+/**
+ * Spawns `caffeinate -i -w <pid>` so this Mac cannot idle-sleep while a tunnel is online;
+ * caffeinate exits on its own once the watched pid exits, so nothing lingers after Ctrl+C.
+ * Only for darwin, and only when a tunnel is actually active (not merely configured) — the
+ * spawner is injectable so tests never start a real process. Display sleep is untouched.
+ */
+export function maybeKeepAwake(tunnelMode, remoteActive, pid, options = {}) {
+  const platform = options.platform || process.platform;
+  if (tunnelMode === "off" || !remoteActive || platform !== "darwin") return null;
+  const spawnProcess = options.spawnProcess || spawn;
+  const child = spawnProcess("/usr/bin/caffeinate", ["-i", "-w", String(pid)], { stdio: "ignore" });
+  console.log("Keeping this Mac awake while Kelly is online.");
+  return child;
 }
 
 export async function assertFree(port) {
@@ -97,19 +117,19 @@ export async function supervise(commands, ready, options = {}) {
 
 export async function startKelly(args) {
   if (args.includes("--help")) {
-    console.log("kelly start: dashboard + local voice in a new macOS Terminal window.\nkelly start --foreground: run both here; Ctrl+C stops both.\nkelly start --demo: isolated fictional catalogue on port 7338.\nkelly start --demo --trade boutique|electrical: pick the demo trade pack (default electrical).\nUses Kelly's repository .env. No downloads. Remote tunnels are disabled.");
+    console.log("kelly start: dashboard + local voice in a new macOS Terminal window.\nkelly start --foreground: run both here; Ctrl+C stops both.\nkelly start --demo: isolated fictional catalogue on a local port.\nkelly start --demo --trade boutique|electrical: pick the demo trade pack (default electrical).\nkelly start [--demo] --public: turns on Tailscale Funnel (KELLY_TUNNEL=funnel) so the link is reachable by anyone; keeps this Mac awake while it runs. Requires an admin account (kelly users add <name> --role admin [--demo <trade>]).\nUses Kelly's repository .env. No downloads. Without --public, remote tunnels are disabled.");
     return;
   }
   const tradeIndex = args.indexOf("--trade");
   const trade = tradeIndex === -1 ? undefined : args[tradeIndex + 1];
   const knownFlags = tradeIndex === -1 ? args : [...args.slice(0, tradeIndex), ...args.slice(tradeIndex + 2)];
-  if (knownFlags.some((arg) => !["--foreground", "--demo"].includes(arg))) throw new Error("Usage: kelly start [--foreground] [--demo] [--trade boutique|electrical]");
+  if (knownFlags.some((arg) => !["--foreground", "--demo", "--public"].includes(arg))) throw new Error("Usage: kelly start [--foreground] [--demo] [--trade boutique|electrical] [--public]");
   if (trade !== undefined && !args.includes("--demo")) throw new Error("--trade is only valid with --demo.");
   if (trade !== undefined && !["boutique", "electrical"].includes(trade)) throw new Error("--trade must be boutique or electrical.");
   if (process.platform === "darwin" && !args.includes("--foreground")) {
     const script = 'on run argv\ntell application "Terminal"\nactivate\ndo script (item 1 of argv)\nend tell\nend run';
     await new Promise((resolve, reject) => {
-      const child = spawn("/usr/bin/osascript", ["-e", script, terminalCommand(process.execPath, launcher, args.includes("--demo"), trade)], { shell: false, stdio: "inherit" });
+      const child = spawn("/usr/bin/osascript", ["-e", script, terminalCommand(process.execPath, launcher, args.includes("--demo"), trade, args.includes("--public"))], { shell: false, stdio: "inherit" });
       child.once("error", reject);
       child.once("exit", (code) => code === 0 ? resolve() : reject(new Error("Could not open Terminal. Run kelly start --foreground instead.")));
     });
@@ -157,8 +177,8 @@ export async function startKelly(args) {
     process.env.KELLY_TELEGRAM_BOT_TOKEN = "";
     process.env.HENRY_TELEGRAM_BOT_TOKEN = "";
     console.log(isBoutique
-      ? "DEMO MODE: She Fashion House boutique, separate data and memory, port 7338."
-      : "DEMO MODE: fictional catalogue, separate data and memory, port 7338.");
+      ? `DEMO MODE: She Fashion House boutique, separate data and memory, port ${process.env.KELLY_PORT}.`
+      : `DEMO MODE: fictional catalogue, separate data and memory, port ${process.env.KELLY_PORT}.`);
   }
   const { loadConfig } = await import("../src/config.ts");
   // Avoid reading another project's .env when launched from an arbitrary directory.
@@ -193,7 +213,8 @@ export async function startKelly(args) {
   if (voicePort === config.port) throw new Error("Dashboard and voice worker need different ports.");
   await assertFree(config.port);
   await assertFree(voicePort);
-  const env = { ...process.env, KELLY_TUNNEL: "off", KELLY_HOST: "127.0.0.1", HENRY_HOST: "127.0.0.1" };
+  const tunnelMode = resolveTunnelMode(args);
+  const env = { ...process.env, KELLY_TUNNEL: tunnelMode, KELLY_HOST: "127.0.0.1", HENRY_HOST: "127.0.0.1" };
   const dashboard = `http://127.0.0.1:${config.port}`;
   console.log("Starting Kelly dashboard and local speech worker. Ctrl+C in this window stops both.");
   await supervise([
@@ -204,6 +225,17 @@ export async function startKelly(args) {
       waitReady(new URL("/health", voiceUrl), { token, alive }),
       waitReady(`${dashboard}/api/health`, { alive }),
     ]);
-    if (alive()) console.log(`Kelly is ready.\nDashboard: ${dashboard}\nVoice: ${dashboard}/voice\nLocal only. Press Ctrl+C to stop both services.`);
+    if (!alive()) return;
+    console.log(`Kelly is ready.\nDashboard: ${dashboard}\nVoice: ${dashboard}/voice\n${tunnelMode === "off" ? "Local only. " : ""}Press Ctrl+C to stop both services.`);
+    if (tunnelMode !== "off") {
+      // Best-effort: the dashboard's own process already started/announced the tunnel; this
+      // only decides whether to keep the Mac awake, so a failed check here must never crash
+      // the launcher or stop Kelly.
+      try {
+        const remote = await fetch(`${dashboard}/api/remote`, { signal: AbortSignal.timeout(5000) });
+        const status = await remote.json();
+        maybeKeepAwake(tunnelMode, Boolean(status?.active), process.pid);
+      } catch { /* tunnel status not readable yet; leave the Mac's sleep setting alone */ }
+    }
   }, { env });
 }
