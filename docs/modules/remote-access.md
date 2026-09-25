@@ -1,5 +1,10 @@
 # Remote access (the shop tablet)
 
+> **Since Explore Kelly:** by default every tunnel shows only the public Explore page and its
+> sandboxed conversations, never the login page or the dashboard. Everything below about logging
+> in through a tunnel (the tablet, the counter account, the lockout) applies only with
+> `KELLY_REMOTE_LOGIN=on` in `.env`. See [../public-explore.md](../public-explore.md).
+
 Kelly runs on the shop's Mac, bound to `127.0.0.1` only, the same as every other
 mode. Remote access does not change that: it starts a tunnel process that forwards
 a device on the counter, a tablet, into that loopback address. Kelly never binds

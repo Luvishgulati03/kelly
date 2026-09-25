@@ -437,16 +437,26 @@ is off by default. Both are adjustable in the same Voice pane.
 The dashboard always binds to `127.0.0.1`, so another device can only reach it
 through a tunnel. Tunnels also give the HTTPS address that tablet browsers
 require before they allow the microphone. Every tunnel option needs an admin
-account (step 8). While Kelly runs with a tunnel, every device, the Mac
-included, must log in.
+account (step 8). While Kelly runs with a tunnel, the Mac itself must log in
+too.
+
+**What the link shows.** By default, the tunnel link shows only the public
+**Explore Kelly** page. On that page anyone can talk to, tap-to-talk with, or
+chat with a sandboxed Kelly that has no tools. It never shows the dashboard or
+any real conversation, transcript, memory, quote, or setting. See
+`docs/public-explore.md`.
+
+**For the shop tablet** (owner or counter login through the link), add
+`KELLY_REMOTE_LOGIN=on` to `.env` and restart. Without it, the tunnel has no
+login page. This applies to every tunnel below, including Tailscale Serve.
 
 Pick one:
 
 | Option | Who can open the link | Needs | Start command |
 | --- | --- | --- | --- |
 | Tailscale Serve | Only devices signed in to the owner's tailnet | Tailscale on the Mac and the tablet | `kelly start --private tailscale` |
-| Cloudflare, own domain | Anyone with the link (login page) | A domain whose DNS is on Cloudflare, `cloudflared` | `kelly tunnel setup ...` once, then `kelly start --public` |
-| Tailscale Funnel | Anyone with the link (login page) | Tailscale with HTTPS and Funnel enabled | `kelly start --public` (when no Cloudflare tunnel is configured) or `kelly start --public funnel` to force it |
+| Cloudflare, own domain | Anyone with the link (the Explore page; login only with `KELLY_REMOTE_LOGIN=on`) | A domain whose DNS is on Cloudflare, `cloudflared` | `kelly tunnel setup ...` once, then `kelly start --public` |
+| Tailscale Funnel | Anyone with the link (the Explore page; login only with `KELLY_REMOTE_LOGIN=on`) | Tailscale with HTTPS and Funnel enabled | `kelly start --public` (when no Cloudflare tunnel is configured) or `kelly start --public funnel` to force it |
 
 Without `--public` or `--private tailscale`, `kelly start` never starts a tunnel, whatever `.env` says.
 While a tunnel is running, Kelly also runs `caffeinate` so the Mac does not idle
@@ -576,7 +586,9 @@ never touches the real install and never connects to Telegram. It runs on port
 Try: "show me trending sarees" or "how much for two salwar suits with lining,
 my own fabric, needed by Friday".
 
-To share a demo publicly, create demo-only accounts first:
+To share a demo publicly, create a demo-only admin account first (a tunnel
+will not start without one). Visitors get the Explore page, and logins through
+the link stay off unless `KELLY_REMOTE_LOGIN=on`:
 
 ```bash
 kelly users add owner --role admin --demo boutique
