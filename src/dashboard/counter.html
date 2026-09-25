@@ -688,6 +688,7 @@ window.KellyOrb = KellyOrb;
     stopSpeaking();
     ensurePlayMeter();
     speaking = true; speakAbort = new AbortController();
+    const mine = speakAbort;
     // The native player stays hidden through normal playback; it is only ever revealed by
     // playNextFrame() below, and only when the browser refuses an autoplay-less play() call.
     setMode('speaking'); state.textContent = 'Kelly is speaking'; stopButton.hidden = false;
@@ -703,13 +704,25 @@ window.KellyOrb = KellyOrb;
         if (audio.size > 44) queueFrame(audio);
       }
       // Once the last frame has been queued, wait for it to actually finish playing before
-      // returning to idle; that happens naturally in playNextFrame/onended.
-      const waitForEnd = () => new Promise((resolve) => {
-        const check = () => { if (!playQueue.length && (playback.paused || playback.ended) && !speaking) return resolve(); requestAnimationFrame(check); };
-        const originalOnEnded = playback.onended;
-        playback.onended = () => { originalOnEnded?.(); if (!playQueue.length) { speaking = false; setMode('idle'); state.textContent = 'Tap to talk'; stopButton.hidden = true; resolve(); } };
+      // returning to idle. playNextFrame replaces playback.onended for every clip, so a wrapper
+      // around it is lost once three or more clips are queued: wait on the queue itself instead.
+      await new Promise((resolve) => {
+        let settled = false;
+        const settle = () => {
+          if (settled) return true;
+          if (speakAbort !== mine || mine.signal.aborted) settled = true;
+          else if (!playQueue.length && !playingUrl && (playback.paused || playback.ended)) {
+            speaking = false; setMode('idle'); state.textContent = 'Tap to talk'; stopButton.hidden = true;
+            settled = true;
+          }
+          if (settled) { playback.removeEventListener('ended', onEnded); resolve(); }
+          return settled;
+        };
+        const onEnded = () => setTimeout(settle, 0);
+        const poll = () => { if (!settle()) requestAnimationFrame(poll); };
+        playback.addEventListener('ended', onEnded);
+        poll();
       });
-      await waitForEnd();
     } catch (error) {
       if (error.name !== 'AbortError') { say(error.message || 'Could not play speech.', true); }
       speaking = false; setMode('idle'); state.textContent = 'Tap to talk'; stopButton.hidden = true;

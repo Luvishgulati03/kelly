@@ -591,9 +591,14 @@ test("talk engine: two spoken lines in one turn play back to back, mic stays mut
     );
 
     const lastEnded = endedAt[endedAt.length - 1];
-    const prematureListening = samples.filter((x) => x.s === "listening" && x.t < lastEnded - 20);
+    // Sampling starts while the page is still listening for the utterance; only samples from the
+    // moment the turn began (the first non-listening state) can show a premature return.
+    const turnStart = samples.findIndex((x) => x.s !== "listening");
+    assert.ok(turnStart >= 0, "the turn was sampled");
+    const duringTurn = samples.slice(turnStart);
+    const prematureListening = duringTurn.filter((x) => x.s === "listening" && x.t < lastEnded - 20);
     assert.deepEqual(prematureListening, [], "state never shows Listening between the two lines");
-    const prematureVadRunning = samples.filter((x) => x.v === true && x.t < lastEnded - 20);
+    const prematureVadRunning = duringTurn.filter((x) => x.v === true && x.t < lastEnded - 20);
     assert.deepEqual(prematureVadRunning, [], "Silero never re-arms (vadRunning) between the two lines");
 
     assert.equal(await page.evaluate(() => document.querySelector("#state")?.textContent), "Listening", "back to Listening automatically after the second line");
