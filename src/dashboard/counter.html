@@ -19,7 +19,7 @@
   }
   <!--KELLY_ACCENT-->
   * { box-sizing:border-box; }
-  html, body { height:100%; }
+  html, body { height:100%; overflow-x:hidden; }
   body { margin:0; background:var(--bg); color:var(--text); font:15px/1.5 var(--sans); overflow:hidden; height:100dvh;
     background-image:radial-gradient(ellipse 70% 45% at 50% 18%, rgba(208,138,75,.10), transparent 70%); }
   button { font:inherit; cursor:pointer; color:inherit; }
@@ -32,7 +32,7 @@
   .brand .mark { flex:none; width:26px; height:26px; border-radius:7px; background:linear-gradient(160deg,var(--copper2),var(--copper) 70%); display:grid; place-items:center; font:800 15px var(--display); color:#1a1108; }
   .brand span.name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .controls { display:flex; gap:6px; }
-  .icon { width:42px; height:42px; border-radius:12px; border:1px solid transparent; background:transparent; display:grid; place-items:center; color:var(--dim); }
+  .icon { width:44px; height:44px; border-radius:12px; border:1px solid transparent; background:transparent; display:grid; place-items:center; color:var(--dim); }
   .icon svg { width:20px; height:20px; }
   .icon:hover:not(:disabled) { background:var(--surface2); color:var(--text); }
   .icon[aria-pressed="true"] { background:rgba(208,138,75,.16); color:var(--copper2); border-color:rgba(208,138,75,.4); }
@@ -61,7 +61,7 @@
   .status[data-mode="recording"] strong { color:var(--copper2); }
   .status[data-mode="speaking"] strong { color:var(--teal); }
   .status[data-mode="error"] strong { color:var(--danger); }
-  #stop { margin-top:8px; border:1px solid var(--border); background:var(--surface); border-radius:999px; padding:6px 16px; font-size:13px; font-weight:700; color:var(--dim); }
+  #stop { margin-top:8px; border:1px solid var(--border); background:var(--surface); border-radius:999px; padding:6px 16px; font-size:13px; font-weight:700; color:var(--dim); min-height:44px; }
   #stop:hover { color:var(--text); border-color:var(--faint); }
   #stop[hidden] { display:none; }
 

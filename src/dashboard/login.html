@@ -26,6 +26,7 @@
   body {
     background: var(--bg); color: var(--text); font-family: var(--sans);
     display: flex; align-items: center; justify-content: center; padding: 24px;
+    min-height: 100vh; min-height: 100dvh; overflow-y: auto;
   }
 
   main { width: 100%; max-width: 360px; animation: rise .3s ease both; }
@@ -44,14 +45,14 @@
   label { display: flex; flex-direction: column; gap: 6px; font-size: 12.5px; color: var(--text-dim); }
   input {
     appearance: none; background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
-    border-radius: 10px; padding: 10px 12px; font-size: 14.5px; font-family: var(--sans);
+    border-radius: 10px; padding: 12px; font-size: 16px; font-family: var(--sans); min-height: 46px;
     transition: border-color .15s;
   }
   input:focus { outline: none; border-color: var(--accent-dim); }
   button {
     appearance: none; border: 1px solid var(--accent-dim); background: var(--accent-dim); color: var(--text);
     border-radius: 10px; padding: 10px 12px; font-size: 14px; cursor: pointer; font-family: var(--sans);
-    margin-top: 4px; transition: filter .15s;
+    margin-top: 4px; transition: filter .15s; min-height: 46px;
   }
   button:hover { filter: brightness(1.2); }
 

@@ -109,6 +109,20 @@ details.tbl{margin-top:10px}details.tbl summary{cursor:pointer;color:var(--coppe
 @media (prefers-reduced-motion:reduce){.beat canvas{opacity:.9}}
 @media (max-width:1000px){.vitals{grid-template-columns:repeat(2,minmax(0,1fr))}.cols,.voice,.usage{grid-template-columns:1fr}.beat{grid-template-columns:120px minmax(0,1fr)}.beat .feed{display:none}.settings{grid-template-columns:1fr}}
 @media (max-width:700px){.shell{grid-template-columns:1fr}.rail{border-right:0;border-bottom:1px solid var(--line);padding:12px}.tabs{flex-direction:row;flex-wrap:wrap}.rail .foot{display:none}.vitals{grid-template-columns:1fr}.lrow{grid-template-columns:6px 60px minmax(0,1fr);gap:0 8px}.lrow .kd,.lrow .du{display:none}.beat{grid-template-columns:1fr}.beat .bpm{border-right:0;border-bottom:1px solid var(--line);flex-direction:row;align-items:center;gap:12px}.topline h2{font-size:24px}}
+/* Touch tap targets: any coarse pointer (phone or tablet, portrait or landscape) or a narrow
+   viewport gets >=44px controls and >=16px form fields, without shrinking the compact desktop
+   mouse-driven layout above. */
+@media (pointer:coarse),(max-width:1000px){
+  .tab,.chip,.button,.icon{min-height:44px;min-width:44px}
+  .chip,.button{padding-top:10px;padding-bottom:10px}
+  .input,select.input{min-height:44px;font-size:16px}
+  .tab{padding-top:12px;padding-bottom:12px}
+  .lrow{min-height:44px;padding-top:9px;padding-bottom:9px}
+  .item{min-height:44px}
+  details.tbl summary{min-height:44px;display:flex;align-items:center}
+}
+.usage details.tbl{overflow-x:auto}
+.usage details.tbl table{min-width:560px}
 </style></head><body>
 <div class="wrap"><div class="shell">
   <nav class="rail" aria-label="Sections">
