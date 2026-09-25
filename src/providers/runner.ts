@@ -4,6 +4,8 @@ import type { HenryConfig } from "../config.ts";
 import type { ActivityLog } from "../activity.ts";
 import type { ActivityKind, DispatchTier, ProviderEvent, ProviderName, RunResult } from "../types.ts";
 import { safeEnvironment } from "../util/env.ts";
+import { isPublicTurn } from "../guardrails.ts";
+import { publicClaudeArgs, publicCodexArgs, publicEnvironment, publicTurnViolation } from "./public-sandbox.ts";
 import path from "node:path";
 import { SessionManager, sessionArgs } from "./session.ts";
 import { AdmissionController, sharedAdmissionController } from "../orchestration/admission.ts";
@@ -44,8 +46,20 @@ export interface RunOptions {
   outputSchemaPath?: string;
   /** Raw human request used by Kelly's catalogue retriever when the provider prompt has wrappers. */
   catalogueQuery?: string;
+  /**
+   * A PUBLIC VISITOR TURN (src/public/turn.ts). The run is spawned with the public sandbox argv
+   * (src/providers/public-sandbox.ts: no tools, no MCP, no settings, no session), a minimal
+   * environment carrying KELLY_PUBLIC_TURN=1, in `cwd` (required: an empty scratch directory),
+   * and any answer whose events show a tool call is discarded. `surface`, `session`,
+   * `outputSchemaPath` and `catalogueQuery` are ignored; there is no failover. `systemPrompt`
+   * carries the public rules: Codex receives it prepended to the prompt; Claude (Henry profile
+   * only) via --system-prompt.
+   */
+  publicTurn?: { systemPrompt: string };
   onEvent?: (event: ProviderEvent) => void;
 }
+
+export const PUBLIC_TURN_NESTED_REFUSAL = "A public visitor turn cannot start another provider run.";
 
 /** Default wall-clock envelope: 5 minutes (MASTER_PLAN §7). */
 export const DEFAULT_ENVELOPE_MS = 300_000;
@@ -287,7 +301,9 @@ export async function execute(
   let firstTextMs: number | null = null;
   const child = spawn(command, args, {
     cwd,
-    env: safeEnvironment(provider, { CI: "1", HENRY_RUN_ID: runId }),
+    // A public turn gets the minimal public environment (no tokens, no KELLY_* keys,
+    // KELLY_PUBLIC_TURN=1); every other run keeps the usual allowlist.
+    env: options.publicTurn ? publicEnvironment(provider, { HENRY_RUN_ID: runId }) : safeEnvironment(provider, { CI: "1", HENRY_RUN_ID: runId }),
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -589,7 +605,16 @@ export class ProviderRunner {
     );
   }
 
-  async run(prompt: string, options: RunOptions = {}): Promise<RunResult> {
+  async run(prompt: string, inputOptions: RunOptions = {}): Promise<RunResult> {
+    // PUBLIC RAIL: a process that already serves a public turn never starts another run, and a
+    // public run never carries a session, schema, or catalogue retrieval of its own.
+    if (isPublicTurn() && !inputOptions.publicTurn) {
+      return { runId: randomUUID(), provider: inputOptions.provider || this.config.provider, response: "", exitCode: null, durationMs: 0, error: PUBLIC_TURN_NESTED_REFUSAL, events: [] };
+    }
+    const options: RunOptions = inputOptions.publicTurn
+      ? { ...inputOptions, readOnly: true, surface: undefined, session: undefined, outputSchemaPath: undefined, catalogueQuery: undefined }
+      : inputOptions;
+    if (options.publicTurn && !options.cwd) throw new Error("A public turn needs an explicit scratch cwd.");
     const at = this.nowFn();
     const ledger = this.limits();
     const policy = readFallbackPolicy(this.settingsPath());
@@ -602,8 +627,11 @@ export class ProviderRunner {
     // contract we use here. Never turn a read-only review into a write-capable
     // FALLBACK; an EXPLICIT caller choice of claude (e.g. vision classification)
     // is honored as a single-provider run with no fallback either way.
+    // A public turn never fails over: one provider, one locked-down attempt.
     const sequence: ProviderName[] = this.config.profileId === "kelly"
       ? ["codex"]
+      : options.publicTurn
+      ? [preferred]
       : options.readOnly
       ? [options.provider === "claude" ? "claude" as const : "codex" as const]
       : isPinned
@@ -677,13 +705,17 @@ export class ProviderRunner {
         claudeT0Model: this.config.claudeT0Model,
         claudeT2Model: this.config.claudeT2Model,
       };
-      const args = buildProviderArgs(provider, prompt, {
-        ...routing,
-        readOnly: options.readOnly === true,
-        session,
-        outputSchemaPath: options.outputSchemaPath,
-      });
       const route = resolveProviderRoute(provider, routing);
+      const args = options.publicTurn
+        ? (provider === "claude"
+          ? publicClaudeArgs(prompt, options.publicTurn.systemPrompt, { model: route.model })
+          : publicCodexArgs(`${options.publicTurn.systemPrompt}\n\n${prompt}`, { model: route.model, effort: "low" }))
+        : buildProviderArgs(provider, prompt, {
+          ...routing,
+          readOnly: options.readOnly === true,
+          session,
+          outputSchemaPath: options.outputSchemaPath,
+        });
       const cwd = options.cwd || this.config.rootDir;
       const decision = await this.admission.waitForSlot({ provider, timeoutMs: envelopeMs, label: options.role });
       const queued = decision.queuedMs >= QUEUE_NOTICE_MS;
@@ -722,6 +754,17 @@ export class ProviderRunner {
         result = await this.executeFn(provider, args, cwd, provider, { ...options, timeoutMs: envelopeMs });
       } finally {
         decision.slot.release();
+      }
+      if (options.publicTurn) {
+        // Output-side rail: an answer produced with a tool call (or with a tool merely loaded) is
+        // never handed to a visitor. This is configuration drift, not a quota problem, so it
+        // neither fails over nor parks the provider.
+        const violation = publicTurnViolation(provider, result.events);
+        if (violation) {
+          result = { ...result, response: "", error: `public sandbox violation: ${violation}` };
+          await this.activity.record("run.failed", "Public turn discarded: sandbox violation", { error: result.error, public: true }, { runId: result.runId, provider, role: options.role });
+          return result;
+        }
       }
       if (result.exitCode === 0 && isAuthFailureResponse(result.response)) {
         // A clean exit with a "you're logged out" body is a FAILURE, not success — the caller

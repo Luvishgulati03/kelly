@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ApprovalItem } from "../types.ts";
+import { assertNotPublicTurn } from "../guardrails.ts";
 
 /** How long a mutation waits for another process's lock before giving up. */
 const LOCK_WAIT_MS = 10_000;
@@ -109,6 +110,7 @@ export class ApprovalStore {
   }
 
   async create(input: Omit<ApprovalItem, "id" | "createdAt" | "updatedAt" | "status">): Promise<ApprovalItem> {
+    assertNotPublicTurn();
     return this.mutate(async () => {
       await this.ensure();
       const now = new Date().toISOString();
@@ -130,6 +132,7 @@ export class ApprovalStore {
   }
 
   async setStatus(id: string, status: ApprovalItem["status"], result?: string): Promise<ApprovalItem> {
+    assertNotPublicTurn();
     return this.mutate(async () => {
       await this.ensure();
       const item = this.items.find((candidate) => candidate.id === id);
@@ -146,6 +149,7 @@ export class ApprovalStore {
 
   /** Atomically claim an explicitly approved action for execution. */
   async claimForExecution(id: string): Promise<ApprovalItem> {
+    assertNotPublicTurn();
     return this.mutate(async () => {
       await this.ensure();
       const item = this.items.find((candidate) => candidate.id === id);

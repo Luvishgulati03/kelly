@@ -157,6 +157,11 @@ test("5 failed logins for one user through the tunnel do not lock out a second u
 });
 
 test("rotating a spoofed X-Forwarded-For per attempt does not escape the lockout", async () => {
+  // Proxy headers make these requests tunnelled (src/public/surface.ts isPublicRequest), where
+  // login exists only with KELLY_REMOTE_LOGIN=on.
+  const previousRemoteLogin = process.env.KELLY_REMOTE_LOGIN;
+  process.env.KELLY_REMOTE_LOGIN = "on";
+  try {
   await withDashboard(async (base) => {
     const origin = "https://kelly-mac.tail1234.ts.net";
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -170,6 +175,25 @@ test("rotating a spoofed X-Forwarded-For per attempt does not escape the lockout
     });
     assert.equal(fresh.status, 429, "a new forwarded IP must not reset the per-username lock");
   }, { tunnel: { active: true, mode: "funnel", url: "https://kelly-mac.tail1234.ts.net" } });
+  } finally {
+    if (previousRemoteLogin === undefined) delete process.env.KELLY_REMOTE_LOGIN; else process.env.KELLY_REMOTE_LOGIN = previousRemoteLogin;
+  }
+});
+
+test("through the tunnel (proxy headers) the login is off by default: 404, no cookie", async () => {
+  const previousRemoteLogin = process.env.KELLY_REMOTE_LOGIN;
+  delete process.env.KELLY_REMOTE_LOGIN;
+  try {
+    await withDashboard(async (base) => {
+      const attempt = await postLogin(base, "owner", "owner-password-1", {
+        origin: "https://kelly-mac.tail1234.ts.net", "x-forwarded-proto": "https", "x-forwarded-for": "203.0.113.9", "cf-connecting-ip": "203.0.113.9",
+      });
+      assert.equal(attempt.status, 404);
+      assert.equal(attempt.setCookie, null);
+    }, { tunnel: { active: true, mode: "cloudflare", url: "https://kelly-mac.tail1234.ts.net" } });
+  } finally {
+    if (previousRemoteLogin !== undefined) process.env.KELLY_REMOTE_LOGIN = previousRemoteLogin;
+  }
 });
 
 test("a counter login lands on its counter home by mode: talk, conversation, review", async () => {

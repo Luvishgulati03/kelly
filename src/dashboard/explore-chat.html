@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<title>Chat with Kelly · <!--KELLY_SHOP--></title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="<!--KELLY_THEME_COLOR-->">
+<style>
+  :root {
+    --bg:#141516; --surface:#1b1e20; --surface2:#22262a; --border:#3c4348; --borderSoft:#2f3539;
+    --text:#f3efe6; --dim:#c0bab0; --faint:#847e75; --danger:#f0616d;
+    --copper:#d08a4b; --copper2:#f0b072;
+    --sans:"Atkinson Hyperlegible","Helvetica Neue",Arial,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  <!--KELLY_ACCENT-->
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--text); font:15px/1.55 var(--sans); display:flex; flex-direction:column; height:100dvh;
+    background-image:radial-gradient(ellipse 70% 40% at 50% 0%, color-mix(in srgb, var(--copper) 12%, transparent), transparent 70%); }
+  button, input, textarea { font:inherit; color:inherit; }
+  header { display:flex; align-items:center; gap:12px; padding:max(12px, env(safe-area-inset-top)) 16px 12px; border-bottom:1px solid var(--borderSoft); }
+  header a { color:var(--dim); text-decoration:none; }
+  header a:hover { color:var(--text); }
+  .mark { width:30px; height:30px; border-radius:9px; display:grid; place-items:center; font-weight:700; background:color-mix(in srgb, var(--copper) 25%, var(--surface)); color:var(--copper2); }
+  .title { font-weight:700; }
+  .title small { display:block; font:12px var(--mono); color:var(--faint); font-weight:400; }
+  header .spacer { flex:1; }
+  #reset { border:1px solid var(--borderSoft); background:var(--surface); border-radius:10px; padding:6px 12px; cursor:pointer; color:var(--dim); }
+  #reset:hover { background:var(--surface2); color:var(--text); }
+  main { flex:1; overflow-y:auto; padding:18px 16px 8px; }
+  .wrap { max-width:720px; margin:0 auto; display:flex; flex-direction:column; gap:12px; }
+  .note { font:12px var(--mono); color:var(--faint); text-align:center; margin:0 0 6px; }
+  .msg { max-width:88%; padding:10px 14px; border-radius:14px; white-space:pre-wrap; overflow-wrap:anywhere; }
+  .msg.visitor { align-self:flex-end; background:color-mix(in srgb, var(--copper) 22%, var(--surface)); border:1px solid color-mix(in srgb, var(--copper) 35%, transparent); }
+  .msg.kelly { align-self:flex-start; background:var(--surface); border:1px solid var(--borderSoft); }
+  .msg.kelly.pending { color:var(--faint); }
+  .msg.error { align-self:center; color:var(--danger); background:transparent; border:0; font-size:13px; }
+  .designs { display:grid; grid-template-columns:repeat(auto-fill, minmax(140px, 1fr)); gap:10px; align-self:stretch; }
+  .design { margin:0; border-radius:12px; overflow:hidden; background:var(--surface); border:1px solid var(--borderSoft); }
+  .design img { display:block; width:100%; aspect-ratio:3/4; object-fit:cover; background:#0b0c0d; }
+  .design figcaption { padding:6px 8px; font-size:12px; color:var(--dim); }
+  .design figcaption b { display:block; color:var(--copper2); font-weight:600; }
+  .samples { display:flex; flex-wrap:wrap; gap:8px; justify-content:center; }
+  .samples button { border:1px solid var(--borderSoft); background:var(--surface); border-radius:999px; padding:6px 12px; cursor:pointer; color:var(--dim); font-size:13px; }
+  .samples button:hover { color:var(--text); background:var(--surface2); }
+  form { display:flex; gap:8px; max-width:720px; width:100%; margin:0 auto; padding:10px 16px max(12px, env(safe-area-inset-bottom)); }
+  textarea { flex:1; resize:none; min-height:46px; max-height:140px; border-radius:12px; border:1px solid var(--border); background:var(--surface); padding:11px 12px; }
+  textarea:focus { outline:2px solid var(--copper); outline-offset:1px; }
+  form button { border:0; border-radius:12px; padding:0 18px; background:var(--copper); color:#16110c; font-weight:700; cursor:pointer; }
+  form button:disabled { opacity:.45; cursor:default; }
+  .count { font:11px var(--mono); color:var(--faint); text-align:right; max-width:720px; margin:0 auto; width:100%; padding:0 18px; }
+</style>
+</head>
+<body>
+<header>
+  <a href="/" aria-label="Back to Explore Kelly">‹ Explore</a>
+  <span class="mark" aria-hidden="true"><!--KELLY_MARK--></span>
+  <div class="title">Kelly <small><!--KELLY_SHOP--></small></div>
+  <span class="spacer"></span>
+  <button id="reset" type="button">New chat</button>
+</header>
+<main id="scroll">
+  <div class="wrap" id="log" aria-live="polite">
+    <p class="note">Public demo: this chat is not saved and nobody else can see it.</p>
+    <div class="samples" id="samples"></div>
+  </div>
+</main>
+<div class="count" id="count"></div>
+<form id="form" autocomplete="off">
+  <textarea id="input" rows="1" maxlength="1000" placeholder="Ask about an item, a price, or a design" aria-label="Message Kelly"></textarea>
+  <button id="send" type="submit" disabled>Send</button>
+</form>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const log = $('log'), scroll = $('scroll'), form = $('form'), input = $('input'), send = $('send'), samples = $('samples'), count = $('count');
+  let max = 1000, busy = false;
+
+  function el(tag, cls, text) { const node = document.createElement(tag); if (cls) node.className = cls; if (text != null) node.textContent = text; return node; }
+  function bottom() { scroll.scrollTop = scroll.scrollHeight; }
+  function refresh() {
+    const length = input.value.trim().length;
+    send.disabled = busy || !length || length > max;
+    count.textContent = input.value.length > max * .8 ? input.value.length + ' / ' + max : '';
+  }
+  function add(role, text) { const node = el('div', 'msg ' + role, text); log.appendChild(node); bottom(); return node; }
+  function designs(items) {
+    const grid = el('div', 'designs');
+    items.forEach((d) => {
+      const fig = el('figure', 'design');
+      const img = el('img'); img.src = d.imageUrl; img.alt = d.title || 'design'; img.loading = 'lazy';
+      const cap = el('figcaption');
+      if (d.price) cap.appendChild(el('b', '', d.price));
+      cap.appendChild(document.createTextNode(d.title || ''));
+      fig.appendChild(img); fig.appendChild(cap); grid.appendChild(fig);
+    });
+    log.appendChild(grid); bottom();
+  }
+
+  async function ask(message) {
+    if (busy || !message) return;
+    busy = true; refresh();
+    samples.hidden = true;
+    add('visitor', message);
+    const reply = add('kelly pending', 'Kelly is thinking…');
+    let text = '';
+    try {
+      const response = await fetch('/api/public/chat', {
+        method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message, mode: 'chat' }),
+      });
+      if (!response.ok) { let data = {}; try { data = await response.json(); } catch {} throw new Error(data.error || 'Kelly could not answer just now.'); }
+      const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        pending += decoder.decode(value, { stream: true });
+        const blocks = pending.split('\n\n'); pending = blocks.pop();
+        for (const block of blocks) {
+          const ev = block.match(/^event: (.+)$/m)?.[1], raw = block.match(/^data: (.+)$/m)?.[1]; if (!raw) continue;
+          let data; try { data = JSON.parse(raw); } catch { continue; }
+          if (ev === 'status' && data.state === 'queued') reply.textContent = 'Kelly is with other customers; you are next…';
+          else if (ev === 'gathering') reply.textContent = 'Checking the shop list…';
+          else if (ev === 'token') { text += data.text || ''; reply.classList.remove('pending'); reply.textContent = text; bottom(); }
+          else if (ev === 'designs' && Array.isArray(data.items) && data.items.length) designs(data.items);
+          else if (ev === 'done') { reply.classList.remove('pending'); reply.textContent = data.response || text; bottom(); }
+          else if (ev === 'error') throw new Error(data.message || 'Kelly could not answer just now.');
+        }
+      }
+    } catch (error) {
+      reply.remove();
+      add('error', error.message || 'Kelly could not answer just now.');
+    } finally {
+      busy = false; refresh(); input.focus();
+    }
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const message = input.value.trim();
+    if (!message || message.length > max) return;
+    input.value = ''; refresh();
+    void ask(message);
+  });
+  input.addEventListener('input', refresh);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); form.requestSubmit(); }
+  });
+  $('reset').addEventListener('click', () => {
+    if (busy) return;
+    fetch('/api/public/reset', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: '{}' }).catch(() => {});
+    [...log.querySelectorAll('.msg, .designs')].forEach((node) => node.remove());
+    samples.hidden = false;
+    input.focus();
+  });
+
+  fetch('/api/public/config', { credentials: 'same-origin', cache: 'no-store' }).then((r) => r.json()).then((config) => {
+    if (typeof config.maxMessageChars === 'number') { max = config.maxMessageChars; input.maxLength = max; }
+    const prompts = (config.samplePrompts && config.samplePrompts.chat) || [];
+    prompts.slice(0, 4).forEach((prompt) => {
+      const chip = el('button', '', prompt); chip.type = 'button';
+      chip.addEventListener('click', () => void ask(prompt));
+      samples.appendChild(chip);
+    });
+  }).catch(() => {});
+  refresh();
+})();
+</script>
+</body>
+</html>

@@ -42,6 +42,10 @@ import { galleryFastPath } from "../designs/fastpath.ts";
 import { voicePrompt } from "../designs/vocabulary.ts";
 import { encodeSolidPng } from "../designs/png.ts";
 import { isLookupRequest } from "../voice/intent.ts";
+import { createPublicSurface, isPublicPath, isPublicRequest, matchPublicRoute, trustedPublicOrigins as publicTrustedOrigins, type PublicSurface, type PublicSurfaceDeps } from "../public/surface.ts";
+import { remoteLoginEnabled } from "../public/config.ts";
+import { PublicRequestLog } from "../public/log.ts";
+import { providerAvailable } from "../providers/limits.ts";
 
 const EVENTS_POLL_MS = 2000;
 
@@ -526,7 +530,7 @@ function talkPromptText(kind: TalkPromptKind, runtime: HenryRuntime, variant = 0
   return template.replaceAll("<shop>", runtime.config.shopName);
 }
 
-async function synthesizeCachedPrompt(voice: LocalVoiceService, dataDir: string, text: string): Promise<Buffer> {
+async function synthesizeCachedPrompt(voice: Pick<LocalVoiceService, "synthesize">, dataDir: string, text: string): Promise<Buffer> {
   const cached = ttsPromptCache.get(text);
   if (cached) return cached;
   const hash = crypto.createHash("sha256").update(text, "utf8").digest("hex");
@@ -701,12 +705,9 @@ function tunnelPublicOrigin(runtime: HenryRuntime): string | undefined {
  * caching — so a tunnel restart (new hostname) or an env change takes effect immediately.
  */
 function trustedPublicOrigins(runtime: HenryRuntime): string[] {
-  const origins: string[] = [];
-  const fromTunnel = tunnelPublicOrigin(runtime);
-  if (fromTunnel) origins.push(fromTunnel);
-  const fromEnv = normalizeHttpsOrigin(process.env.KELLY_PUBLIC_ORIGIN);
-  if (fromEnv && !origins.includes(fromEnv)) origins.push(fromEnv);
-  return origins;
+  // One definition for the dashboard and the public surface: the tunnel's reported URL,
+  // KELLY_PUBLIC_ORIGIN and https://<KELLY_PUBLIC_HOST>, exact matches only.
+  return publicTrustedOrigins(tunnelPublicOrigin(runtime));
 }
 
 /**
@@ -750,8 +751,14 @@ function healthCorsOrigins(): Set<string> {
   return parseHealthCorsOrigins(process.env.KELLY_HEALTH_CORS_ORIGINS);
 }
 
-function localOrigin(request: http.IncomingMessage, runtime: HenryRuntime): boolean {
+function localOrigin(request: http.IncomingMessage, runtime: HenryRuntime, tunnelled = false): boolean {
   const origin = request.headers.origin;
+  // A TUNNELLED request (a signed-in owner or counter through the public link, KELLY_REMOTE_LOGIN=on)
+  // must carry an Origin that EXACTLY equals a trusted public origin; only a GET/HEAD may omit it.
+  if (tunnelled) {
+    if (!origin) return request.method === "GET" || request.method === "HEAD";
+    return trustedPublicOrigins(runtime).includes(origin);
+  }
   if (!origin) return true;
   if (LOOPBACK_ORIGIN_RE.test(origin)) return true;
   return trustedPublicOrigins(runtime).includes(origin);
@@ -938,7 +945,38 @@ function roleGate(user: SessionUser | undefined, roles: Role[], request: http.In
   return false;
 }
 
-export function startDashboard(runtime: HenryRuntime): http.Server {
+/**
+ * GET /api/health, shared by the dashboard and the public surface. Unauthenticated on purpose. The
+ * `remote.active` flag is the ONLY tunnel signal exposed here — no URL, mode, or error text — so a
+ * public caller learns "is a public link up" and nothing a same-origin/CSRF check elsewhere relies
+ * on staying secret. This lets bin/start.mjs's waitForTunnelActive poll a route that never needs a
+ * session. The owner's portfolio may read it cross-site, but only from the exact origins listed in
+ * KELLY_HEALTH_CORS_ORIGINS; nothing else here is readable across origins.
+ */
+function writeHealth(request: http.IncomingMessage, response: http.ServerResponse, runtime: HenryRuntime): void {
+  let remoteActive = false;
+  try { remoteActive = runtime.tunnel.status().active; } catch { /* fail closed: not active */ }
+  const origin = request.headers.origin;
+  if (typeof origin === "string" && healthCorsOrigins().has(origin)) {
+    response.setHeader("access-control-allow-origin", origin);
+    response.setHeader("vary", "Origin");
+  }
+  json(response, 200, { ok: true, timestamp: new Date().toISOString(), remote: { active: remoteActive } });
+}
+
+/**
+ * Routes an UNAUTHENTICATED tunnelled request may reach besides the public surface's allowlist,
+ * and only when KELLY_REMOTE_LOGIN=on. With it off (the default) the public link has no login.
+ */
+export const TUNNEL_LOGIN_ROUTES: readonly string[] = Object.freeze(["GET /login", "POST /login", "GET /logout"]);
+
+export interface DashboardOptions {
+  /** Test seams for the public surface (runner, limits, clock, env). */
+  publicSurface?: Partial<Pick<PublicSurfaceDeps, "runner" | "mode" | "now" | "env" | "sweepIntervalMs" | "voice" | "log">>;
+  onPublicSurface?: (surface: PublicSurface) => void;
+}
+
+export function startDashboard(runtime: HenryRuntime, options: DashboardOptions = {}): http.Server {
   const voiceConfig = voiceConfigFromEnv();
   const voice = new LocalVoiceService(voiceConfig);
   let voiceBusy = false;
@@ -970,21 +1008,81 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         .catch(() => undefined);
     }
   }
+  const tunnelUrl = (): string | undefined => { try { return runtime.tunnel.status().url; } catch { return undefined; } };
+  const publicMode = options.publicSurface?.mode;
+  const publicLog = options.publicSurface?.log ?? new PublicRequestLog(path.join(runtime.config.dataDir, "logs"), { enabled: publicMode?.requestLog ?? true });
+  // KELLY'S PUBLIC FACE (src/public/surface.ts): all an unauthenticated tunnel visitor can reach.
+  const publicSurface = createPublicSurface({
+    config: runtime.config,
+    trade: runtime.trade,
+    activity: runtime.activity,
+    runner: options.publicSurface?.runner ?? runtime.agent.providerRunner,
+    voice: options.publicSurface?.voice ?? voice,
+    synthesizeCached: (text) => synthesizeCachedPrompt(options.publicSurface?.voice ?? voice, runtime.config.dataDir, text),
+    commerceStore: () => runtime.commerce?.store,
+    designs: () => (runtime.trade.galleryCategories.length ? runtime.designs : undefined),
+    vendorAsset: vendorVadAsset,
+    staticScript: (name) => (name === "holo.js" ? holoJs() : constellationJs()),
+    icon: (size) => iconPng(size, runtime.trade.accent),
+    health: (request, response) => writeHealth(request, response, runtime),
+    tunnelUrl,
+    brainReady: () => providerAvailable(runtime.config.profileId === "kelly" ? "codex" : runtime.config.provider),
+    ...(runtime.config.profileId === "kelly" ? { provider: "codex" as const } : {}),
+    log: publicLog,
+    ...(publicMode ? { mode: publicMode } : {}),
+    ...(options.publicSurface?.now ? { now: options.publicSurface.now } : {}),
+    ...(options.publicSurface?.env ? { env: options.publicSurface.env } : {}),
+    ...(options.publicSurface?.sweepIntervalMs !== undefined ? { sweepIntervalMs: options.publicSurface.sweepIntervalMs } : {}),
+  });
+  options.onPublicSurface?.(publicSurface);
+  // Tunnel drops and reconnects land in the content-free public log too (the activity log already
+  // records remote.started / remote.failed / remote.stopped from src/remote/tunnel.ts).
+  const onTunnelStatus = (event: { kind?: string; status?: { active?: boolean } }): void => {
+    publicLog.write({ type: "tunnel", active: event?.status?.active === true, kind: String(event?.kind ?? "") });
+  };
+  try { (runtime.tunnel as unknown as { on?: (name: string, fn: typeof onTunnelStatus) => void }).on?.("status", onTunnelStatus); } catch { /* a stub tunnel has no events */ }
   const server = http.createServer(async (request, response) => {
     try {
       if (!loopback(runtime.config.host) && !runtime.config.allowRemoteDashboard) throw new Error("Remote dashboard is disabled; bind HENRY_HOST to loopback or explicitly enable a token-protected remote dashboard");
       const url = new URL(request.url || "/", `http://${runtime.config.host}:${runtime.config.port}`);
+      const route = url.pathname.replace(/\/$/, "") || "/";
+      // THE TUNNEL GATE, before auth and before any dashboard route. A request that may come from
+      // the public internet (any Cloudflare/Tailscale/proxy header, a non-loopback Host, or a
+      // non-loopback peer) never gets the local-admin bypass or the token path. Without a session
+      // it reaches ONLY the public surface's allowlist (the Explore page, its three conversation
+      // pages, their /api/public/* calls, static assets and /api/health); anything else is a 302
+      // to / (pages) or a 404. Owner and counter login through the tunnel are OFF unless
+      // KELLY_REMOTE_LOGIN=on; with it on, GET/POST /login and GET /logout are reachable and a
+      // valid session falls through to the dashboard below exactly as before, under the
+      // exact-origin CSRF rule in localOrigin(). The owner's loopback browser is not affected.
+      const tunnelled = isPublicRequest(request, { allowRemoteDashboard: runtime.config.allowRemoteDashboard });
+      const remoteLogin = tunnelled && remoteLoginEnabled(runtime.config.profileId);
+      let tunnelUser: SessionUser | undefined;
+      if (tunnelled) {
+        tunnelUser = remoteLogin ? readSession(request.headers.cookie) : undefined;
+        const loginRoute = remoteLogin && TUNNEL_LOGIN_ROUTES.includes(`${request.method} ${route}`);
+        if (!tunnelUser && !loginRoute) {
+          if (matchPublicRoute(request.method, url.pathname)) { await publicSurface.handle(request, response, url, true); return; }
+          if (request.method === "GET" && wantsHtml(request)) { redirect(response, "/"); return; }
+          json(response, 404, { error: "not found" });
+          return;
+        }
+        if (tunnelUser && isPublicPath(url.pathname)) { await publicSurface.handle(request, response, url, true); return; }
+      } else if (isPublicPath(url.pathname)) {
+        // The owner's local preview of the public pages (/explore/*, /api/public/*).
+        if (await publicSurface.handle(request, response, url, false)) return;
+      }
       // Auth gate. /login and /api/health are reachable logged-out, and /logout only
       // ever destroys the caller's own session. Everything else below — every personal
       // route the owner had — is admin-only; the local-admin bypass inside sessionUserFor
-      // is what keeps their localhost experience exactly as it was.
-      const route = url.pathname.replace(/\/$/, "") || "/";
+      // is what keeps their localhost experience exactly as it was. A tunnelled request's
+      // user is its session and nothing else (never the bypass or the token).
       // The manifest and its icons carry no secrets (shop name, trade accent colors) and must
       // be fetchable by a browser before login (installability from /login) and by the counter
       // role, so they are public like /login itself rather than gated per-role below.
       const publicPath = route === "/login" || route === "/logout" || route === "/api/health"
         || route === "/manifest.webmanifest" || route === "/icon-192.png" || route === "/icon-512.png";
-      const user = await sessionUserFor(request, runtime);
+      const user = tunnelled ? tunnelUser : await sessionUserFor(request, runtime);
       if (!publicPath && !user) {
         if (request.method === "GET" && wantsHtml(request)) { redirect(response, "/login"); return; }
         json(response, 401, { error: "dashboard authentication required" });
@@ -1014,7 +1112,11 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         }
       }
       if (request.method === "GET" && route === "/login") {
-        response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
+        if (tunnelled && tunnelUser) { redirect(response, "/"); return; }
+        response.writeHead(200, {
+          "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
+          ...(tunnelled ? { "x-frame-options": "DENY", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'", "referrer-policy": "no-referrer" } : {}),
+        });
         response.end(await loginHtml());
         return;
       }
@@ -1031,7 +1133,8 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       }
       if (request.method === "GET" && route === "/logout") {
         endSession(request.headers.cookie);
-        redirect(response, "/login", { "set-cookie": clearedSessionCookie({ secure: tunnelRequest(request, runtime) }) });
+        // Through the public link, signing out lands back on the Explore page.
+        redirect(response, tunnelled ? "/" : "/login", { "set-cookie": clearedSessionCookie({ secure: tunnelled || tunnelRequest(request, runtime), strict: tunnelled }) });
         return;
       }
       if (request.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
@@ -1198,29 +1301,15 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       if (request.method === "GET" && vendorVadRoute) {
         const asset = await vendorVadAsset(decodeURIComponent(vendorVadRoute[1]));
         if (!asset) { json(response, 404, { error: "asset not found" }); return; }
-        response.writeHead(200, { "content-type": asset.contentType, "content-length": asset.bytes.length, "cache-control": "public, max-age=86400" });
+        // Pinned package bytes (package-lock): safe to cache for a year.
+        response.writeHead(200, { "content-type": asset.contentType, "content-length": asset.bytes.length, "cache-control": "public, max-age=31536000, immutable" });
         response.end(asset.bytes);
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/health") {
-        // Unauthenticated on purpose (see the /login/logout/health allowlist above). The
-        // `remote.active` flag is the ONLY tunnel signal exposed here — no URL, mode, or
-        // error text — so a public caller learns "is a public link up" without learning
-        // anything a same-origin/CSRF check elsewhere relies on staying secret. This lets
-        // bin/start.mjs's waitForTunnelActive poll a route that never needs a session,
-        // instead of /api/remote (which requires dashboard auth once a tunnel is
-        // configured, so the loopback admin bypass is off and that poll would 401 forever).
-        let remoteActive = false;
-        try { remoteActive = runtime.tunnel.status().active; } catch { /* fail closed: not active */ }
-        // The owner's portfolio shows "Talk to Kelly: awake / sleeping" by fetching this from
-        // the browser. Only those exact origins may read it cross-site; nothing else here is
-        // readable across origins, and this payload carries nothing beyond "Kelly is up".
-        const origin = request.headers.origin;
-        if (typeof origin === "string" && healthCorsOrigins().has(origin)) {
-          response.setHeader("access-control-allow-origin", origin);
-          response.setHeader("vary", "Origin");
-        }
-        json(response, 200, { ok: true, timestamp: new Date().toISOString(), remote: { active: remoteActive } });
+        // Unauthenticated on purpose (see the /login/logout/health allowlist above), and the same
+        // writer the public surface uses (writeHealth): remote.active only, exact-origin CORS.
+        writeHealth(request, response, runtime);
         return;
       }
       if (request.method === "GET" && url.pathname === "/api/status") { json(response, 200, await runtime.status()); return; }
@@ -1382,7 +1471,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         return;
       }
 
-      if (!localOrigin(request, runtime)) { json(response, 403, { error: "cross-origin request rejected" }); return; }
+      if (!localOrigin(request, runtime, tunnelled)) { json(response, 403, { error: "cross-origin request rejected" }); return; }
       // Below the CSRF line with every other mutating route: the login form posts
       // same-origin, so the localOrigin check above is exactly the protection it wants.
       if (request.method === "GET" && route === "/api/voice/settings") {
@@ -1608,7 +1697,9 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         // its home by the auth gate above (Talk, the conversation page, or chat by mode). Secure is set only
         // when this login actually arrived over the tunnel's public https origin — local
         // http://127.0.0.1 keeps working with a non-Secure cookie.
-        redirect(response, "/", { "set-cookie": issueSession(account, { secure: tunnelRequest(request, runtime) }).cookie });
+        // Through the tunnel (KELLY_REMOTE_LOGIN=on): Secure and SameSite=Strict, and recorded.
+        if (tunnelled) void runtime.activity.record("workflow.completed", `Dashboard sign-in through the public link (${account.role})`, { remote: true, role: account.role }).catch(() => undefined);
+        redirect(response, "/", { "set-cookie": issueSession(account, { secure: tunnelled || tunnelRequest(request, runtime), strict: tunnelled }).cookie });
         return;
       }
       if (request.method === "POST" && url.pathname === "/api/settings/provider") {
@@ -2182,7 +2273,11 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
   });
   // Attachment retention runs with the dashboard (owner's decision: 30 days) and stops with it.
   const attachmentPurge = scheduleAttachmentPurge(runtime);
-  server.on("close", () => clearInterval(attachmentPurge));
+  server.on("close", () => {
+    clearInterval(attachmentPurge);
+    publicSurface.close();
+    try { (runtime.tunnel as unknown as { off?: (name: string, fn: typeof onTunnelStatus) => void }).off?.("status", onTunnelStatus); } catch { /* stub tunnel */ }
+  });
   server.listen(runtime.config.port, runtime.config.host);
   return server;
 }

@@ -303,7 +303,7 @@ export function verifyLogin(username: string, password: string): SessionUser | u
  * public side; local http://127.0.0.1 access keeps getting a non-Secure cookie, since Secure
  * would otherwise make the browser drop it there.
  */
-export function issueSession(user: SessionUser, opts: { secure?: boolean } = {}): { cookie: string } {
+export function issueSession(user: SessionUser, opts: { secure?: boolean; strict?: boolean } = {}): { cookie: string } {
   const token = crypto.randomBytes(TOKEN_BYTES).toString("hex");
   const now = Date.now();
   db().prepare("INSERT INTO sessions (tokenHash, userId, expiresAt, createdAt) VALUES (?, ?, ?, ?)").run(
@@ -314,7 +314,10 @@ export function issueSession(user: SessionUser, opts: { secure?: boolean } = {})
   );
   const maxAge = Math.floor(SESSION_TTL_MS / 1000);
   const secure = opts.secure ? "; Secure" : "";
-  return { cookie: `${sessionCookieName()}=${token}.${signToken(token)}; HttpOnly; SameSite=Lax${secure}; Path=/; Max-Age=${maxAge}` };
+  // `strict` (a login through the public link, KELLY_REMOTE_LOGIN=on): SameSite=Strict, so no
+  // cross-site navigation ever carries the session. Local logins keep Lax as before.
+  const sameSite = opts.strict ? "Strict" : "Lax";
+  return { cookie: `${sessionCookieName()}=${token}.${signToken(token)}; HttpOnly; SameSite=${sameSite}${secure}; Path=/; Max-Age=${maxAge}` };
 }
 
 /** Resolves the caller from their cookie: HMAC first, then the database. Expired rows are purged on the way past, and a live session slides forward 7 days. */
@@ -360,9 +363,9 @@ export function endSession(cookieHeader: string | undefined): void {
 }
 
 /** Set-Cookie value that expires the session cookie in the browser. Same `secure` contract as issueSession above. */
-export function clearedSessionCookie(opts: { secure?: boolean } = {}): string {
+export function clearedSessionCookie(opts: { secure?: boolean; strict?: boolean } = {}): string {
   const secure = opts.secure ? "; Secure" : "";
-  return `${sessionCookieName()}=; HttpOnly; SameSite=Lax${secure}; Path=/; Max-Age=0`;
+  return `${sessionCookieName()}=; HttpOnly; SameSite=${opts.strict ? "Strict" : "Lax"}${secure}; Path=/; Max-Age=0`;
 }
 
 // ---------------------------------------------------------------------------

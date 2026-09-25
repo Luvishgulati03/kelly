@@ -50,9 +50,11 @@ function clarificationText(pack: TradePack): string {
  * browse request: it names a browse verb, names a known category/tag/latest/trending/
  * designs, carries no pricing/quantity/judgment words, and is short. When it matches, the
  * gallery is queried, the shown designs are marked, and a single-sentence summary is
- * returned for both display and speech.
+ * returned for both display and speech. `markShown: false` (the public Explore page) leaves the
+ * gallery's shown counts, and so its "trending" order, untouched.
  */
-export async function galleryFastPath(prompt: string, pack: TradePack, service: DesignService): Promise<GalleryFastPathResult | undefined> {
+export async function galleryFastPath(prompt: string, pack: TradePack, service: DesignService, options: { markShown?: boolean } = {}): Promise<GalleryFastPathResult | undefined> {
+  const markShown = options.markShown !== false;
   if (!pack.galleryCategories.length) return undefined;
   if (prompt.length >= MAX_LEN) return undefined;
   const lower = prompt.toLowerCase();
@@ -89,7 +91,7 @@ export async function galleryFastPath(prompt: string, pack: TradePack, service: 
 
   const results = await service.find(prompt, { limit: 8 });
   if (results.length) {
-    service.store.markShown(results.map((design) => design.id));
+    if (markShown) service.store.markShown(results.map((design) => design.id));
     const adjective = trending ? "trending " : latest ? "latest " : "";
     const noun = `design${results.length === 1 ? "" : "s"}`;
     const text = category
@@ -105,7 +107,7 @@ export async function galleryFastPath(prompt: string, pack: TradePack, service: 
   if (category && trending) {
     const widened = await service.find(category, { category, latest: true, limit: 8 });
     if (widened.length) {
-      service.store.markShown(widened.map((design) => design.id));
+      if (markShown) service.store.markShown(widened.map((design) => design.id));
       const text = `No ${category} designs match trending yet; here are the latest ${category}s.`;
       return { text, spoken: text, designs: widened };
     }

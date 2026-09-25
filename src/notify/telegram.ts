@@ -1,4 +1,5 @@
 import type { HenryConfig } from "../config.ts";
+import { isPublicTurn } from "../guardrails.ts";
 
 /** Telegram hard-caps message bodies at this length. */
 export const TELEGRAM_MAX_CHARS = 4096;
@@ -16,6 +17,8 @@ export const TELEGRAM_TIMEOUT_MS = 10_000;
  * the console/osascript notification path, not a replacement for it.
  */
 export async function sendTelegram(config: HenryConfig, text: string): Promise<boolean> {
+  // The public rail: a public visitor turn's process never reaches the owner's channel.
+  if (isPublicTurn()) return false;
   if (!config.telegramBotToken || !config.telegramChatId) return false;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), TELEGRAM_TIMEOUT_MS);
