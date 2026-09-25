@@ -232,3 +232,20 @@ test("/api/health reports remote.active:true when a stubbed tunnel reports activ
     assert.equal(health.remote?.active, true);
   }, { tunnel: { active: true, mode: "tailscale", url: "https://kelly-mac.tail1234.ts.net" } });
 });
+
+test("/api/health is readable cross-site by the owner's portfolio origins only", async () => {
+  await withDashboard(async (base) => {
+    for (const origin of ["https://luvishgulati.com", "https://www.luvishgulati.com"]) {
+      const response = await fetch(`${base}/api/health`, { headers: { origin } });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get("access-control-allow-origin"), origin);
+      assert.equal(((await response.json()) as { ok: boolean }).ok, true);
+    }
+    for (const origin of ["https://evil.example", "https://luvishgulati.com.evil.example", "http://luvishgulati.com"]) {
+      const response = await fetch(`${base}/api/health`, { headers: { origin } });
+      assert.equal(response.headers.get("access-control-allow-origin"), null, origin);
+    }
+    const status = await fetch(`${base}/api/status`, { headers: { origin: "https://luvishgulati.com" } });
+    assert.equal(status.headers.get("access-control-allow-origin"), null, "no other route opens up");
+  });
+});

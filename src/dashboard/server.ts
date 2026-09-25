@@ -677,6 +677,9 @@ function trustedPublicOrigins(runtime: HenryRuntime): string[] {
  * string-equal to the trusted origin. A missing Origin header stays allowed, same as before
  * (a non-browser client presenting a valid session cookie never sent one).
  */
+/** Origins allowed to read GET /api/health cross-site (the owner's portfolio status pill). */
+const HEALTH_CORS_ORIGINS = new Set(["https://luvishgulati.com", "https://www.luvishgulati.com"]);
+
 function localOrigin(request: http.IncomingMessage, runtime: HenryRuntime): boolean {
   const origin = request.headers.origin;
   if (!origin) return true;
@@ -1124,6 +1127,14 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         // configured, so the loopback admin bypass is off and that poll would 401 forever).
         let remoteActive = false;
         try { remoteActive = runtime.tunnel.status().active; } catch { /* fail closed: not active */ }
+        // The owner's portfolio shows "Talk to Kelly: awake / sleeping" by fetching this from
+        // the browser. Only those exact origins may read it cross-site; nothing else here is
+        // readable across origins, and this payload carries nothing beyond "Kelly is up".
+        const origin = request.headers.origin;
+        if (typeof origin === "string" && HEALTH_CORS_ORIGINS.has(origin)) {
+          response.setHeader("access-control-allow-origin", origin);
+          response.setHeader("vary", "Origin");
+        }
         json(response, 200, { ok: true, timestamp: new Date().toISOString(), remote: { active: remoteActive } });
         return;
       }
