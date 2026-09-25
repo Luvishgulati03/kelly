@@ -8,6 +8,7 @@ import { runCommand } from "../util/command.ts";
 import { calculateLine } from "./money.ts";
 import { CommerceStore } from "./store.ts";
 import { tradePack } from "../trade/index.ts";
+import { assertNotPublicTurn } from "../guardrails.ts";
 import type { CalculatedQuote, CatalogueProductInput, QuoteRequest, SourceKind } from "./types.ts";
 import { editWorkbook, exportQuoteWorkbook, extractCatalogueRows, inspectWorkbook, readRange, searchWorkbook, type WorkbookEdit } from "./workbooks.ts";
 
@@ -158,6 +159,8 @@ export class CommerceService {
   searchWorkbook(filePath: string, query: string): Promise<unknown> { return searchWorkbook(filePath, query); }
   editWorkbook(filePath: string, edits: WorkbookEdit[], outputPath?: string, expectedSha256?: string): Promise<unknown> { return editWorkbook(filePath, edits, outputPath, expectedSha256); }
   exportQuote(id: string, outputPath?: string): Promise<string> {
+    // Public visitors never get an Excel file; a public turn's process cannot write one.
+    assertNotPublicTurn();
     const quote = this.quote(id); if (!quote.complete) throw new Error("An incomplete quotation cannot be exported as final");
     const selected = outputPath || path.join(this.config.dataDir, "quotes", `${id}.xlsx`); return exportQuoteWorkbook(quote, selected);
   }

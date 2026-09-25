@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<title><!--KELLY_SHOP--> · counter</title>
+<title>Counter · Kelly · <!--KELLY_SHOP--></title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="theme-color" content="<!--KELLY_THEME_COLOR-->">
@@ -106,6 +106,8 @@
   .foot { padding:6px var(--gutter) max(8px, env(safe-area-inset-bottom)); text-align:center; }
   #message { margin:0; min-height:16px; color:var(--dim); font-size:12px; }
   #message.error { color:var(--danger); }
+  .back { color:var(--dim); text-decoration:none; font-size:14px; margin-right:10px; }
+  .back:hover { color:var(--text); }
 
   @media (max-width:640px) { :root { --gutter:14px; } header { height:50px; } }
   @media (max-height:640px) { .words { margin-top:8px; } }
@@ -115,7 +117,7 @@
 <body>
 <div class="app">
   <header>
-    <div class="brand"><span class="mark" aria-hidden="true"><!--KELLY_MARK--></span><span class="name"><!--KELLY_SHOP--></span></div>
+    <div class="brand"><a class="back" href="/" aria-label="Back to Explore Kelly">‹ Explore</a><span class="mark" aria-hidden="true"><!--KELLY_MARK--></span><span class="name"><!--KELLY_SHOP--></span></div>
     <div class="controls">
       <button id="mute" class="icon" type="button" aria-pressed="false" aria-label="Mute Kelly's voice">
         <svg id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -130,7 +132,7 @@
     </div>
   </header>
 
-  <p class="banner" id="banner" role="status" hidden>Conversation mode is off, this page is in preview. Turn it on from the Switchboard.</p>
+  <p class="banner" id="banner" role="status" hidden>Public demo: nothing you say is saved.</p>
 
   <form class="typed-row" id="typedForm" hidden autocomplete="off">
     <input id="typed" type="text" placeholder="Type a message to Kelly" aria-label="Type a message to Kelly">
@@ -335,17 +337,19 @@ window.KellyOrb = KellyOrb;
     typed.value = '';
     refresh();
     stopSpeaking(); fadeOutPrior();
-    void sendPrompt(prompt, false, undefined);
+    void sendPrompt(prompt, false);
   });
 
   async function checkStatus() {
     try {
-      const response = await fetch('/api/voice/status', { credentials:'same-origin', cache:'no-store' });
+      const response = await fetch('/api/public/config', { credentials:'same-origin', cache:'no-store' });
       const data = await response.json();
-      if (!response.ok || !data.available) throw new Error(data.error || 'Voice service is not available yet.');
-      state.dataset.available = data.sttEnabled ? 'true' : 'false'; state.dataset.tts = data.ttsEnabled ? 'true' : 'false';
-      state.textContent = data.sttEnabled ? 'Tap to talk' : 'Speech is not configured here';
-      banner.hidden = data.counterMode === undefined || data.counterMode === 'conversation';
+      if (!response.ok) throw new Error(data.error || 'Kelly is not available right now.');
+      const voice = data.voice || {};
+      state.dataset.available = voice.stt ? 'true' : 'false'; state.dataset.tts = voice.tts ? 'true' : 'false';
+      state.textContent = voice.stt ? 'Tap to talk' : 'Voice is off here: tap the keyboard to type';
+      if (typeof data.maxMessageChars === 'number') typed.maxLength = data.maxMessageChars;
+      banner.hidden = false;
     } catch (error) {
       state.dataset.available = 'false'; state.textContent = 'Voice unavailable';
       say(error.message || 'Try again later.', true);
@@ -525,13 +529,13 @@ window.KellyOrb = KellyOrb;
       await decoder.close(); context = null;
       const audio = toWav([mono], decoded.sampleRate);
       state.textContent = 'Listening to that…';
-      const response = await fetch('/api/voice/transcribe', { method:'POST', credentials:'same-origin', headers:{ 'content-type':'audio/wav', 'x-kelly-voice-language':'auto' }, body:audio, signal:AbortSignal.timeout(120000) });
+      const response = await fetch('/api/public/voice/transcribe', { method:'POST', credentials:'same-origin', headers:{ 'content-type':'audio/wav' }, body:audio, signal:AbortSignal.timeout(120000) });
       const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Transcription failed.');
       const text = data.text || '';
       setHeard(text);
       if (!text) { setMode('idle'); state.textContent = 'Tap to talk'; say('No words were heard. Try again.'); return; }
       releaseCapture(); setBusy(false);
-      await sendPrompt(text, true, data.transcriptId || undefined);
+      await sendPrompt(text, true);
       return;
     } catch (error) { setMode('error'); state.textContent = 'Tap to talk'; say(error.message || 'Recording or transcription failed.', true); }
     finally { releaseCapture(); setBusy(false); }
@@ -654,7 +658,7 @@ window.KellyOrb = KellyOrb;
     playingUrl = URL.createObjectURL(blob);
     playback.src = playingUrl;
     playback.onended = () => { URL.revokeObjectURL(playingUrl); playingUrl = null; playNextFrame(); };
-    playback.onerror = () => say('Playback failed.', true);
+    playback.onerror = () => { if (playingUrl) URL.revokeObjectURL(playingUrl); playingUrl = null; playNextFrame(); };
     playback.play().then(() => { say(''); }).catch((error) => {
       if (error.name === 'NotAllowedError') { playback.hidden = false; say('Audio is ready. Press Play.'); }
     });
@@ -682,8 +686,8 @@ window.KellyOrb = KellyOrb;
       if (done) break;
     }
   }
-  async function speakText(text) {
-    if (muted || !text || !text.trim()) return;
+  async function speakReply(item) {
+    if (muted || !item || !item.replyId || !(item.text || '').trim()) return;
     if (state.dataset.tts !== 'true') return;
     stopSpeaking();
     ensurePlayMeter();
@@ -694,7 +698,8 @@ window.KellyOrb = KellyOrb;
     setMode('speaking'); state.textContent = 'Kelly is speaking'; stopButton.hidden = false;
     playback.onplay = () => { playCtx?.resume?.().catch(() => {}); startPlayMeter(); };
     try {
-      const response = await fetch('/api/voice/speak', { method:'POST', credentials:'same-origin', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ text, language:'en', chunk:true }), signal:speakAbort.signal });
+      // Only a reply Kelly gave this visitor can be spoken; the server streams it sentence by sentence.
+      const response = await fetch('/api/public/voice/speak', { method:'POST', credentials:'same-origin', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ replyId:item.replyId }), signal:speakAbort.signal });
       if (!response.ok) { let data = {}; try { data = await response.json(); } catch {} throw new Error(data.error || 'Speech is unavailable.'); }
       const ct = response.headers.get('content-type') || '';
       if (ct.includes('application/x-kelly-wav-seq') && response.body) {
@@ -731,15 +736,15 @@ window.KellyOrb = KellyOrb;
   stopButton.addEventListener('click', stopSpeaking);
 
   /* ---------- send a turn ---------- */
-  async function sendPrompt(prompt, voiced, transcriptId) {
+  async function sendPrompt(prompt, voiced) {
     if (!prompt || streaming) return;
     streaming = true; refresh();
     resetTyping();
     designsEl.innerHTML = '';
     setMode('transcribing'); state.textContent = 'Kelly is thinking';
-    let spokenArrived = false, sawToken = false;
+    let sawToken = false;
     try {
-      const response = await fetch('/api/chat/send', { method:'POST', credentials:'same-origin', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ prompt, voice:voiced, ...(transcriptId ? { transcriptId } : {}) }) });
+      const response = await fetch('/api/public/chat', { method:'POST', credentials:'same-origin', headers:{ 'content-type':'application/json' }, body:JSON.stringify({ message:prompt, mode:'counter' }) });
       if (!response.ok) { let data = {}; try { data = await response.json(); } catch {} throw new Error(data.error || 'Chat request failed.'); }
       const reader = response.body.getReader(), decoder = new TextDecoder(); let pending = '';
       while (true) {
@@ -749,15 +754,16 @@ window.KellyOrb = KellyOrb;
           const ev = block.match(/^event: (.+)$/m)?.[1], raw = block.match(/^data: (.+)$/m)?.[1]; if (!raw) continue;
           let data; try { data = JSON.parse(raw); } catch { continue; }
           if (ev === 'token') { sawToken = true; pushToken(data.text || ''); }
-          else if (ev === 'spoken') { spokenArrived = true; if (voiced && data.text) void speakText(data.text); }
-          else if (ev === 'designs') { if (data.designs && data.designs.length) renderGallery(data.designs); }
-          else if (ev === 'done') {
-            // Some providers/turns never stream individual `token` deltas, only the final
-            // `done.response`; without this fallback the reply would type nothing at all.
-            if (!sawToken && data.response) pushToken(data.response);
-            if (voiced && !spokenArrived && data.spoken) void speakText(data.spoken);
+          else if (ev === 'designs') {
+            const items = (data.items || []).map((d) => ({ id:d.id, url:d.imageUrl, thumb:d.imageUrl, caption:d.title || '', category:d.price || '' }));
+            if (items.length) renderGallery(items);
           }
-          else if (ev === 'error') throw new Error(data.error || 'Chat failed.');
+          else if (ev === 'done') {
+            // A turn may arrive only as the final `done.response`; type it then.
+            if (!sawToken && data.response) pushToken(data.response);
+            if (voiced) void speakReply({ text:data.response || '', replyId:data.replyId });
+          }
+          else if (ev === 'error') throw new Error(data.message || 'Chat failed.');
         }
       }
       await new Promise((resolve) => drainTyping(resolve));

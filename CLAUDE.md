@@ -68,9 +68,17 @@ Money is integer paise; totals, discounts, and GST are computed in code
 
 ## Safety rules
 
-- A public link (`--public`, Cloudflare, or Tailscale Funnel) puts Kelly's login
-  page on the internet. The password is the lock: create accounts with long,
-  unique passwords (10 characters minimum) before the first public start.
+- A public link (`--public`, Cloudflare, Tailscale Funnel, or any tunnel) shows
+  only the Explore Kelly page. A visitor can talk, tap to talk, or chat with a
+  tool-less, sandboxed Kelly. That Kelly never sees or saves the shop's
+  conversations, transcripts, memory, quotes, activity, approvals, usage or
+  settings (`docs/public-explore.md`). Prices are computed in code from the
+  published catalogue, and a visitor never gets an Excel file. Owner and counter
+  login through the tunnel are OFF unless `KELLY_REMOTE_LOGIN=on`. With it on,
+  the password is the lock: create accounts with long, unique passwords
+  (10 characters minimum). Any new dashboard route stays unreachable through the
+  tunnel unless you add it to `PUBLIC_TUNNEL_ROUTES` (`src/public/surface.ts`).
+  `tests/public-routes.test.ts` walks every route to prove it.
 - Approvals and outbound actions never happen by voice or from the counter
   account. Quotations, messages, and other outbound actions stay staged until
   the owner approves the exact item; approve and send are separate steps.

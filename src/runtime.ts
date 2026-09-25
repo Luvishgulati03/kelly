@@ -54,6 +54,7 @@ import { DesignService } from "./designs/rag.ts";
 import { voicePrompt } from "./designs/vocabulary.ts";
 import { TunnelManager, type TunnelConfig, type TunnelMode, type TunnelStatus } from "./remote/tunnel.ts";
 import { hasUserWithRole } from "./dashboard/auth.ts";
+import { assertNotPublicTurn } from "./guardrails.ts";
 
 /** Ceiling for a single runCommand() call before its child is treated as hung and killed. */
 const RUN_COMMAND_TIMEOUT_MS = 20_000;
@@ -766,11 +767,13 @@ export class HenryRuntime {
   }
 
   async approve(id: string): Promise<void> {
+    assertNotPublicTurn();
     await this.approvals.setStatus(id, "approved");
     await this.activity.record("approval.approved", `Approved outbound action ${id}`, { approvalId: id });
   }
 
   async executeApproval(id: string): Promise<string> {
+    assertNotPublicTurn();
     const item = await this.approvals.claimForExecution(id);
     try {
       let result: string;

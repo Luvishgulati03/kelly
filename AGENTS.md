@@ -50,9 +50,15 @@ node bin/kelly.mjs voice status
 npm run typecheck && npm test
 ```
 
-A public link (`kelly start --public`) exposes the login page to the internet;
-the account password is the lock. Voice and the counter account can never
-approve or send anything.
+A public link (`kelly start --public`, or any tunnel) shows only the Explore Kelly
+page and its talk, counter and chat conversations. They are answered by a
+tool-less, sandboxed Kelly that never reads or saves the shop's conversations,
+transcripts, memory, quotes, activity, approvals, usage or settings. Owner and
+counter login through the tunnel are off unless `KELLY_REMOTE_LOGIN=on`. With
+login on, the account password is the lock. See `docs/public-explore.md`; the
+allowlist is `PUBLIC_TUNNEL_ROUTES` in `src/public/surface.ts`, enforced by
+`tests/public-routes.test.ts`. Voice, the counter account and public visitor
+turns (`KELLY_PUBLIC_TURN=1`) can never approve or send anything.
 
 ## Non-negotiable outbound guardrail
 

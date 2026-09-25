@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<title><!--KELLY_SHOP--> · talk</title>
+<title>Talk to Kelly · <!--KELLY_SHOP--></title>
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/icon-192.png">
 <meta name="theme-color" content="<!--KELLY_THEME_COLOR-->">
@@ -12,6 +12,10 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<!-- Explore Kelly (public): the Silero VAD bundle, model and onnxruntime wasm come from jsDelivr
+     pinned to the exact installed versions (byte-identical to node_modules), never through the
+     shop's tunnel; /vendor/vad/ on this server is the automatic fallback. -->
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
 <style>
   :root {
     --bg:#141516; --surface:#1b1e20; --surface2:#22262a; --border:#3c4348; --borderSoft:#2f3539;
@@ -35,6 +39,9 @@
 
   #mute { position:fixed; top:max(14px, env(safe-area-inset-top)); right:max(14px, env(safe-area-inset-right)); width:44px; height:44px; border-radius:12px; border:1px solid var(--borderSoft); background:var(--surface); display:grid; place-items:center; color:var(--dim); z-index:5; }
   #mute:hover { background:var(--surface2); color:var(--text); }
+  #back { position:fixed; top:max(14px, env(safe-area-inset-top)); left:max(14px, env(safe-area-inset-left)); height:44px; padding:0 14px; border-radius:12px; border:1px solid var(--borderSoft); background:var(--surface); display:flex; align-items:center; gap:6px; color:var(--dim); text-decoration:none; z-index:5; font-size:14px; }
+  #back:hover { background:var(--surface2); color:var(--text); }
+  .demo-note { position:fixed; top:max(66px, calc(env(safe-area-inset-top) + 52px)); left:50%; transform:translateX(-50%); font:12px var(--mono); color:var(--faint); text-align:center; width:min(92vw,560px); z-index:5; margin:0; }
   #mute[aria-pressed="true"] { background:rgba(208,138,75,.16); color:var(--copper2); border-color:rgba(208,138,75,.4); }
   #mute svg { width:18px; height:18px; }
 
@@ -134,6 +141,8 @@
 <div class="app">
   <span class="sr-only" aria-hidden="true"><!--KELLY_MARK--> <!--KELLY_SHOP--></span>
 
+  <a id="back" href="/" aria-label="Back to Explore Kelly">‹ Explore</a>
+  <p class="demo-note">Public demo: nothing you say is saved. Tap the orb and speak.</p>
   <button id="mute" type="button" aria-pressed="false" aria-label="Mute Kelly's voice">
     <svg id="muteIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
       <path d="M11 5 6 9H2v6h4l5 4z"></path><path d="M15.5 8.5a5 5 0 0 1 0 7"></path><path d="M18.5 5.5a9 9 0 0 1 0 13"></path>
@@ -184,7 +193,21 @@
   </div>
 </dialog>
 
-<script src="/vendor/vad/bundle.min.js"></script>
+<script>
+  /* Silero VAD from the pinned CDN copy; this server's /vendor/vad/ only if the CDN fails. */
+  window.KELLY_VAD_SOURCES = [
+    { base: 'https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/', wasm: 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.30.0/dist/' },
+    { base: '/vendor/vad/', wasm: '/vendor/vad/' },
+  ];
+  function kellyVadLocal() {
+    if (window.vad || window.kellyVadLocalLoading) return;
+    window.kellyVadLocalLoading = true;
+    var s = document.createElement('script'); s.src = '/vendor/vad/bundle.min.js'; s.async = false;
+    document.head.appendChild(s);
+  }
+</script>
+<script src="https://cdn.jsdelivr.net/npm/@ricky0123/vad-web@0.0.31/dist/bundle.min.js" integrity="sha384-BLK6Iw3Zbz9hHmHYBgWHJ8GaGVHf3hfnz95vXOla64ZQHHL/T7r9PeIl6jUx8eer" crossorigin="anonymous" onerror="kellyVadLocal()"></script>
+<script>if (!window.vad) kellyVadLocal();</script>
 <script>
 /* ---------- The orb ----------
  * Copied verbatim from counter.html: layered translucent blobs whose outlines ripple with a
@@ -321,6 +344,7 @@ window.KellyOrb = KellyOrb;
     secondFillerMs: 12000,
     toolFillerMs: 300,
     preSpeechPadMs: 300,
+    vadRaceMs: 1500,
     sileroPositive: .55,
     sileroNegative: .35,
     speechThreshold: .12,
@@ -332,6 +356,7 @@ window.KellyOrb = KellyOrb;
     get conversationId() { return conversationId; },
     get fillersPlayed() { return fillersPlayed; },
     get vadRunning() { return sileroRunning; },
+    get vadSource() { return vadSource; },
     slideMs: 4500,
     get showcaseOpen() { return showcaseIsOpen; },
     get slideIndex() { return slideIndex; },
@@ -342,7 +367,7 @@ window.KellyOrb = KellyOrb;
   };
 
   /* ---------- captions (query flag) ---------- */
-  const captionsOn = new URLSearchParams(location.search).get('captions') === '1';
+  const captionsOn = new URLSearchParams(location.search).get('captions') !== '0';
   if (captionsOn) captionsEl.hidden = false;
   function clearCaptions() { heardEl.textContent = ''; replyEl.textContent = ''; }
   function setHeard(text) { heardEl.textContent = text || ''; }
@@ -378,27 +403,15 @@ window.KellyOrb = KellyOrb;
     if (!embedded || window.parent === window) return;
     try { window.parent.postMessage({ type: 'kelly-talk', event, conversationId }, location.origin); } catch {}
   }
-  function openConversation(id) {
-    if (embedConversationId) { conversationId = embedConversationId; return Promise.resolve(); }
+  function openConversation() {
+    // Public: each session starts a fresh in-memory conversation for this visitor only.
     conversationId = null;
-    const title = 'Talk ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    return fetch('/api/conversations', {
-      method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ title }),
-    }).then((r) => r.ok ? r.json() : null).then((data) => {
-      // No conversation (an older server, or a failure): the turn falls back to the active one.
-      if (id === sessionId && data && data.conversation && data.conversation.id) conversationId = data.conversation.id;
-    }).catch(() => {});
+    return fetch('/api/public/reset', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: '{}' })
+      .then(() => {}).catch(() => {});
   }
 
   /* ---------- session activity events: talk.session.started / talk.session.ended ---------- */
-  function reportSession(event, extra) {
-    try {
-      void fetch('/api/voice/talk/session', {
-        method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ event, ...extra }),
-      }).catch(() => {});
-    } catch {}
-  }
+  function reportSession() { /* public: no session reporting */ }
   let stream = null, mimeType = null;
   let meterCtx = null, analyser = null;
   let playCtx = null, playAnalyser = null, playRaf = 0;
@@ -408,7 +421,7 @@ window.KellyOrb = KellyOrb;
   let lastActivityAt = 0, repromptedYet = false, repromptAt = 0;
   let playbackBusy = false;
   let speaking = false, speakAbort = null, playQueue = [], playingUrl = null, activePlaybackAbort = null;
-  let vadMode = 'energy', sileroVad = null;
+  let vadMode = 'energy', sileroVad = null, pendingSilero = null, vadSource = 'none';
   let sileroSpeechAt = 0, sileroLong = false, sileroDiscard = false, sileroRunning = false;
   let fillerTimers = [], fillerDone = Promise.resolve(), fillersPlayed = 0;
   let turnCounter = 0, turnSpeech = null, chatAbort = null;
@@ -511,7 +524,7 @@ window.KellyOrb = KellyOrb;
   async function playPrompt(kind) {
     playbackBusy = true;
     try {
-      const response = await fetch(`/api/voice/${kind}`, { credentials: 'same-origin' });
+      const response = await fetch(`/api/public/voice/${kind}`, { credentials: 'same-origin' });
       if (response.ok) {
         const blob = await response.blob();
         if (blob.size > 44) await playSingle(blob);
@@ -538,7 +551,7 @@ window.KellyOrb = KellyOrb;
     playingUrl = URL.createObjectURL(blob);
     playback.src = playingUrl;
     playback.onended = () => { URL.revokeObjectURL(playingUrl); playingUrl = null; playNextFrame(); };
-    playback.onerror = () => {};
+    playback.onerror = () => { if (playingUrl) URL.revokeObjectURL(playingUrl); playingUrl = null; playNextFrame(); };
     playback.play().catch((error) => { if (error.name === 'NotAllowedError') playback.hidden = false; });
   }
   function queueFrame(blob) {
@@ -571,11 +584,11 @@ window.KellyOrb = KellyOrb;
      Thinking. A press while Kelly speaks drops the rest of the turn (abortTurn). */
   function beginTurnSpeech(id, turn) { turnSpeech = { id, turn, queue: [], running: false, done: false, spoke: false }; }
   function turnIsCurrent(t) { return !!t && t === turnSpeech && t.id === sessionId && t.turn === turnCounter; }
-  function queueSpeech(turn, text) {
+  function queueSpeech(turn, item) {
     const t = turnSpeech;
     if (!t || t.turn !== turn) return;
     cancelFillers();
-    if (text && text.trim()) t.queue.push(text.trim());
+    if (item && item.replyId) t.queue.push(item);
     void drainSpeech(t);
   }
   function finishTurnSpeech(turn) {
@@ -589,9 +602,9 @@ window.KellyOrb = KellyOrb;
     t.running = true;
     try {
       while (t.queue.length && turnIsCurrent(t)) {
-        const text = t.queue.shift();
+        const item = t.queue.shift();
         t.spoke = true;
-        const finished = await speakOnce(text);
+        const finished = await speakOnce(item);
         if (!finished) return; // interrupted: abortTurn already moved on
       }
     } finally { t.running = false; }
@@ -602,18 +615,19 @@ window.KellyOrb = KellyOrb;
     if (turnIsCurrent(t) && (state === 'speaking' || state === 'thinking')) { turnSpeech = null; enterListening(true); }
   }
   /** Speaks one line; resolves true when it played to the end, false when interrupted. */
-  async function speakOnce(text) {
+  async function speakOnce(item) {
     await fillerDone;
     stopSpeaking();
     ensurePlayMeter();
     speaking = true; speakAbort = new AbortController();
     const mine = speakAbort;
     setState('speaking', 'Speaking');
-    setReply(text);
+    setReply(item.text);
     try {
-      const response = await fetch('/api/voice/speak', {
+      // Only a reply Kelly gave this visitor can be spoken; the server streams it sentence by sentence.
+      const response = await fetch('/api/public/voice/speak', {
         method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ text, language: 'en', chunk: true }), signal: speakAbort.signal,
+        body: JSON.stringify({ replyId: item.replyId }), signal: speakAbort.signal,
       });
       if (!response.ok) { let data = {}; try { data = await response.json(); } catch {} throw new Error(data.error || 'Speech is unavailable.'); }
       const ct = response.headers.get('content-type') || '';
@@ -889,6 +903,7 @@ window.KellyOrb = KellyOrb;
           }
         }
       } else {
+        if (pendingSilero && !capturing && !speechSince) { promoteSilero(); listenRaf = requestAnimationFrame(listenLoop); return; }
         if (capturing) {
           const duration = now - recordingStartedAt;
           const silenceLimit = duration > testing.longSilenceAfterMs ? testing.longSilenceMs : testing.silenceMs;
@@ -912,9 +927,16 @@ window.KellyOrb = KellyOrb;
     }
     listenRaf = requestAnimationFrame(listenLoop);
   }
+  function promoteSilero() {
+    if (!pendingSilero || capturing) return;
+    sileroVad = pendingSilero; pendingSilero = null;
+    vadMode = 'silero';
+    void resumeVad();
+  }
   function enterListening(resetWatchdog) {
     setState('listening', 'Listening');
     setCapturing(false);
+    if (pendingSilero) promoteSilero();
     speechSince = 0; silenceSince = 0;
     if (resetWatchdog) { lastActivityAt = performance.now(); repromptedYet = false; repromptAt = 0; }
     void resumeVad();
@@ -994,8 +1016,8 @@ window.KellyOrb = KellyOrb;
   }
   async function transcribeAndRespond(id, wavBlob) {
     try {
-      const response = await fetch('/api/voice/transcribe', {
-        method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'audio/wav', 'x-kelly-voice-language': 'auto' }, body: wavBlob,
+      const response = await fetch('/api/public/voice/transcribe', {
+        method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'audio/wav' }, body: wavBlob,
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Transcription failed.');
@@ -1004,7 +1026,7 @@ window.KellyOrb = KellyOrb;
       setHeard(text);
       if (!text) { enterListening(false); return; }
       if (id === sessionId) sessionTurns++;
-      await sendPrompt(id, text, data.transcriptId || undefined);
+      await sendPrompt(id, text);
     } catch { if (id === sessionId) enterListening(false); }
   }
 
@@ -1053,14 +1075,29 @@ window.KellyOrb = KellyOrb;
     try { await sileroVad.start(); } catch { sileroRunning = false; vadMode = 'energy'; }
   }
   async function initVad() {
-    vadMode = 'energy'; sileroVad = null; sileroRunning = false;
+    vadMode = 'energy'; sileroVad = null; pendingSilero = null; sileroRunning = false;
     if (!window.vad || !window.vad.MicVAD) return;
-    try {
-      const shared = stream;
-      const instance = await window.vad.MicVAD.new({
+    const shared = stream;
+    for (const source of (window.KELLY_VAD_SOURCES || [{ base: '/vendor/vad/', wasm: '/vendor/vad/' }])) {
+      if (stream !== shared) return;
+      try {
+        const instance = await createSilero(shared, source);
+        if (stream !== shared) { try { await instance.destroy(); } catch {} return; }
+        vadSource = source.base.startsWith('/') ? 'local' : 'cdn';
+        // Energy VAD keeps the session going; Silero takes over between utterances.
+        pendingSilero = instance;
+        if (state === 'listening' && !capturing && !speechSince) promoteSilero();
+        return;
+      } catch { /* next source */ }
+    }
+  }
+  function createSilero(shared, source) {
+      return window.vad.MicVAD.new({
         model: 'v5',
-        baseAssetPath: '/vendor/vad/',
-        onnxWASMBasePath: '/vendor/vad/',
+        baseAssetPath: source.base,
+        onnxWASMBasePath: source.wasm,
+        // The plain SIMD wasm on one thread: no SharedArrayBuffer, no 26 MB jsep build.
+        ortConfig: (ort) => { try { ort.env.logLevel = 'error'; ort.env.wasm.numThreads = 1; ort.env.wasm.proxy = false; } catch {} },
         startOnLoad: false,
         getStream: async () => shared,
         resumeStream: async () => shared,
@@ -1077,10 +1114,6 @@ window.KellyOrb = KellyOrb;
         onVADMisfire: onSileroMisfire,
         onSpeechEnd: onSileroSpeechEnd,
       });
-      if (stream !== shared) { try { await instance.destroy(); } catch {} return; }
-      sileroVad = instance;
-      vadMode = 'silero';
-    } catch { vadMode = 'energy'; sileroVad = null; }
   }
 
   /* ---------- holding phrases while a model turn runs ----------
@@ -1102,7 +1135,7 @@ window.KellyOrb = KellyOrb;
         if (id !== sessionId || state !== 'thinking') return;
         fillerDone = (async () => {
           try {
-            const response = await fetch('/api/voice/filler?v=' + phrase, { credentials: 'same-origin' });
+            const response = await fetch('/api/public/voice/filler?v=' + phrase, { credentials: 'same-origin' });
             if (!response.ok || id !== sessionId || state !== 'thinking') return;
             const blob = await response.blob();
             if (blob.size <= 44 || id !== sessionId || state !== 'thinking') return;
@@ -1115,7 +1148,7 @@ window.KellyOrb = KellyOrb;
   }
 
   /* ---------- chat turn: SSE spoken / designs / done / error ---------- */
-  async function sendPrompt(id, prompt, transcriptId) {
+  async function sendPrompt(id, prompt) {
     let spokenArrived = false, designsArrived = false, gatheringSeen = false;
     const turn = ++turnCounter;
     await conversationReady;
@@ -1125,9 +1158,9 @@ window.KellyOrb = KellyOrb;
     chatAbort = new AbortController();
     const stale = () => id !== sessionId || turn !== turnCounter;
     try {
-      const response = await fetch('/api/chat/send', {
+      const response = await fetch('/api/public/chat', {
         method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ prompt, voice: true, ...(transcriptId ? { transcriptId } : {}), ...(conversationId ? { conversationId } : {}) }),
+        body: JSON.stringify({ message: prompt, mode: 'talk' }),
         signal: chatAbort.signal,
       });
       if (!response.ok) { let data = {}; try { data = await response.json(); } catch {} throw new Error(data.error || 'Chat request failed.'); }
@@ -1149,17 +1182,20 @@ window.KellyOrb = KellyOrb;
               scheduleFillers(id, data.reason === 'tool' ? testing.toolFillerMs : testing.fillerMs);
             }
           }
-          else if (ev === 'spoken') { spokenArrived = true; if (muted) setReply(data.text || ''); else queueSpeech(turn, data.text); }
-          else if (ev === 'designs') { cancelFillers(); if (data.designs && data.designs.length) { designsArrived = true; openShowcase(data.designs); } }
+          else if (ev === 'designs') {
+            cancelFillers();
+            const items = (data.items || []).map((d) => ({ id: d.id, url: d.imageUrl, thumb: d.imageUrl, caption: d.title || '', category: d.price || '' }));
+            if (items.length) { designsArrived = true; openShowcase(items); }
+          }
           else if (ev === 'done') {
             cancelFillers();
             // The customer moved on: a turn that showed nothing new closes the showcase.
             if (!designsArrived) closeShowcase();
-            if (data.conversationId && !conversationId) conversationId = data.conversationId;
-            notifyParent('turn');
-            if (!muted && !spokenArrived && data.spoken) queueSpeech(turn, data.spoken);
+            spokenArrived = true;
+            if (muted) setReply(data.response || '');
+            else queueSpeech(turn, { text: data.response || '', replyId: data.replyId });
             finishTurnSpeech(turn);
-          } else if (ev === 'error') throw new Error(data.error || 'Chat failed.');
+          } else if (ev === 'error') throw new Error(data.message || 'Chat failed.');
         }
       }
     } catch (error) {
@@ -1219,7 +1255,7 @@ window.KellyOrb = KellyOrb;
     const vadReady = initVad();
     lastActivityAt = performance.now(); repromptedYet = false; repromptAt = 0;
     await playPrompt('greeting');
-    await vadReady;
+    await Promise.race([vadReady, sleep(testing.vadRaceMs)]);
     if (id !== sessionId || state !== 'greeting') return;
     enterListening(true);
   }
@@ -1234,6 +1270,7 @@ window.KellyOrb = KellyOrb;
     cancelAnimationFrame(listenRaf); listenRaf = 0;
     stopMeter();
     if (recorder) { try { recorder.ondataavailable = recorder.onstop = recorder.onerror = null; if (recorder.state !== 'inactive') recorder.stop(); } catch {} recorder = null; }
+    if (pendingSilero) { const pending = pendingSilero; pendingSilero = null; Promise.resolve().then(() => pending.destroy?.()).catch(() => {}); }
     if (sileroVad) { const old = sileroVad; sileroVad = null; Promise.resolve().then(() => old.destroy?.()).catch(() => {}).finally(() => { sileroDiscard = false; }); }
     vadMode = 'energy';
     if (stream) { stream.getTracks().forEach((t) => t.stop()); stream = null; }

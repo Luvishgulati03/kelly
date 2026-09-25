@@ -279,7 +279,7 @@ test("GET /vendor/vad/bundle.min.js serves an allowlisted asset; traversal and u
     const bundle = await fetch(`${base}/vendor/vad/bundle.min.js`, { headers: { cookie } });
     if (bundle.status === 200) {
       assert.match(bundle.headers.get("content-type") || "", /javascript/);
-      assert.equal(bundle.headers.get("cache-control"), "public, max-age=86400");
+      assert.equal(bundle.headers.get("cache-control"), "public, max-age=31536000, immutable");
       const bytes = Buffer.from(await bundle.arrayBuffer());
       assert.ok(bytes.length > 0);
     } else {

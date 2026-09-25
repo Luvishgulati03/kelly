@@ -28,6 +28,7 @@ import { isLongResearchAsk } from "./orchestration/luna.ts";
 import { getActiveProfile, isServiceExcluded, setActiveProfile } from "./profile.ts";
 import { runCommerceCommand } from "./commerce/commands.ts";
 import { runDesignsCommand } from "./designs/commands.ts";
+import { assertNotPublicTurn } from "./guardrails.ts";
 import {
   TUNNEL_CONNECT_TIMEOUT_MS, TUNNEL_STILL_CONNECTING_MESSAGE,
   connectedLines, failedLine, waitForFirstTunnelTransition, watchTunnelTransitions,
@@ -493,6 +494,9 @@ function availableCommands(commerceEnabled: boolean): string[] {
 }
 
 async function main(): Promise<void> {
+  // The public rail (src/guardrails.ts): a process started from a public visitor turn may not
+  // run ANY command — no approvals, sends, quote exports, catalogue reads, or memory access.
+  assertNotPublicTurn();
   const command = args[0] || "repl";
   // --help never needs the full agent runtime (DB, memory, provider) — just the config's
   // commerceEnabled flag, so the printed command list matches the active profile exactly.

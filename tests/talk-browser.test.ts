@@ -192,6 +192,9 @@ test("talk page: hands-free orb, greeting, VAD turns, reprompt/sleep, mute, desi
     await page.evaluate(() => { const t = (window as any).KellyTalk.testing; t.silenceMs = 100; t.levelOverride = 0; });
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
     await page.waitForFunction(() => !(window as any).KellyTalk.testing.showcaseOpen, { timeout: 15000 });
+    // That turn's reply is still playing when the showcase closes; the next utterance only
+    // counts once every queued clip has finished and the page is listening again.
+    await page.waitForFunction(() => (window as any).KellyTalk.state === "listening", { timeout: 15000 });
 
     // --- (6a) Press while speaking stops playback and goes to Listening ---
     await page.evaluate(() => {
