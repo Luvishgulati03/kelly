@@ -15,7 +15,7 @@ Two cron-driven engines, both running from one daemon:
    No custom prompts; each `kind` maps to a hardcoded handler in
    `WorkflowScheduler.run()`.
 2. **Markdown engine** (`workflows/*.workflow.md`) — arbitrary,
-   Luvish-authored workflows: YAML frontmatter (triggers, outputs, runner tier)
+   owner-authored workflows: YAML frontmatter (triggers, outputs, runner tier)
    plus a markdown body that's sent verbatim as the provider prompt. Files
    are hot-reloaded (`WorkflowRegistry.watch()`); artifacts are written under
    `data/workflow-runs/<name>/`.
@@ -76,7 +76,7 @@ concurrency: skip | parallel  # optional; "skip" = don't start a new run while o
 - **Output path sandbox**: every markdown workflow's `docs` output is
   validated by `isAllowedDocsPath()` (`src/workflows/definition.ts`) to stay
   inside `data/workflow-runs/<workflow-name>/` — no absolute paths, no `..`
-  traversal — because a workflow file is Luvish-editable config, not trusted
+  traversal — because a workflow file is owner-editable config, not trusted
   code.
 - No approval-gate involvement for the engines themselves; a workflow whose
   prompt asks the agent to send email/etc. still goes through that module's

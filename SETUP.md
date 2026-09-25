@@ -1,509 +1,650 @@
-# Setting up Henry
+# Setting up Kelly
 
-> **Kelly note.** This runbook documents the shared Henry runtime Kelly is built
-> on. For Kelly, substitute `kelly` for `henry`, `KELLY_` for `HENRY_`, and
-> `KELLY.env.example` for `.env.example`. Kelly keeps its state in `~/.kelly` and
-> should run its dashboard on `KELLY_PORT` (7338). Kelly is Codex-only, so skip the
-> Claude provider steps, and its profile never loads Gmail, jobs, meetings,
-> screenshots, social posting, mailwatch, launch, or standups. Kelly's product
-> guide is [KELLY_README.md](KELLY_README.md).
->
-> **Trade step.** Early in setup, right after the problem statement, ask which
-> trade this install is for: an electrical shop or a ladies' boutique. The trade
-> is fixed for the life of the install (`KELLY_TRADE=electrical` or `boutique`),
-> not a runtime toggle. Then ask that pack's own setup questions from
-> `src/trade/electrical.ts` or `src/trade/boutique.ts` (`setupQuestions`) and set
-> `KELLY_TRADE` and `KELLY_SHOP_NAME` in `.env` from the answers. For a boutique
-> install, also run `kelly catalogue template`, have the owner fill in the rate
-> card, then `kelly catalogue import` and `kelly catalogue publish` it, and
-> explain that design photos go in with `kelly designs add` or the Designs pane
-> on the switchboard. Full detail: [SETUP-PROMPT.md](SETUP-PROMPT.md) and
-> [docs/modules/trade-packs.md](docs/modules/trade-packs.md).
+This runbook takes a fresh clone of Kelly to a working shop install: a counter
+tablet on the Talk page, voice in and out, quotations from the shop's own
+catalogue or rate card, a design gallery for a boutique, and optionally a public
+link and Telegram on the owner's phone.
 
-Two ways through this document.
+- **You are an AI coding agent** (Claude Code, Codex, or similar) and the owner
+  said "set this up for my shop": first run the conversation in
+  [SETUP-PROMPT.md](SETUP-PROMPT.md), then work through this file in order. Run
+  each command yourself, compare it with the **Expect** line, and stop at a
+  failure: diagnose it or report it. Steps marked **OWNER** need the owner's own
+  hands (a browser login, a password, a tablet).
+- **You are the shop owner doing it by hand**: follow the same steps. Each one
+  says what success looks like.
 
-- **You are an AI coding agent** (Claude Code, Codex CLI, Cursor, …) that
-  someone pointed at this repo and said "set this up for me" → start at
-  [§1](#1-for-ai-agents-the-runbook). It is a runbook: every step has a
-  command, an expected result, and a rule for what to do when it fails.
-- **You are a human who wants the ten lines** → jump to
-  [§2](#2-human-quick-path). Come back to §1 when something breaks.
+Kelly is built on the Henry runtime. Henry-only features (Gmail, jobs, PR
+review, standups, social posting) are switched off in Kelly and are not covered
+here.
 
-Either way, [§3 Troubleshooting](#3-troubleshooting) is the list of things
-that actually go wrong here, including the one that eats an afternoon
-(iCloud-synced folders).
+Three rules for the whole runbook:
 
-Setup takes about ten minutes, of which eight are `npm install` and the
-first embedding-model download.
+1. **Never print a secret.** Tokens and passwords go into `.env` or into the
+   owner's own terminal prompt, never into a chat transcript, a commit, or a
+   summary.
+2. **Never commit private files.** `.env`, `soul.md`, `personality.md`, `data/`,
+   `memory/`, and `knowledge/` are ignored by Git on purpose. Catalogues, rate
+   cards, design photos, transcripts, and model files stay local.
+3. **Run Kelly commands from the repository root.** Kelly reads `.env` from the
+   current directory. Only `kelly start` finds the repository `.env` from
+   anywhere. A command run from another folder silently falls back to defaults
+   (electrical trade, port 7337).
 
 ---
 
-## 1. For AI agents: the runbook
+## 1. Prerequisites
 
-**You are an AI coding agent setting this repo up for your user.** Work
-through the steps in order. Run each command yourself, check it against
-the "Expect" line, and do not continue past a failure — diagnose it or
-report it. Ask your user only for the steps marked **ASK** (they are
-decisions or interactive logins, not things you can decide or complete on
-their behalf).
+Kelly is developed and tested on **macOS on Apple Silicon** (M1 or later). Other
+platforms are untested: `kelly start` opens a macOS Terminal window and uses
+`caffeinate`, and the brew commands below are macOS-specific.
 
-Three standing rules for the whole runbook:
+You need:
 
-1. **Never print a secret.** Tokens, keys and passwords go into `.env` or
-   into the user's terminal, never into your transcript, never into a
-   commit, never into a summary.
-2. **Never commit `.env`, `soul.md`, `personality.md`, `data/`,
-   `memory/`, or `knowledge/`.** They are gitignored for a reason: they
-   are the operator's life, not the framework.
-3. **You cannot complete an OAuth login.** Provider auth (step 5) happens
-   in a browser, from your user's own terminal. Hand them the exact
-   command and wait.
+- **Node.js 22 or newer.** The repository has no `.nvmrc` or `engines` field;
+  its SQLite dependency (`better-sqlite3` 12.11.1) supports Node 20 through 26,
+  and Kelly is developed on Node 22 and newer.
+- **git** on PATH (one dependency installs from GitHub).
+- **Homebrew** (https://brew.sh).
+- **A ChatGPT plan that includes Codex.** Kelly's brain is the Codex CLI signed
+  in to the owner's account. There is no other provider.
+- About **1 GB of free disk** for speech models (about 310 MB), the Python voice
+  environment, and `node_modules`.
 
-### Discovery gate — What problem is this agent solving?
-
-Before selecting modules or changing code, **ASK the user for the problem
-statement in their own words**. Establish the users and roles, current workflow,
-repeated manual work, source-of-truth data, expected output, success measures,
-required surfaces, privacy constraints, and which actions require approval.
-
-Research the use case before recommending a workflow. Inspect local material
-first; use available web research and connected tools for current, specialised,
-regulated, or integration-dependent facts. Prefer primary sources, cite material
-claims, and state uncertainty.
-
-Present a short use-case blueprint covering the current and proposed workflows,
-data and RAG boundaries, deterministic services, model responsibilities,
-connectors, approval gates, minimum useful release, deferred capabilities, tests,
-and success measures. Explain why every recommended module is needed and ask the
-user to correct the blueprint before implementation. Do not install every module
-merely because the framework contains it.
-
-### Step 0 — Where is the repo?
+Install the command-line tools:
 
 ```bash
-pwd
+brew install node git whisper-cpp ffmpeg python@3.12
+brew install poppler        # only if you will import supplier PDFs (provides pdftotext)
 ```
 
-**Expect:** a path that is **not** inside an iCloud-, Dropbox-, or
-OneDrive-synced folder. On macOS that means: not under `~/Desktop`,
-`~/Documents`, or anything containing `Library/Mobile Documents`, unless
-the user has iCloud Drive's "Desktop & Documents Folders" switched off.
+- `whisper-cpp` provides `whisper-cli`, the speech-to-text engine.
+- `ffmpeg` is needed only for Telegram voice notes, but it is small and useful.
+- `python@3.12` is for the Kokoro speech worker. `kokoro-onnx==0.4.9` supports
+  Python 3.10 to 3.13, so do not rely on a plain `python3`, which may be older
+  or newer.
 
-**If it is synced:** stop and ask the user to move the clone somewhere
-local (`~/dev/henry` and `~/Downloads/henry` are both fine), then start
-again. This is not a style preference. iCloud evicts files inside
-`node_modules` to save disk, and when `tsc` or `node` then reads a
-dataless file the syscall blocks forever — the build does not fail, it
-hangs, with no error to search for. A previous copy of this repo died
-exactly this way.
-
-### Step 0b — Which repo is this? (public framework, or somebody's private mirror)
-
-This matters more than it sounds, and it changes several later steps.
+**Verify:**
 
 ```bash
-test -f soul.md && echo "PRIVATE MIRROR — a configured Henry" || echo "PUBLIC FRAMEWORK — a fresh Henry"
+node -v                          # v22 or newer
+which whisper-cli                # /opt/homebrew/bin/whisper-cli
+/opt/homebrew/bin/python3.12 --version   # Python 3.12.x
 ```
 
-**Public framework** (`henry-digital-personality-of-luvish`) — the normal case.
-Nothing personal is in it. Continue straight through the steps below.
+## 2. Get the code and install
 
-**Private mirror** (`henry-private`) — a full backup of somebody's *running*
-Henry: their `soul.md`, `personality.md`, `context.md`, their memories in
-`data/engram.db`, their résumé, job applications, mail drafts and standup
-history. It exists so its owner can restore their own machine.
-
-If you were handed this to set up Henry **for a different person**, two things
-are true at once and you must act on both:
-
-1. **You are holding someone else's personal data.** Say so to your user
-   plainly, and do not read, summarise, or feed those files into any model
-   beyond what setup needs. If they only wanted the *software*, the public
-   framework repo plus [`BOOTSTRAP.md`](BOOTSTRAP.md) is the right starting
-   point and this one is not.
-2. **`cp soul.example.md soul.md` in Step 4 will silently do nothing**, because
-   those files already exist. Skip the reset below and your user's Henry boots
-   up believing it is the original owner — calling them by the wrong name,
-   recalling a stranger's memories, and carrying rails written for someone
-   else's life.
-
-**The reset — run this before Step 1 when the mirror is for a NEW person:**
+Clone somewhere that is **not** synced by iCloud, Dropbox, or OneDrive (not
+`~/Desktop` or `~/Documents` when iCloud "Desktop & Documents" is on). Synced
+folders evict files inside `node_modules`, and builds then hang with no error.
 
 ```bash
-# Identity: replace, never inherit.
-rm -f soul.md personality.md context.md
-cp soul.example.md soul.md
-cp personality.example.md personality.md
-
-# The previous owner's memory, work and history.
-rm -rf data memory knowledge/raw knowledge/cards
-rm -f resume.md application-profile.md
-```
-
-**Verify nothing personal survived:** `grep -ril "<previous owner's name>" . --exclude-dir=node_modules --exclude-dir=.git | head` should come back empty.
-
-Then continue from Step 1 as a fresh install.
-
-**Restoring your OWN machine from the mirror instead?** Keep every file, skip
-Step 4, and rebuild only what the mirror deliberately leaves out — see the
-"restoring from a private mirror" note in Step 8.
-
-### Step 1 — Prerequisites
-
-```bash
-node -v      # v22.x or newer
-npm -v
-git --version
-```
-
-**Expect:** Node 22 or newer. (`better-sqlite3` accepts Node 20 through
-26; 22+ is what this repo is developed and tested on.) `git` must be on
-PATH — one dependency installs straight from GitHub.
-
-**macOS:** if `npm install` later fails compiling `better-sqlite3`, the
-Xcode command line tools are missing → `xcode-select --install`, then
-retry. Most machines get a prebuilt binary and never compile anything.
-
-**Linux:** you may need `build-essential` and `python3` for the same
-reason.
-
-### Step 2 — Install dependencies
-
-```bash
+git clone https://github.com/Luvishgulati03/kelly.git ~/kelly
+cd ~/kelly
 npm install
 ```
 
-**Expect:** a clean install, no `ERR!` lines.
+**Expect:** a clean install with no `ERR!` lines. If `better-sqlite3` fails to
+build, run `xcode-select --install` and retry.
 
-**Note:** `engram-memory` (the memory engine) is pinned to an upstream Git
-repository, so npm shells out to `git` and needs network access to github.com.
-If install stops there, see
-[§3](#3-troubleshooting).
-
-### Step 3 — Create `.env`
-
-```bash
-cp .env.example .env
-```
-
-**Nothing in `.env` is required for Henry to boot.** Every key is either
-optional, has a working default, or is generated for you. Here is what
-matters, in order:
-
-| Key | Status | Notes |
-| --- | --- | --- |
-| `HENRY_PROVIDER` | **set this** | `codex` or `claude` — whichever your user actually has. Step 5 decides it. |
-| `HENRY_PORT`, `HENRY_HOST` | default `7337` / `127.0.0.1` | Loopback only. Change the port if 7337 is taken. |
-| `HENRY_ALLOW_REMOTE_DASHBOARD`, `HENRY_DASHBOARD_TOKEN` | leave off | Remote access is off by design. Both are required together to change that. |
-| `HENRY_REQUIRE_OUTBOUND_APPROVAL` | leave `true` | The outbound gate. Do not turn this off during setup. |
-| `HENRY_DASH_SECRET` | **auto-generated** | Written into `.env` on first use (mode `0600`) by the dashboard login. Do not hand-write it. |
-| `HENRY_TELEGRAM_BOT_TOKEN`, `HENRY_TELEGRAM_CHAT_ID` | OPTIONAL | Phone chat + alerts. Step 8. |
-| `HENRY_TELEGRAM_STANDUP_CHAT_ID` | OPTIONAL | Team standups. Discover it later with `henry standup discover`. |
-| `HENRY_JOB_PROFILE_PATH`, `HENRY_RESUME_SOURCE_PATH` | OPTIONAL | Only for the jobs/resume pipeline; they point at personal files that are gitignored. |
-| `X_API_KEY`, `X_API_SECRET`, `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` | OPTIONAL | Daily tech tweet. All four together or none — a partial set is treated as no keys and tweets stage instead of posting. |
-| `OPENAI_API_KEY` | OPTIONAL | Not needed. Embeddings run locally and free (`bge-small-en-v1.5`, on-device). |
-| `HENRY_OWNER_EMAIL` | OPTIONAL | Lets Henry recognise the owner's own address. (The legacy `DAD_EMAIL` spelling still works.) |
-| `HENRY_PORTFOLIO_DIR`, `HENRY_PORTFOLIO_SITE`, `HENRY_GITHUB_LOGIN` | OPTIONAL | Only for the portfolio module: the local checkout of a separate GitHub Pages repo Henry may edit, its public URL (display only, never fetched), and the GitHub account whose contribution graph the daily stats refresh reads. Nothing is baked in — with `HENRY_PORTFOLIO_DIR` unset Henry's prompt carries no portfolio instructions, and with `HENRY_GITHUB_LOGIN` unset the `portfolio.stats` workflow skips with a reason instead of querying an account. |
-
-**Verify:** `test -f .env && echo ok`
-
-### Step 4 — Persona files
-
-```bash
-cp soul.example.md soul.md
-cp personality.example.md personality.md
-```
-
-`soul.md` is Henry's operating contract — the rails, including the
-outbound boundary — and `personality.md` is its voice. Both are
-gitignored and both are injected into every prompt.
-
-**If you skip this, Henry still runs**, silently, with an empty soul and
-an empty persona block. That is a real downgrade, not a warning you can
-ignore: the rails live in that file.
-
-Fill in the bracketed placeholders from what you know about your user, or
-follow [`docs/design-your-soul.md`](docs/design-your-soul.md). For the
-full guided version — an interview that also picks which modules to
-enable — hand your user [`BOOTSTRAP.md`](BOOTSTRAP.md) instead; it is the
-long-form sibling of this document.
-
-**ASK your user:** what should Henry call them, and which modules do they
-want on? Do not guess a name.
-
-**Verify:** `test -f soul.md && test -f personality.md && echo ok`
-
-### Step 5 — Provider auth (the step that actually matters)
-
-Henry does not call a metered API. It drives a **subscription CLI** —
-Claude Code or Codex — and your user may well have only one of them.
-Detect what is actually installed:
-
-```bash
-claude --version 2>/dev/null || echo "claude: not installed"
-codex --version  2>/dev/null || echo "codex: not installed"
-```
-
-Then check whether that CLI is logged in. Both of these are read-only and
-safe for you to run yourself:
-
-```bash
-claude auth status     # → JSON incl. "loggedIn": true
-codex login status     # → "Logged in using ChatGPT"
-```
-
-**Case A — one is installed and logged in.** Good. Go to "Set the
-default" below.
-
-**Case B — installed but logged out.** You cannot do this part. It opens
-a browser. **Tell your user to run one of these in their own terminal:**
-
-```bash
-claude auth login      # Claude Code — signs in to their Anthropic account
-codex login            # Codex — signs in to their ChatGPT account
-```
-
-Wait for them to say it is done, then re-run the matching `status`
-command above to confirm before continuing.
-
-**Case C — neither is installed. ASK your user which one they have a
-subscription for**, and install only that one:
-
-```bash
-npm install -g @anthropic-ai/claude-code    # Claude Code  → then: claude auth login
-npm install -g @openai/codex                # Codex CLI    → then: codex login
-```
-
-If they have neither subscription, stop here and tell them: Henry's brain
-is a provider CLI, and there is no free path around it. Everything else
-(memory, knowledge indexing, the dashboard) will still install and run.
-
-**Set the default provider** to whichever one they authenticated:
-
-```bash
-npm link                    # if you have not yet — see step 6
-henry provider claude       # or: henry provider codex
-```
-
-**Expect:** `{ "provider": "claude" }` (or `codex`). This writes
-`provider` into `data/settings.json`, which takes precedence over
-`HENRY_PROVIDER` in `.env` at boot. Set both to the same value so the two
-never disagree.
-
-> **If your user has only ONE provider, tell them this.** Henry's runner
-> tries the configured provider first and, when a run fails, falls back
-> to the *other* one. With only one CLI installed, that fallback attempt
-> fails too and the error you see mentions a provider the user has never
-> heard of. That is expected behaviour, not a broken install — the real
-> failure is always the first one in the log.
-
-### Step 6 — Put `henry` on PATH
+Optional, to get a `kelly` command on PATH:
 
 ```bash
 npm link
 ```
 
+Without it, use `node bin/kelly.mjs <command>` from the repository root. Every
+`kelly ...` command in this file works either way.
+
+## 3. Codex (Kelly's brain)
+
+```bash
+codex --version || npm install -g @openai/codex
+codex login status
+```
+
+**Expect:** `Logged in using ChatGPT`. If not, **OWNER** runs `codex login` in
+their own terminal (it opens a browser), then re-run `codex login status`.
+
+Kelly forces the Codex provider; there is nothing to select. Never configure
+Claude or any other provider for Kelly.
+
+## 4. Private configuration and persona
+
+```bash
+cp KELLY.env.example .env
+chmod 600 .env
+cp soul.example.md soul.md
+cp personality.example.md personality.md
+```
+
+Edit `.env` and set, from the owner's answers in SETUP-PROMPT.md:
+
+```bash
+KELLY_TRADE=boutique          # or electrical; fixed for the life of this install
+KELLY_SHOP_NAME=Your Shop     # shown on the dashboard and spoken in the greeting
+KELLY_PORT=7338               # keep unless 7338 is taken
+```
+
+Set `KELLY_SHOP_NAME` **before** importing a boutique rate card: rows without a
+brand column are stored under the shop name, and boutique quotes look them up
+by that name. If you rename the shop later, import and publish the rate card
+again.
+
+Fill in `soul.md` and `personality.md` from the owner interview (see
+`docs/design-your-soul.md`). Replace every placeholder. Keep the outbound
+approval rule intact. Both files are read from the repository root on every
+turn and are ignored by Git.
+
 **Verify:**
 
 ```bash
-which henry     # → a path inside your npm global bin
-henry provider  # → {"provider": "codex"} or {"provider": "claude"}
+kelly status
 ```
 
-`henry` works from any directory: `.env` is loaded relative to the repo
-root, not the current directory.
+**Expect:** JSON with `"name": "Kelly"`, `"provider": "codex"`,
+`"dashboard": "http://127.0.0.1:7338"`, and a `trade` block showing the chosen
+trade and shop name. This makes no provider call.
 
-**No `npm link`?** Every command below also works as
-`node bin/henry.mjs <command>` from the repo root.
+## 5. Voice stack
 
-### Step 7 — Smoke test
+Kelly never downloads speech models or installs software. Put three files in
+`data/voice/models/` (ignored by Git) and create one Python environment in
+`data/voice/venv/`.
 
-Run all five. Each one is fast, safe, and read-only except where noted.
+### 5.1 Download the models
 
 ```bash
-henry status
+mkdir -p data/voice/models
+curl -L --fail -o data/voice/models/ggml-small-q5_1.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin
+curl -L --fail -o data/voice/models/kokoro-v1.0.int8.onnx \
+  https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/kokoro-v1.0.int8.onnx
+curl -L --fail -o data/voice/models/voices-v1.0.bin \
+  https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/voices-v1.0.bin
 ```
-**Expect:** JSON with `"name": "Henry"`, your provider, the dashboard URL
-`http://127.0.0.1:7337`, `"approvals": 0`, and a `memory` block. On a
-fresh clone `memory.count` is `0`.
+
+Sources: the whisper.cpp model repository on Hugging Face
+(`ggerganov/whisper.cpp`) and the `model-files-v1.0` release of the
+`thewh1teagle/kokoro-onnx` project, the release that matches
+`kokoro-onnx==0.4.9` in `scripts/voice/requirements.txt`.
+
+**Verify sizes and checksums:**
 
 ```bash
-henry knowledge stats
+ls -l data/voice/models
+shasum -a 256 data/voice/models/*
 ```
-**Expect:** JSON counts. `{"count": 0, ...}` on a fresh clone.
 
-```bash
-henry knowledge index
-```
-**Expect:** `{"entries": 0, "skipped": 0, "byDomain": {}}` on a fresh
-clone — the corpus lane (`knowledge/raw/`) ships empty. A non-zero
-`entries` means it found a corpus. This costs nothing; it uses local
-embeddings only.
-
-To prove the embedding pipeline end to end, index one real file:
-
-```bash
-henry knowledge add /path/to/some-notes.md --domain project-management
-henry knowledge search "something in that file"
-```
-**Expect:** `{"files": 1, "chunks": N, ...}` then a scored hit. The
-**first** run downloads ~30MB of model weights (`bge-small-en-v1.5`);
-after that everything on this lane is offline and free. Valid `--domain`
-values: `gtm`, `growth-strategy`, `product-management`,
-`project-management`, `software-development`, `community`, `sales`,
-`careers`, `general`.
-
-```bash
-henry dashboard
-```
-**Expect:** `Henry dashboard: http://127.0.0.1:7337`. Open it, confirm
-`/chat` loads, then Ctrl+C. If the port is taken it says so and reuses
-the running instance instead of crashing.
-
-```bash
-npm run typecheck
-```
-**Expect:** no output at all. Any output is a type error; fix or report
-it before handing back.
-
-Optionally `npm test` for the full suite.
-
-**Finally, one real turn** — this one does spend provider quota, so keep
-it short:
-
-```bash
-henry ask "say hello and tell me which provider you are"
-```
-**Expect:** a reply in the voice you set in `personality.md`. If it comes
-back saying it is not logged in, go back to step 5.
-
-There is no `henry --help`. Bare `henry` starts the REPL. The full
-command list is in [`README.md`](README.md), and an unknown command
-prints it.
-
-### Step 8 — Optional extras
-
-Every one of these is **OPTIONAL**. Skip them all and Henry works. Only
-set up what your user asks for.
-
-| Extra | Install | What it unlocks |
+| File | Bytes | SHA-256 |
 | --- | --- | --- |
-| **Telegram** | Ask the user for a bot token from [@BotFather](https://t.me/BotFather); write `HENRY_TELEGRAM_BOT_TOKEN` and `HENRY_TELEGRAM_CHAT_ID` into `.env` yourself. Verify with `henry telegram test`. | Chat with Henry from a phone, plus alerts and digests. Full steps: [`docs/modules/telegram.md`](docs/modules/telegram.md). |
-| **PDF ingestion** | `brew install poppler` (macOS) or your distro's poppler package | Lets `knowledge add` read PDFs. Without `pdftotext` on PATH, PDFs are skipped — the run does not abort. |
-| **Local NER scrub** | `brew install ollama`, then `ollama pull llama3.2:3b`, then set `local.ollama.ner: true` in `data/settings.json` | A deeper name-scrub pass that runs on-device instead of costing a metered provider call. Fits an 8GB M1 Air. |
-| **Browser automation** | `npx playwright install chromium` | Needed by the jobs pipeline and resume/cover-letter PDF rendering. |
-| **Gmail** | Gmail connector enabled in Codex | Inbox reading, drafting, and separately approved sends. |
-| **Jobs pipeline** | A real `resume.md` and `application-profile.md` (both gitignored) | Job scout, tailored resume + cover letter, application tracking. |
-| **Scheduled work** | `henry schedule daemon`, or `henry schedule install` to generate launchd/cron files | Nightly memory consolidation, inbox polling, digests. Review the generated files before installing them. |
+| `ggml-small-q5_1.bin` | 190085487 | `ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb` (published by Hugging Face) |
+| `kokoro-v1.0.int8.onnx` | 92361271 | `6e742170d309016e5891a994e1ce1559c702a2ccd0075e67ef7157974f6406cb` |
+| `voices-v1.0.bin` | 28214398 | `bca610b8308e8d99f32e6fe4197e7ec01679264efed0cac9140fe9c29f1fbf7d` |
 
-**Restoring your own machine from a private mirror.** The mirror carries your
-soul, persona, memories and corpus, but four things are excluded on purpose and
-must be rebuilt by hand. Nothing warns you if you forget — Henry simply comes up
-quieter than it should:
+The byte sizes match the upstream release assets. The two Kokoro checksums come
+from a known-good working install, because the GitHub release does not publish
+checksums. A size mismatch means a failed or partial download: delete the file
+and download it again.
 
-| Missing | Why it is excluded | Rebuild with |
-| --- | --- | --- |
-| `.env` | Secrets never go to GitHub, private repo or not | Recreate it (Step 3); the vault key regenerates but old encrypted values will not open without the original |
-| `data/knowledge.db` | Exceeds GitHub's 100MB limit | `henry knowledge index` — rebuilds the index from `knowledge/raw`, which IS in the mirror |
-| `data/browser-profile/` | Live logged-in browser sessions | `henry jobs login` to sign in again |
-
-Your **memories survive** — `data/engram.db` is in the mirror and is checkpointed
-before every sync, so it restores intact. It is only the knowledge *index* that
-has to be rebuilt, not the knowledge itself.
-
-**Verify a restore:** `henry memory search "something you know you told it"`
-should return real hits, and `henry knowledge stats` should show a non-zero index
-after re-running the indexer.
-
-### Step 9 — Hand back
-
-Report to your user, in a few lines:
-
-- which provider is configured, and that it is logged in;
-- which optional extras you set up and which you skipped;
-- anything still waiting on them (credentials, a resume file, a Telegram
-  token, a persona detail you had to leave as a placeholder);
-- the dashboard URL and `henry repl` as the way in.
-
-Then stop. Do not start the REPL for them and do not commit anything
-unless they asked.
-
----
-
-## 2. Human quick path
+### 5.2 Python environment for Kokoro
 
 ```bash
-# 0. clone somewhere NOT synced by iCloud/Dropbox (~/dev/henry is fine)
-node -v                                   # need 22+
-npm install
-cp .env.example .env                      # set HENRY_PROVIDER=codex|claude
-cp soul.example.md soul.md && cp personality.example.md personality.md
-claude auth status || codex login status  # whichever you have; log in if not
-npm link                                  # puts `henry` on PATH
-henry provider claude                     # or: henry provider codex
-henry status                              # JSON readout = you're up
-henry repl                                # chat + dashboard on 127.0.0.1:7337
+/opt/homebrew/bin/python3.12 -m venv data/voice/venv
+data/voice/venv/bin/pip install -r scripts/voice/requirements.txt
 ```
 
-Only one of `claude` / `codex` needed. No provider CLI at all → install
-one you have a subscription for: `npm install -g @anthropic-ai/claude-code`
-or `npm install -g @openai/codex`.
+**Expect:** `kokoro-onnx-0.4.9` and `soundfile-0.13.1` installed, with their
+dependencies (onnxruntime, numpy, and others).
 
-Optional, later: `brew install poppler` (PDFs), `ollama pull llama3.2:3b`
-(local NER), Telegram token in `.env`, `npx playwright install chromium`
-(jobs).
+Kelly looks for the interpreter at `data/voice/venv/bin/python`. If you put the
+environment elsewhere, set `KELLY_VOICE_PYTHON` in `.env` to its `python` path.
 
----
+### 5.3 Voice settings in `.env`
 
-## 3. Troubleshooting
+`kelly start` finds the three model files in `data/voice/models/` and
+`whisper-cli` on PATH by itself. Write the paths and a worker token into `.env`
+anyway, so that `kelly voice status`, `kelly voice transcribe`, and Telegram
+voice notes see the same settings:
 
-**The build hangs forever with no error.** The repo is in an
-iCloud-synced folder. iCloud evicts `node_modules` files to free disk; a
-read of a dataless file blocks in the syscall and never returns, so
-`tsc`/`node`/`npm` sit there looking busy. Move the clone out of
-`~/Desktop` and `~/Documents` (or anything under `Library/Mobile
-Documents`), delete `node_modules`, and `npm install` again. This is the
-single most expensive failure in this repo's history — check it first,
-always.
+```bash
+KELLY_WHISPER_CPP_PATH=/opt/homebrew/bin/whisper-cli
+KELLY_WHISPER_MODEL_PATH=data/voice/models/ggml-small-q5_1.bin
+KELLY_KOKORO_MODEL_PATH=data/voice/models/kokoro-v1.0.int8.onnx
+KELLY_KOKORO_VOICES_PATH=data/voice/models/voices-v1.0.bin
+KELLY_KOKORO_URL=http://127.0.0.1:8765
+KELLY_TTS_ENGINE=kokoro
+```
 
-**`npm install` fails building `better-sqlite3`.** No prebuilt binary
-matched your platform, so it tried to compile. macOS:
-`xcode-select --install`, then `rm -rf node_modules && npm install`.
-Linux: install `build-essential` and `python3`.
+Generate the worker token straight into `.env` without printing it:
 
-**`npm install` fails on `engram-memory`.** It installs from a pinned GitHub
-repository, so npm needs `git` on PATH and network access to github.com. If
-the pinned repository is unavailable, installation will fail before Henry
-starts. This is an access/network problem rather than a Henry runtime problem.
+```bash
+echo "KELLY_KOKORO_TOKEN=$(openssl rand -hex 32)" >> .env
+```
 
-**`Port 7337 is already in use` / `EADDRINUSE`.** Another Henry (a REPL,
-a dashboard, or the schedule daemon) already holds it — they all serve
-the same dashboard, so this is usually harmless and Henry says
-"(already running — reusing it)". To find it: `lsof -nP -iTCP:7337
--sTCP:LISTEN`. To move: `HENRY_PORT=7400 henry dashboard`.
+The token must be at least 24 characters. It is shared only between the
+dashboard and the local speech worker. If it is missing, `kelly start` makes a
+temporary one for each run.
 
-**Replies come back as "not logged in" / "please run /login".** The
-provider session expired. Henry detects this specific case and refuses to
-treat it as a real answer. Fix from your own terminal:
-`claude auth login` or `codex login`, then re-check with
-`claude auth status` / `codex login status`.
+Ports: the dashboard listens on `127.0.0.1:7338` (`KELLY_PORT`) and the speech
+worker on `127.0.0.1:8765` (`KELLY_KOKORO_URL`). Both bind to loopback only.
 
-**Errors mention a provider you do not have.** Expected with a
-single-provider setup: the runner falls back to the other CLI when the
-first run fails, and that fallback fails too. The real error is the first
-one. See the note in step 5.
+### 5.4 Verify speech recognition
 
-**PDFs produce nothing.** `pdftotext` is not installed —
-`brew install poppler`. Missing binary means that file is skipped, not
-that the run failed.
+```bash
+kelly voice status
+```
 
-**`henry: command not found`.** `npm link` was not run, or your npm
-global bin is not on PATH. Check with `npm prefix -g` (the executable
-lands in `<that>/bin`), or just use `node bin/henry.mjs <command>` from
-the repo root.
+**Expect:** `"transcription": "configured"`. `"speech"` reads
+`unavailable (worker not reachable)` until Kelly is running (step 9).
 
-**Secrets: no keys in git, ever.** `.env`, `soul.md`, `personality.md`,
-`data/`, `memory/` and `knowledge/` are gitignored — keep it that way. If
-you ever need to hand a key to Henry, write it into `.env` and mode it
-`0600`. Never paste one into a commit message, an issue, a doc, or an
-agent transcript.
+Round-trip a spoken sentence through whisper.cpp:
+
+```bash
+say -o /tmp/kelly-voice-test.wav --data-format=LEI16@16000 "Two suits with lining, needed by Friday."
+kelly voice transcribe /tmp/kelly-voice-test.wav --language en
+```
+
+**Expect:** the sentence printed back within a few seconds (small spelling
+differences are normal).
+
+## 6. Catalogue or rate card
+
+Kelly quotes only from records the owner has published. Imports wait in review
+until published. Supported files: `.xlsx`, `.csv`, and `.pdf` (PDF needs
+`poppler`).
+
+**Start from the trade's template:**
+
+```bash
+kelly catalogue template
+```
+
+**Expect:** `{"outputPath": ".../data/templates/boutique-ratecard.xlsx"}` for a
+boutique or `.../data/templates/electrical-catalogue.xlsx` for electrical. The
+example rows are placeholders.
+
+- Boutique columns: `Code, Garment, Item, Work type, Unit, Rate, GST%`.
+- Electrical columns: `SKU, Brand, Name, Category, Unit, Price, GST%`.
+  Electrical rows need a brand, a name, and a price. Boutique rows need a name
+  and a rate; a missing code is derived from the garment and item.
+
+**OWNER** replaces the example rows with the shop's real items and prices (or
+provides an existing supplier spreadsheet, CSV, or PDF). Then:
+
+```bash
+kelly catalogue import /path/to/ratecard.xlsx           # add --sheet "<name>" to pick a sheet
+kelly catalogue review
+kelly catalogue publish <documentId from the import output>
+kelly catalogue search "lining"
+```
+
+**Expect:** the import prints a `documentId`, the row count, and
+`"status": "pending-review"`; `review` lists the document; `publish` reports
+`publishedProducts` and `indexed`; `search` returns matching rows. The first
+publish downloads a small local embedding model (about 30 MB, from Hugging Face)
+once; after that search works offline.
+
+**Check a quotation:**
+
+```bash
+kelly quote create --lines "<code> x2"                  # boutique
+kelly quote create --lines "<sku> x2" --brand <Brand>   # electrical needs a brand
+```
+
+**Expect:** a quote with `"complete": true`, the line, GST, and total in paise
+(1 rupee = 100 paise). An unknown code comes back under `unresolved`, not
+guessed. `kelly quote export <quote-id> --out ./quote.xlsx` writes an Excel copy.
+
+## 7. Design gallery (boutique only)
+
+The gallery shows photos on the Talk page when a customer asks, for example,
+"show me bridal lehengas". Electrical installs have no gallery.
+
+```bash
+kelly designs add /path/to/photo-or-folder --category lehenga --tags bridal,trending
+kelly designs stats
+```
+
+- `--category` is required: `suit`, `saree`, `lehenga`, `blouse`, `kurti`,
+  `gown`, or `dupatta`.
+- Optional: `--tags` (`trending`, `latest`, `bridal`, `party`, `festive`,
+  `casual`, `custom-order`), `--caption "..."`, `--colours a,b`, `--fabric x`,
+  `--occasion x`, `--price-band lo-hi`.
+- A folder adds every image in it with the same category and tags. Only PNG,
+  JPEG, WebP, and GIF are accepted (convert iPhone HEIC photos to JPEG first).
+  Images over 8 MB are rejected; duplicates are skipped.
+
+The owner can also upload and tag photos later in the **Designs** pane of the
+dashboard.
+
+**Expect:** `kelly designs stats` shows a non-zero `total` and counts per
+category.
+
+## 8. Logins: admin and counter
+
+Two roles exist. `admin` is the owner: the full dashboard, approvals, settings,
+transcripts. `counter` is the shop tablet: chat, voice, the Talk page, and a
+read-only gallery. It can never approve, send, or change settings.
+
+**OWNER** types the passwords (hidden prompt, minimum 10 characters):
+
+```bash
+kelly users add owner --role admin
+kelly users add counter --role counter
+kelly users list
+```
+
+**Expect:** `Created user owner (admin).`, `Created user counter (counter).`,
+and a list with both. Use long, unique passwords; with a public link the
+password is the only lock. Five wrong passwords in 15 minutes lock that account
+for 15 minutes.
+
+Other commands: `kelly users set-password <name>`, `kelly users remove <name>`.
+For scripted setup, `--password-stdin` reads the password from standard input.
+
+## 9. Start Kelly
+
+```bash
+kelly start
+```
+
+On macOS this opens a new Terminal window running the dashboard and the speech
+worker together. An agent that needs the output in its own shell should run
+`kelly start --foreground` as a background process instead. Ctrl+C in that
+window stops both.
+
+**Expect**, after a few seconds:
+
+```
+Kelly is ready.
+Dashboard: http://127.0.0.1:7338
+Voice: http://127.0.0.1:7338/voice
+Local only. Press Ctrl+C to stop both services.
+```
+
+**Verify:**
+
+```bash
+kelly voice status
+kelly voice speak "Hello from Kelly" --language en --out /tmp/kelly-hello.wav && afplay /tmp/kelly-hello.wav
+```
+
+**Expect:** `"speech": "ready"` and an audible sentence. (`speak` refuses to
+overwrite an existing file; delete the old one first.)
+
+Open `http://127.0.0.1:7338` in a browser on the Mac. While Kelly runs without
+a tunnel, the Mac itself is signed in as admin without a password. Open
+**Talk** from the top bar, tap the talk button, allow the microphone, and ask a
+question about the shop.
+
+## 10. Counter mode: put the tablet on Talk
+
+The counter account's home page follows the owner's **counter mode**:
+
+| Mode | Counter account lands on | Behaviour |
+| --- | --- | --- |
+| `review` (default) | `/chat` | Voice transcripts are shown for a typed confirmation first. |
+| `conversation` | `/counter` | Tap to talk; replies are spoken, no review step. |
+| `talk` | `/talk` | Hands-free: Kelly greets, listens, answers, and listens again. |
+
+For a counter tablet, choose `talk`: in the dashboard open the **Voice** pane,
+find the **Counter mode** card, pick `talk`, and click **Save counter mode**.
+Alternatively set `KELLY_COUNTER_MODE=talk` in `.env` and restart Kelly; a valid
+value there overrides the saved setting.
+
+Voice transcripts are kept on the Mac for 60 days by default. Audio recording
+is off by default. Both are adjustable in the same Voice pane.
+
+## 11. Reach Kelly from the tablet
+
+The dashboard always binds to `127.0.0.1`, so another device can only reach it
+through a tunnel. Tunnels also give the HTTPS address that tablet browsers
+require before they allow the microphone. Every tunnel option needs an admin
+account (step 8). While Kelly runs with a tunnel, every device, the Mac
+included, must log in.
+
+Pick one:
+
+| Option | Who can open the link | Needs | Start command |
+| --- | --- | --- | --- |
+| Tailscale Serve | Only devices signed in to the owner's tailnet | Tailscale on the Mac and the tablet | `kelly start --public tailscale` |
+| Cloudflare, own domain | Anyone with the link (login page) | A domain whose DNS is on Cloudflare, `cloudflared` | `kelly tunnel setup ...` once, then `kelly start --public` |
+| Tailscale Funnel | Anyone with the link (login page) | Tailscale with HTTPS and Funnel enabled | `kelly start --public` (when no Cloudflare tunnel is configured) |
+
+Without `--public`, `kelly start` never starts a tunnel, whatever `.env` says.
+While a tunnel is running, Kelly also runs `caffeinate` so the Mac does not idle
+to sleep.
+
+### 11.1 Tailscale Serve (private to the owner's devices)
+
+1. **OWNER** installs Tailscale on the Mac (`brew install --cask tailscale-app`
+   or https://tailscale.com/download), opens it, and signs in. Installs the
+   Tailscale app on the tablet and signs in to the same tailnet.
+2. In the Tailscale admin console, enable HTTPS certificates:
+   https://login.tailscale.com/admin/dns
+3. Start Kelly:
+   ```bash
+   kelly start --public tailscale
+   ```
+   **Expect:** a line `Remote access: https://<mac-name>.<tailnet>.ts.net`.
+
+### 11.2 Cloudflare on the owner's own domain
+
+Requirement: the owner's domain uses Cloudflare DNS (a free Cloudflare account
+is enough).
+
+```bash
+brew install cloudflared
+kelly tunnel setup kelly.your-domain.com --name kelly-shop
+```
+
+The first run opens a browser for **OWNER** to log in to Cloudflare and pick the
+domain. Kelly then creates the named tunnel, adds the DNS record, and writes
+`KELLY_TUNNEL=cloudflare`, `KELLY_CLOUDFLARE_TUNNEL`, and `KELLY_PUBLIC_HOST`
+into `.env` (keeping a `.env.bak`). Running it again is safe.
+
+**Verify** without changing anything:
+
+```bash
+kelly tunnel setup --status
+```
+
+**Expect:** `cloudflared` installed, logged in, the tunnel exists, the public
+host set, and DNS resolving. Then:
+
+```bash
+kelly start --public
+```
+
+**Expect:** the dashboard reachable at `https://kelly.your-domain.com`. For an
+extra lock, add a Cloudflare Access policy for that hostname in the Cloudflare
+Zero Trust dashboard.
+
+To remove it later: `cloudflared tunnel delete kelly-shop`, then delete the DNS
+record in the Cloudflare dashboard.
+
+### 11.3 Tailscale Funnel (public, no domain needed)
+
+1. Tailscale installed and signed in on the Mac, as in 11.1.
+2. Enable HTTPS certificates (https://login.tailscale.com/admin/dns) and the
+   Funnel node attribute (https://login.tailscale.com/admin/acls).
+3. `kelly start --public` (or `--public tailscale` for Serve instead).
+   **Expect:** a public `https://...ts.net` link printed once Funnel is up.
+
+If Funnel is left on after a crash: `tailscale funnel --https=443 off`.
+
+More detail: [docs/modules/remote-access.md](docs/modules/remote-access.md).
+
+## 12. Set up the tablet
+
+1. Open the HTTPS link from step 11 in **Safari** (iPad) or **Chrome** (Android).
+2. Log in as `counter`. With counter mode `talk`, it opens the Talk page.
+3. Tap the talk button once. When the browser asks for the microphone, choose
+   **Allow**. If it never asks or was denied: on iPad, Settings > Apps > Safari >
+   Microphone (or the `aA` menu > Website Settings > Microphone); on Android,
+   the lock icon beside the address > Permissions > Microphone.
+4. Add a home-screen shortcut: Safari Share > **Add to Home Screen**; Chrome
+   menu > **Add to Home screen**.
+5. Keep the screen awake: on iPad, Settings > Display & Brightness > Auto-Lock >
+   Never; on Android, Settings > Display > Screen timeout at the maximum (or
+   Developer options > Stay awake while charging). Keep the tablet on its
+   charger. Optional: iPad Guided Access keeps the tablet on this one page.
+6. Keep the Mac awake too. `caffeinate` covers idle sleep while a tunnel runs;
+   also set System Settings > Battery (or Energy) so the Mac does not sleep on
+   power, and keep the lid open or the Mac on power with an external display.
+
+## 13. Telegram on the owner's phone (optional)
+
+1. **OWNER** messages [@BotFather](https://t.me/BotFather), sends `/newbot`,
+   and follows the prompts. BotFather replies with a bot token.
+2. Put it in `.env` (the owner can paste it into the file directly):
+   ```bash
+   KELLY_TELEGRAM_BOT_TOKEN=<token from BotFather>
+   ```
+3. **OWNER** sends any message to the new bot. Then read the chat id:
+   ```bash
+   curl -s "https://api.telegram.org/bot$(grep '^KELLY_TELEGRAM_BOT_TOKEN=' .env | cut -d= -f2-)/getUpdates"
+   ```
+   Find `"chat":{"id":<number>` and add `KELLY_TELEGRAM_CHAT_ID=<number>` to
+   `.env`. An empty `"result":[]` means the bot has not been messaged yet.
+4. Voice notes from the owner (optional): add
+   `KELLY_FFMPEG_PATH=/opt/homebrew/bin/ffmpeg` (whisper settings from step 5.3
+   are also required). Spoken replies are off unless
+   `KELLY_TELEGRAM_VOICE_REPLIES=1`.
+5. Verify, with the owner's consent (it sends one message to the owner's own
+   chat):
+   ```bash
+   kelly telegram test
+   kelly telegram status
+   ```
+   **Expect:** `ok — check your Telegram chat` and a test message on the phone.
+
+The bot answers only the configured chat id. It runs inside the dashboard
+process, so replies work while `kelly start` is running. `kelly telegram off`
+turns the two-way chat off. Details: [docs/modules/telegram.md](docs/modules/telegram.md).
+
+## 14. Demo mode (try it first)
+
+```bash
+kelly start --demo --trade boutique     # or: --trade electrical (the default)
+```
+
+The demo uses a fictional catalogue or rate card and (for boutique) placeholder
+design photos, stored separately under `data/demo-boutique/` or `data/demo/`.
+The boutique demo shows `KELLY_SHOP_NAME` if set, otherwise a neutral demo name. It
+never touches the real install and never connects to Telegram. It runs on port
+7338, so stop the real Kelly first. Voice still needs step 5.
+
+Try: "show me trending sarees" or "how much for two salwar suits with lining,
+my own fabric, needed by Friday".
+
+To share a demo publicly, create demo-only accounts first:
+
+```bash
+kelly users add owner --role admin --demo boutique
+kelly users add counter --role counter --demo boutique
+kelly start --demo --trade boutique --public
+```
+
+## 15. Troubleshooting
+
+**Tablet never asks for the microphone, or the talk button does nothing.**
+Browsers allow the microphone only on HTTPS or on `localhost`. A plain
+`http://<mac-ip>:7338` address cannot work (and Kelly does not listen on the
+network anyway). Use a tunnel link from step 11. If permission was denied once,
+reset it in the browser's site settings (step 12).
+
+**`Configure KELLY_KOKORO_MODEL_PATH with an existing local file. No models were downloaded.`**
+A Kokoro file is missing or misnamed. Check `ls -l data/voice/models` against
+the table in step 5.1.
+
+**`Kokoro worker exited ...` or `TTS dependencies are missing`.**
+The Python environment is missing or broken. Re-run step 5.2. Confirm
+`data/voice/venv/bin/python -c "import kokoro_onnx"` exits quietly. If the venv
+is elsewhere, set `KELLY_VOICE_PYTHON`.
+
+**`kelly voice status` shows `"transcription": "not configured"`.**
+`whisper-cli` is not installed or the paths are not in `.env`, or you ran it
+outside the repository root. `brew install whisper-cpp`, then check step 5.3.
+
+**`Port 7338 is already in use` (or 8765).**
+Another Kelly (or a demo) is already running. Find it with
+`lsof -nP -iTCP:7338 -sTCP:LISTEN` and stop it with Ctrl+C in its window. Kelly
+never kills another process for you. To move ports, change `KELLY_PORT` or the
+port in `KELLY_KOKORO_URL`.
+
+**Login says the account is locked.**
+Five wrong passwords in 15 minutes lock that username for 15 minutes. Wait, or
+reset it: `kelly users set-password <name>` (the lock itself still runs out on
+its own timer).
+
+**Cloudflare link does not load yet.**
+Run `kelly tunnel setup --status`. A new DNS record can take a few minutes to
+resolve. The domain must be on Cloudflare DNS. `cloudflared` must be installed
+and logged in (`cloudflared tunnel login` is run for you by `kelly tunnel setup`).
+Start with `kelly start --public` (plain `kelly start` never starts a tunnel).
+
+**Tailscale says Funnel is not enabled, or Tailscale is not signed in.**
+Enable HTTPS and the Funnel attribute (step 11.3), or open Tailscale.app and
+sign in (`tailscale up`).
+
+**`Create an admin account first` when starting a tunnel.**
+Create one first: `kelly users add owner --role admin` (add `--demo <trade>` for
+a demo).
+
+**Replies say Codex is logged out.**
+Run `codex login` in the owner's terminal, then `codex login status`.
+
+**Codex rejects a model name.**
+Kelly's default Codex model names may not be available on every account. Set
+`KELLY_CODEX_MODEL`, `KELLY_CODEX_T0_MODEL`, and `KELLY_CODEX_T2_MODEL` in `.env`
+to models the owner's Codex account accepts, then restart Kelly.
+
+**Boutique quote says `unresolved` for an item that exists.**
+The rate card was imported under a different shop name. Set `KELLY_SHOP_NAME`,
+then import and publish the rate card again. Also check it was published
+(`kelly catalogue review`).
+
+**Wrong trade, port 7337, or missing settings.**
+The command ran outside the repository root, so `.env` was not read. `cd` into
+the repository and run it again.
+
+**The install hangs with no error.**
+The repository is in an iCloud-synced folder. Move it (step 2), delete
+`node_modules`, and `npm install` again.
+
+## 16. Verify it works
+
+- [ ] `kelly status` shows `"name": "Kelly"`, `"provider": "codex"`, the right
+      trade and shop name, and port 7338.
+- [ ] `codex login status` says logged in.
+- [ ] `soul.md` and `personality.md` contain no placeholders or example names.
+- [ ] `kelly catalogue review` lists a published document and
+      `kelly catalogue search "<an item>"` finds it.
+- [ ] `kelly quote create ...` returns `"complete": true` with correct GST.
+- [ ] Boutique: `kelly designs stats` shows photos.
+- [ ] `kelly users list` shows one admin and one counter.
+- [ ] `kelly start` prints `Kelly is ready.` and `kelly voice status` shows
+      `"transcription": "configured"` and `"speech": "ready"`.
+- [ ] Counter mode is `talk` (Voice pane).
+- [ ] On the tablet, the HTTPS link opens, `counter` logs in to the Talk page,
+      the microphone is allowed, and a spoken question gets a spoken answer
+      with a price from the published list.
+- [ ] Optional: `kelly telegram test` reached the owner's phone.
+- [ ] `git status --short` shows no private files staged or tracked: `.env`,
+      `soul.md`, `personality.md`, and everything under `data/` stay untracked.
+
+## Where things live
+
+| What | Where |
+| --- | --- |
+| Settings and secrets | `.env` in the repository root (mode 0600) |
+| Persona | `soul.md`, `personality.md` in the repository root |
+| Runtime data (catalogue, quotes, designs, logins, transcripts, settings) | `~/.kelly/data` |
+| Owner memory | `~/.kelly/memory` |
+| Speech models and Python environment | `data/voice/models`, `data/voice/venv` |
+| Templates and demo data | `data/templates`, `data/demo`, `data/demo-boutique` |
+
+All of these are ignored by Git. Back up `~/.kelly` and `.env` if the shop
+depends on them.

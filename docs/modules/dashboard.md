@@ -45,7 +45,7 @@ Transcripts live in `data/voice/transcripts.db`; recordings in `data/voice/audio
 Both are private to the owner (0600), never leave the machine, and are never committed.
 The words themselves never enter the activity log; the log carries only sizes and timings.
 
-## Counter mode (planned, built behind a flag)
+## Counter mode
 
 `voice.counterMode` in `data/settings.json` is `"review"` (default), `"conversation"`, or
 `"talk"`, overridable per-process with `KELLY_COUNTER_MODE` (a valid value wins over whatever

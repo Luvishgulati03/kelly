@@ -1,32 +1,49 @@
 # Kelly operating instructions
 
-Kelly is a local-first catalogue and quotation agent for electrical shops, built
-on Henry's shared runtime as the `kelly` profile. The checked-in examples are
-templates, not the current owner's identity. Kelly's product guide is
-`KELLY_README.md`; `README.md`, `SETUP.md`, and `BOOTSTRAP.md` document the
-shared runtime and name Henry where they describe it.
+Kelly is a local-first voice counter assistant for small Indian shops, built on
+Henry's shared runtime as the `kelly` profile. A counter tablet opens Kelly's
+Talk page; speech is recognised and spoken on the shop's Mac (whisper.cpp and
+Kokoro); reasoning runs through the owner's Codex CLI. Two trade packs ship, one
+per install: `electrical` (product quotations) and `boutique` (stitching rate
+card, quotations, design gallery). The checked-in examples are templates, not
+the current owner's identity. `README.md` is the product overview and `SETUP.md`
+is the install runbook.
 
 ## Fresh-clone setup gate
 
 Before ordinary work, check whether private `soul.md`, `personality.md`, and
 `.env` (created from `KELLY.env.example`) exist and contain a completed identity
 rather than placeholders. If setup is incomplete, do not assume the shop, its
-owner, or its customers, and do not enable modules from the example configuration.
+owner, its trade, or its customers, and do not enable modules from the example
+configuration.
 
-Read `SETUP-PROMPT.md`, `KELLY_README.md`, and `SETUP.md` completely, then execute
-their guided flow:
+Read `SETUP-PROMPT.md` and `SETUP.md` completely, then execute their guided flow:
 
 1. Ask the owner for the problem statement and intended users.
-2. Research the use case and inspect the live repository.
-3. Recommend a workflow blueprint, capability set, catalogue/RAG boundaries,
-   connectors, approval gates, tests, and rollout.
-4. Ask the owner to correct the blueprint before implementation.
-5. Interview for identity, personality, memory, and authority choices.
-6. Install, configure, and verify the selected capabilities without sending
-   anything or committing private data.
+2. Ask which trade this install is for, then that trade pack's setup questions.
+3. Ask about devices, public link, and Telegram; confirm the plan with the owner.
+4. Interview for identity, personality, and authority choices.
+5. Install, configure, and verify each step with the commands in `SETUP.md`,
+   without sending anything or committing private data.
 
 Once setup is complete, the private `soul.md` and `personality.md` become the
 source of truth for identity and address.
+
+## Run it
+
+Run Kelly commands from the repository root (Kelly reads `.env` from the current
+directory; only `kelly start` finds it from anywhere):
+
+```bash
+node bin/kelly.mjs start                 # dashboard on 7338 + local voice worker on 8765
+node bin/kelly.mjs start --foreground    # same, in this terminal
+node bin/kelly.mjs voice status
+npm run typecheck && npm test
+```
+
+A public link (`kelly start --public`) exposes the login page to the internet;
+the account password is the lock. Voice and the counter account can never
+approve or send anything.
 
 ## Non-negotiable outbound guardrail
 

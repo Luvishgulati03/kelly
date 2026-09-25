@@ -39,7 +39,7 @@ clear error listing valid ids for any other unknown value.
 
 - **electrical** — today's behaviour, unchanged: multi-brand product
   quotations, no gallery (empty categories/tags), brand required.
-- **boutique** — "She Fashion House", a ladies' boutique: stitching
+- **boutique** — a ladies' boutique: stitching
   quotations (suits/salwar kameez, blouses, lehengas, sarees fall and pico,
   kurtis, gowns, dupattas) and a customer-facing design gallery. The
   quotation and gallery features themselves ship in later phases (see
@@ -99,7 +99,7 @@ node bin/kelly.mjs start --demo --trade electrical
 ```
 
 `--trade` is only valid together with `--demo`; the boutique demo sets
-`KELLY_SHOP_NAME=She Fashion House` and creates
+`KELLY_SHOP_NAME` to a neutral demo name when it is not already set, and creates
 `data/demo-boutique/{data,memory,knowledge}` if missing. Both demo roots are
 already covered by the repo's `/data/` gitignore rule.
 

@@ -14,7 +14,7 @@ can open without owning a domain.
 
 ## Your own domain (Cloudflare) — recommended
 
-The simplest way to reach Kelly at `https://kelly-test.<your-domain>` instead of a tailnet or a
+The simplest way to reach Kelly at `https://kelly.<your-domain>` instead of a tailnet or a
 Tailscale-issued hostname.
 
 **Requirements:** your domain's DNS is on Cloudflare (a free Cloudflare account is enough — you
@@ -26,12 +26,12 @@ do not need a paid plan), and `cloudflared` installed on the Mac.
    ```
 2. Run the one setup command, giving it the public hostname you want:
    ```bash
-   kelly tunnel setup kelly-test.example.com
+   kelly tunnel setup kelly.your-domain.com --name kelly-shop
    ```
    The first time, this opens your browser so you can log into Cloudflare and pick the domain
    (`cloudflared tunnel login`) — approve it there and return to the terminal, which waits for
-   you. Kelly then creates a named tunnel (`kelly-test` by default; pass `--name` to change it),
-   points `kelly-test.example.com` at it in Cloudflare DNS, and writes `KELLY_TUNNEL=cloudflare`,
+   you. Kelly then creates the named tunnel (`kelly-shop` here; without `--name` the code
+   uses its built-in default name), points `kelly.your-domain.com` at it in Cloudflare DNS, and writes `KELLY_TUNNEL=cloudflare`,
    `KELLY_CLOUDFLARE_TUNNEL`, and `KELLY_PUBLIC_HOST` into the repo's `.env` (a `.env.bak` copy
    of the previous file is kept alongside it). Every step is skipped automatically if it was
    already done, so running the command again is safe.
@@ -51,15 +51,16 @@ do not need a paid plan), and `cloudflared` installed on the Mac.
    ```
    Because `KELLY_CLOUDFLARE_TUNNEL` is now set, `--public` automatically chooses Cloudflare
    over Tailscale Funnel (`--public cloudflare` forces it explicitly; `--public tailscale`
-   forces Tailscale Funnel instead). Kelly is reachable at `https://kelly-test.example.com`.
+   starts Tailscale Serve instead, which is tailnet-only). Kelly is reachable at
+   `https://kelly.your-domain.com`.
 
 **Stop it:** Ctrl+C in Kelly's window stops Kelly and the `cloudflared` process together.
 
 **Remove it later:**
 ```bash
-cloudflared tunnel delete kelly-test
+cloudflared tunnel delete kelly-shop
 ```
-and delete the `kelly-test.example.com` DNS record from the Cloudflare dashboard (Websites →
+and delete the `kelly.your-domain.com` DNS record from the Cloudflare dashboard (Websites →
 your domain → DNS).
 
 **Security note.** As with Tailscale Funnel below, anyone with the link reaches Kelly's login
@@ -89,7 +90,9 @@ an email login before the tablet ever reaches Kelly's own login page.
    ```bash
    kelly dashboard
    ```
-   Kelly prints one line once Tailscale Serve is up: `Remote access: https://<your-mac>.<tailnet>.ts.net`.
+   or, to start the local voice worker too, skip step 4 and run
+   `kelly start --public tailscale` (`kelly start` sets `KELLY_TUNNEL` from its own flags
+   and ignores the `.env` value). Kelly prints one line once Tailscale Serve is up: `Remote access: https://<your-mac>.<tailnet>.ts.net`.
 6. Open that URL on the tablet's browser and log in with the counter account.
 
 Kelly runs `tailscale serve --bg --https=443 http://127.0.0.1:<port>` and reads
@@ -133,8 +136,11 @@ starts on its own when the Mac boots.
 
    Bare `--public` only picks Funnel when the repo's `.env` has no `KELLY_CLOUDFLARE_TUNNEL` —
    if you have already run `kelly tunnel setup` (see "Your own domain (Cloudflare)" above),
-   `--public` picks Cloudflare instead. Pass `--public tailscale` to force Funnel regardless
-   (or `--public cloudflare` to force Cloudflare).
+   `--public` picks Cloudflare instead. Note that `--public tailscale` does not force Funnel:
+   it sets `KELLY_TUNNEL=tailscale`, which is Tailscale Serve (tailnet-only). With a
+   Cloudflare tunnel configured, there is currently no `kelly start` flag that forces Funnel;
+   use `KELLY_TUNNEL=funnel` with `kelly dashboard` instead. `--public cloudflare` forces
+   Cloudflare.
 
    Kelly prints the public `https://…` link once Funnel is up, the same way Serve does. Because
    a tunnel is active and this is darwin, Kelly also runs `caffeinate -i -w <kelly pid>` beside

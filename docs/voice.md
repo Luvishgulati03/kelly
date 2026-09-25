@@ -45,8 +45,9 @@ customer audio to third-party services for evaluation without authorization.
 An `espeak-ng` command-line voice may be useful as an optional, lightweight,
 offline fallback where model storage or memory is constrained. It is distinctly
 robotic and is not Kelly's natural-speech recommendation. Do not automatically
-download speech models: the current target device is arm64 with roughly 6.7 GB
-of free disk, and model/runtime sizes should be checked before installation.
+download speech models: check free disk and model/runtime sizes before
+installation. Exact download commands, file sizes, and checksums for the three
+model files are in [SETUP.md](../SETUP.md) section 5.
 
 Piper's reviewed Hindi voice datasets carry non-commercial/share-alike terms, so
 Kelly does not recommend installing those voices automatically for a business
@@ -64,8 +65,9 @@ checks model files and ports, and prints the URLs after both services respond.
 It recognizes already-installed models under `data/voice/models/` and
 `whisper-cli` on PATH. If no worker token is configured, it generates a temporary
 secret shared only by the two child processes, without writing it to `.env`.
-It does not install models or enable a remote tunnel. An occupied port is an
-error rather than permission to kill or replace an existing service.
+It does not install models. It starts a tunnel only when run with `--public`
+(see [SETUP.md](../SETUP.md) section 11). An occupied port is an error rather
+than permission to kill or replace an existing service.
 
 For the fictional catalogue, see `examples/demo/README.md` and run
 `kelly start --demo`. Demo state and memory are separate; its dashboard uses

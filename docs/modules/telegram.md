@@ -4,9 +4,15 @@
 Henry's repo.** Already implemented at `src/notify/telegram.ts` — don't
 rebuild it. Configure and verify only.
 
+> **Kelly.** In this repository use the `kelly` command and the `KELLY_` prefix:
+> `KELLY_TELEGRAM_BOT_TOKEN`, `KELLY_TELEGRAM_CHAT_ID`, `kelly telegram test`.
+> The bridge runs inside `kelly start` (the dashboard process). Kelly's own
+> setup steps, including voice notes, are in [SETUP.md](../../SETUP.md)
+> section 13. Standups are not part of Kelly.
+
 ## 1. What it does
 
-`sendTelegram(config, text)` posts `text` to Luvish's own Telegram chat via the
+`sendTelegram(config, text)` posts `text` to the owner's own Telegram chat via the
 Bot API (`sendMessage`). It is a **fire-and-forget, fail-open** notification
 channel layered on top of the existing console + macOS-notification path
 (`notifyReminder` in `src/reminders/service.ts`) — it never replaces it and
@@ -14,7 +20,7 @@ never throws. Any failure (unconfigured, network error, timeout, non-2xx
 response) returns `false` silently.
 
 **SCOPE-GUARD**: this is an operator-notification channel only. `chat_id`
-always comes from config — Luvish's own chat — and is never accepted as a
+always comes from config — the owner's own chat — and is never accepted as a
 caller-supplied parameter. It is never a general send-to-anyone surface;
 outbound messages to other people still stage through the `ApprovalStore`
 exactly as before.
@@ -28,7 +34,7 @@ Where it's wired in (composed once, in `src/runtime.ts`, as
 - `henry telegram test` — a direct one-off send for setup verification.
 
 `henry repl`'s reminder ticker intentionally keeps its own terminal-echo
-notifier (the message prints above the prompt Luvish is already watching) and
+notifier (the message prints above the prompt the owner is already watching) and
 does not also fire Telegram.
 
 ## 2. Configure
@@ -83,7 +89,7 @@ Remove (or blank out) `HENRY_TELEGRAM_BOT_TOKEN` and
 missing — every notification path still delivers via console + macOS
 notification exactly as before; only the Telegram leg is skipped.
 
-## 5. Two-way DM bridge (Luvish texts the bot, Henry answers)
+## 5. Two-way DM bridge (the owner texts the bot, Henry answers)
 
 Once steps 1–3 are done the bridge is ON by default — nothing else to install.
 Text your configured Telegram bot and Henry replies in the chat, using the same brain the
@@ -108,7 +114,7 @@ npx tsx src/cli.ts telegram operator off
 
 Rails worth knowing:
 
-- **Luvish only.** `HENRY_TELEGRAM_CHAT_ID` is the one chat that ever gets a
+- **Owner only.** `HENRY_TELEGRAM_CHAT_ID` is the one chat that ever gets a
   reply. Any other DM is counted in the activity log and dropped — no reply,
   and its text is never read, logged, or stored.
 - **Conversation, not mutation.** Bridge runs are `readOnly`. Destructive or
@@ -126,9 +132,9 @@ Rails worth knowing:
 
 ## Optional operator mode
 
-Operator mode is an explicit opt-in for Luvish's own DM. It lets Henry inspect
+Operator mode is an explicit opt-in for the owner's own DM. It lets Henry inspect
 and edit the local Henry repository, run its checks, and research URLs that
-Luvish shares. It does not bypass approvals: Telegram cannot push, merge,
+the owner shares. It does not bypass approvals: Telegram cannot push, merge,
 deploy, post, send mail, approve an action, or perform destructive commands.
 
 ```bash

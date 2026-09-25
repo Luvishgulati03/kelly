@@ -29,10 +29,11 @@ not switch at runtime; each deployment stays one shop, one line of business.
 kelly start --demo --trade boutique
 ```
 
-This seeds an isolated demo rate card and 14 placeholder design photos for "She
-Fashion House," a fictional ladies' boutique, and never touches real owner
-data. Open the dashboard it prints, then look at the switchboard, the Designs
-pane, and the Counter page. Try asking:
+This seeds an isolated demo rate card and placeholder design photos for a
+fictional ladies' boutique, and never touches real owner data. It needs the
+local voice stack from [SETUP.md](SETUP.md) section 5. Open the dashboard it
+prints, then look at the switchboard, the Designs pane, and the Talk page. Try
+asking:
 
 - "show me trending sarees"
 - "how much for two salwar suits with lining, my own fabric, needed by Friday"
@@ -98,18 +99,32 @@ person reviews them.
 
 ## Quick start
 
-Requires Node 22 or newer and an authenticated Codex CLI.
+Setting Kelly up for a real shop? Open Claude Code or Codex inside a fresh clone
+and say "set this up for my shop". The agent follows
+[SETUP-PROMPT.md](SETUP-PROMPT.md) and [SETUP.md](SETUP.md): it asks about the
+shop, installs the voice stack, imports the price list, creates the logins, and
+gets the counter tablet talking.
+
+By hand, on macOS with Apple Silicon, Node 22 or newer, and a Codex login:
 
 ```bash
+git clone https://github.com/Luvishgulati03/kelly.git ~/kelly && cd ~/kelly
 npm install
-cp KELLY.env.example .env
+cp KELLY.env.example .env && chmod 600 .env     # set KELLY_TRADE and KELLY_SHOP_NAME
 cp soul.example.md soul.md
 cp personality.example.md personality.md
 codex login
-node bin/kelly.mjs repl
+brew install whisper-cpp ffmpeg python@3.12
+# download the three speech models and create the Python venv: SETUP.md section 5
+node bin/kelly.mjs users add owner --role admin
+node bin/kelly.mjs users add counter --role counter
+node bin/kelly.mjs start
 ```
 
-The local dashboard runs at `http://127.0.0.1:7338` by default.
+The dashboard runs at `http://127.0.0.1:7338` and the local speech worker at
+`127.0.0.1:8765`. A tablet reaches Kelly through a tunnel
+(`kelly start --public ...`, see [SETUP.md](SETUP.md) section 11). Run Kelly
+commands from the repository root.
 
 ## Useful commands
 
@@ -171,4 +186,4 @@ Kelly interface; Kelly's documented voice path is its local CLI and dashboard.
 
 ## License
 
-MIT. Copyright 2026 Luvish Gulati.
+MIT. See [LICENSE](LICENSE).
