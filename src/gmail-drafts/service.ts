@@ -42,7 +42,7 @@ export interface ReplySource {
 /** Reads the recent inbox messages a drafted reply could be answering. */
 export type ReplySourceReader = (limit: number) => Promise<ReplySource[]>;
 
-/** Stages a reply for Taylor's approval. Staging only — this never sends. */
+/** Stages a reply for the owner's approval. Staging only — this never sends. */
 export type ReplyStager = (input: {
   to: string; subject: string; body: string;
   threadId?: string; inReplyTo?: string; references?: string;
@@ -251,9 +251,9 @@ export class DraftRepliesService {
       ? await this.buildInjectedMailPrompt(limit, persona, summary)
       : [
           `Read my ${limit} most recent UNREAD inbox emails that genuinely need a reply — skip newsletters, receipts, notifications, and automated blasts.`,
-          "For each one worth replying to: draft a reply in Taylor's voice (persona below) — concise, direct, no corporate filler. Never invent facts, commitments, dates, or numbers you don't have; use [placeholder] for anything unknown.",
+          `For each one worth replying to: draft a reply in ${this.config.ownerName}'s voice (persona below) — concise, direct, no corporate filler. Never invent facts, commitments, dates, or numbers you don't have; use [placeholder] for anything unknown.`,
           this.threading
-            ? "Do NOT create a Gmail draft via an MCP tool. Henry will match each full reply to the source message and stage it for Taylor's explicit approval. NEVER send. NEVER modify read-state or labels."
+            ? `Do NOT create a Gmail draft via an MCP tool. Henry will match each full reply to the source message and stage it for ${this.config.ownerName}'s explicit approval. NEVER send. NEVER modify read-state or labels.`
             : "Then CREATE A GMAIL DRAFT for it via the gmail MCP draft-creation tool, threaded to the original message. NEVER send. NEVER modify read-state or labels.",
           "For every drafted reply, output a block in EXACTLY this format (nothing else on the DRAFT_BEGIN/DRAFT_END lines):",
           "DRAFT_BEGIN",
@@ -264,7 +264,7 @@ export class DraftRepliesService {
           "DRAFT_END",
           "After ALL the blocks, output exactly one summary line per draft: DRAFTED|<to>|<subject>|<first 80 chars of the reply>",
           "If nothing needs a reply, output exactly NO_REPLIES_NEEDED and nothing else.",
-          `\n--- Taylor's voice (personality.md) ---\n${persona || "n/a"}`,
+          `\n--- ${this.config.ownerName}'s voice (personality.md) ---\n${persona || "n/a"}`,
           `\n--- resume summary ---\n${summary || "n/a"}`,
         ].join("\n");
 
@@ -296,7 +296,7 @@ export class DraftRepliesService {
 
     if (drafted.length) {
       const message = staged.length
-        ? `Prepared ${staged.length} replies for Taylor's approval`
+        ? `Prepared ${staged.length} replies for ${this.config.ownerName}'s approval`
         : `Drafted ${drafted.length} replies — review in Gmail drafts`;
       if (this.notify) await this.notify(message, "Henry — email drafts").catch(() => undefined);
     }
@@ -321,8 +321,8 @@ export class DraftRepliesService {
     return [
       `Below are Henry's ${limit} most recent inbox emails (not filtered to unread-only — this reader does not distinguish read from unread) that may need a reply.`,
       "Decide which ones genuinely need a reply — skip newsletters, receipts, notifications, and automated blasts.",
-      "For each one worth replying to: draft a reply in Taylor's voice (persona below) — concise, direct, no corporate filler. Never invent facts, commitments, dates, or numbers you don't have; use [placeholder] for anything unknown.",
-      "You have no Gmail access here — do NOT claim to create, send, or modify anything in Gmail. Henry will match each full reply to its source message and stage it for Taylor's explicit approval. NEVER send. NEVER modify read-state or labels.",
+      `For each one worth replying to: draft a reply in ${this.config.ownerName}'s voice (persona below) — concise, direct, no corporate filler. Never invent facts, commitments, dates, or numbers you don't have; use [placeholder] for anything unknown.`,
+      `You have no Gmail access here — do NOT claim to create, send, or modify anything in Gmail. Henry will match each full reply to its source message and stage it for ${this.config.ownerName}'s explicit approval. NEVER send. NEVER modify read-state or labels.`,
       "For every drafted reply, output a block in EXACTLY this format (nothing else on the DRAFT_BEGIN/DRAFT_END lines):",
       "DRAFT_BEGIN",
       "To: <recipient email address>",
@@ -333,7 +333,7 @@ export class DraftRepliesService {
       "After ALL the blocks, output exactly one summary line per draft: DRAFTED|<to>|<subject>|<first 80 chars of the reply>",
       "If nothing needs a reply, output exactly NO_REPLIES_NEEDED and nothing else.",
       `\n${messageBlock}`,
-      `\n--- Taylor's voice (personality.md) ---\n${persona || "n/a"}`,
+      `\n--- ${this.config.ownerName}'s voice (personality.md) ---\n${persona || "n/a"}`,
       `\n--- resume summary ---\n${summary || "n/a"}`,
     ].join("\n");
   }

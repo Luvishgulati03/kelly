@@ -7,7 +7,7 @@ import {
  * NAUKRI source for the morning scout — the lane that replaced LinkedIn (killed
  * 2026-08-14 after one authwall/browser-lock fight too many).
  *
- * It rides Taylor's ALREADY-LOGGED-IN Naukri session inside the persistent Chrome
+ * It rides the owner's ALREADY-LOGGED-IN Naukri session inside the persistent Chrome
  * profile (same userDataDir + stale-lock clearing the LinkedIn pass used), so results
  * are his real, personalised search results.
  *
@@ -47,7 +47,7 @@ export function naukriSearchUrl(title: string, location: string): string {
 }
 
 /**
- * Logged-out detection, deliberately conservative: a false positive would nag Taylor
+ * Logged-out detection, deliberately conservative: a false positive would nag the owner
  * every morning about a session that is fine, so a page showing ANY logged-in marker
  * (his profile drawer, a logout control, a recommended-jobs link) counts as logged in
  * even if a "Login" string also appears somewhere in the markup.
@@ -131,7 +131,7 @@ export interface NaukriPassResult {
  * pull lazy cards into the DOM, then a pure parse of the rendered HTML. A logged-out
  * page stops the lane immediately (no point loading more pages against an authwall) and
  * reports `needsLogin` — the caller keeps whatever the other sources found and nudges
- * Taylor to log in once; it is NOT a failed pass.
+ * the owner to log in once; it is NOT a failed pass.
  */
 export async function collectNaukri(
   page: ScoutPage,

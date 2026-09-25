@@ -5,6 +5,7 @@ import path from "node:path";
 import type { HenryConfig } from "../config.ts";
 import type { WorkflowDefinition } from "../types.ts";
 import { safeEnvironment } from "../util/env.ts";
+import { getActiveProfile } from "../profile.ts";
 
 // ---------------------------------------------------------------------------
 // File generation (unchanged behaviour: these only ever write into data/ and
@@ -124,7 +125,7 @@ function isUnsupportedBootstrapDiagnostic(result: CommandResult): boolean {
 export async function installLaunchd(config: HenryConfig, definitions: WorkflowDefinition[], deps: InstallDeps = {}): Promise<InstallResult> {
   const { run, homeDir, platform, uid } = resolveDeps(deps);
   if (platform !== "darwin") {
-    return { status: "unsupported", message: "launchd is macOS-only. On this platform, use `henry schedule install --cron` instead." };
+    return { status: "unsupported", message: `launchd is macOS-only. On this platform, use \`${getActiveProfile().name.toLowerCase()} schedule install --cron\` instead.` };
   }
   if (uid === undefined) {
     return { status: "error", message: "Could not determine the current user id — cannot target a user-level (gui/<uid>) launchd domain." };

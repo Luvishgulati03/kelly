@@ -23,12 +23,12 @@ import type { HenryMemory } from "../src/memory/engram.ts";
 function tempConfig(): HenryConfig {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "henry-scout-"));
   const config = loadConfig(root);
-  // Test doubles only — pin every env-driven knob so no test reads Taylor's real files or titles.
+  // Test doubles only — pin every env-driven knob so no test reads the owner's real files or titles.
   config.jobScoutTitles = ["AI Product Manager"];
   config.jobScoutLocation = "Bengaluru";
   config.resumeSourcePath = path.join(root, "resume.md");
   config.jobProfilePath = path.join(root, "application-profile.md");
-  fs.writeFileSync(config.resumeSourcePath, "# Taylor resume\nBuilt Henry, a personal agent platform.");
+  fs.writeFileSync(config.resumeSourcePath, "# The owner's resume\nBuilt Henry, a personal agent platform.");
   fs.writeFileSync(config.jobProfilePath, "Target: AI product roles in Bengaluru.");
   return config;
 }
@@ -411,7 +411,7 @@ test("scout: scores new listings in one batched call, writes the ranked shortlis
   assert.equal(result.shortlisted[1].source, "naukri");
   assert.deepEqual(order, ["idle", "score"], "the interactive-idle courtesy hook runs right before the provider call");
 
-  // The one batched prompt grounds in Taylor's real files and frames listings as untrusted data.
+  // The one batched prompt grounds in the owner's real files and frames listings as untrusted data.
   assert.equal(runner.calls(), 1, "exactly ONE batched provider call for the whole pass");
   assert.match(prompts[0], /UNTRUSTED DATA/);
   assert.match(prompts[0], /Built Henry, a personal agent platform/);
@@ -419,7 +419,7 @@ test("scout: scores new listings in one batched call, writes the ranked shortlis
   assert.match(prompts[0], /job-listings-ai-product-manager-acme-9/);
   assert.doesNotMatch(prompts[0], /linkedin\.com/, "LinkedIn is out of the daily pass entirely");
 
-  // Ranked artifact Taylor reads.
+  // Ranked artifact the owner reads.
   assert.ok(result.filePath && fs.existsSync(result.filePath), "shortlist markdown must exist");
   assert.ok(result.filePath!.endsWith(path.join("scout", "2026-08-09.md")));
   const markdown = fs.readFileSync(result.filePath!, "utf8");
@@ -523,7 +523,7 @@ test("scout: a lapsed Naukri session nudges once a day, never closes the day, an
   assert.equal(retry.needsLogin, true);
   assert.equal(notifications.length, 1, "no second nudge the same day");
 
-  // Taylor logs in; the SAME day's pass now runs in full, because it never set scouted:<date>.
+  // The owner logs in; the SAME day's pass now runs in full, because it never set scouted:<date>.
   browser.supply = () => collection([listing(1)]);
   const recovered = await service.scout({ now: DAY1 });
   assert.equal(recovered.skipped, undefined);

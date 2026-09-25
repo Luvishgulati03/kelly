@@ -11,7 +11,7 @@ import type { LunaOrchestrator } from "../src/orchestration/luna.ts";
 import type { RunResult } from "../src/types.ts";
 
 const PLAN_RESPONSE = [
-  "GOAL: Ship a v1 reminders feature so Taylor never misses a follow-up.",
+  "GOAL: Ship a v1 reminders feature so the owner never misses a follow-up.",
   "",
   "## Tasks",
   "- [ ] Design the reminders data model (tier: t1)",
@@ -22,7 +22,7 @@ const PLAN_RESPONSE = [
   "",
   "## Open questions",
   "- Should reminders support recurring schedules in v1?",
-  "- Does Taylor want SMS delivery eventually?",
+  "- Does the owner want SMS delivery eventually?",
 ].join("\n");
 
 function fakeMemory(remembered: Array<{ content: string }>): HenryMemory {
@@ -55,14 +55,14 @@ async function setup(): Promise<{ config: ReturnType<typeof loadConfig>; activit
 
 test("parseGoalPlan extracts restated goal, tiered tasks, and open questions", () => {
   const plan = parseGoalPlan(PLAN_RESPONSE, "fallback goal");
-  assert.equal(plan.goal, "Ship a v1 reminders feature so Taylor never misses a follow-up.");
+  assert.equal(plan.goal, "Ship a v1 reminders feature so the owner never misses a follow-up.");
   assert.equal(plan.tasks.length, 5);
   assert.deepEqual(plan.tasks[0], { description: "Design the reminders data model", tier: "t1" });
   assert.deepEqual(plan.tasks[3], { description: "Decide the notification channel strategy", tier: "t2" });
   assert.deepEqual(plan.tasks[4], { description: "Write a changelog entry", tier: "t0" });
   assert.deepEqual(plan.questions, [
     "Should reminders support recurring schedules in v1?",
-    "Does Taylor want SMS delivery eventually?",
+    "Does the owner want SMS delivery eventually?",
   ]);
 });
 
@@ -91,7 +91,7 @@ test("intake() dispatches one t1 call, persists the plan file, records activity,
   const { luna, calls } = fakeLuna();
   const service = new GoalService(config, activity, fakeMemory(remembered), luna);
 
-  const result = await service.intake("Ship a v1 reminders feature so Taylor never misses a follow-up.");
+  const result = await service.intake("Ship a v1 reminders feature so the owner never misses a follow-up.");
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].role, "architect");
@@ -103,7 +103,7 @@ test("intake() dispatches one t1 call, persists the plan file, records activity,
   const written = await fs.readFile(result.filePath, "utf8");
   assert.match(written, /^# Goal: Ship a v1 reminders feature/);
   assert.match(written, /- \[ \] Design the reminders data model \(t1\)/);
-  assert.match(written, /## Open questions for Taylor/);
+  assert.match(written, /## Open questions for the owner/);
   assert.match(written, /Should reminders support recurring schedules in v1\?/);
 
   assert.equal(result.plan.tasks.length, 5);

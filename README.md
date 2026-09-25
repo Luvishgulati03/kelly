@@ -7,7 +7,9 @@ hand: preparing quotations, answering the same customer questions, checking
 catalogues, updating spreadsheets, and following up on routine tasks. Kelly turns
 those workflows into reliable tools that can be adapted to each business.
 
-Quotation is the first complete workflow. Voice is the next major interface.
+Quotation is the first complete workflow, and hands-free voice on a counter
+tablet is the primary interface today, alongside the terminal, dashboard, and
+Telegram.
 
 ## Why Kelly exists
 
@@ -40,16 +42,26 @@ asking:
 
 ## What works today
 
-- Import supplier catalogues from PDF, XLSX, and CSV files
-- Review extracted products before publishing them to search
-- Find matching items across brands and product categories
-- Create and compare quotations in Indian rupees
-- Apply discounts and GST with deterministic calculations
+- Hands-free voice on a counter tablet (the Talk page): the customer or staff
+  speaks, Kelly answers out loud, understanding English, Hindi, Hinglish, and
+  Roman Hindi while always answering in clear English
+- Two trade packs, one per install: an electrical shop (multi-brand product
+  quotations) and a ladies' boutique (stitching rate card, quotations, and a
+  customer-facing design gallery)
+- Rate cards and catalogues imported from PDF, XLSX, and CSV files, reviewed
+  before publishing to search
+- Quotations computed in code, never estimated by a model: matching items
+  across brands and categories, discounts and GST applied deterministically,
+  and totals in Indian rupees
 - Export quotations to Excel
 - Inspect, search, and safely edit spreadsheets through a local Excel connector
+- A design gallery with a glass slideshow customers can browse by voice or tap
 - Remember owner preferences and recurring corrections
 - Learn from previous questions without mixing one customer's context with another
-- Run through the terminal, local web dashboard, or Telegram
+- Run through the terminal, the local web dashboard, Telegram, or a voice
+  counter tablet
+- An optional public link on your own domain (Cloudflare or Tailscale Funnel),
+  locked behind an account password
 - Schedule reminders and routine checks
 
 ## Where Kelly can go next
@@ -62,12 +74,10 @@ adapted for:
 - order intake and follow-up
 - service booking and status updates
 - stock and catalogue questions
-- voice input in English, Hindi, Hinglish, or a business-specific language mix,
-  with Kelly's answers returned in clear English
 
 These are extension paths, not claims about the current release. The present build
-has the deepest support for catalogue search, quotations, spreadsheets, and local
-business memory.
+has the deepest support for catalogue search, quotations, the voice counter,
+spreadsheets, and local business memory.
 
 ## Roadmap
 

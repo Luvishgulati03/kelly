@@ -14,7 +14,7 @@ export interface LaunchIntakeRecord {
   sourceKind: "repo" | "brief";
   /** Absolute path, present only when sourceKind === "repo". */
   sourcePath?: string;
-  /** Taylor's raw input to `henry launch intake`. */
+  /** The owner's raw input to `henry launch intake`. */
   input: string;
   productSummary: string;
   questions: LaunchQuestion[];
@@ -30,7 +30,7 @@ export interface LaunchIntakeResult {
   record: LaunchIntakeRecord;
 }
 
-/** One parsed Q/A pair from Taylor's hand-edited `intake.md`. */
+/** One parsed Q/A pair from the owner's hand-edited `intake.md`. */
 export interface LaunchAnswer {
   question: string;
   answer: string;

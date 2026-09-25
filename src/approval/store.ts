@@ -152,7 +152,7 @@ export class ApprovalStore {
       if (!item) throw new Error(`Approval item not found: ${id}`);
       if (item.status !== "approved") {
         throw new Error(
-          `Approval ${id} is ${item.status}; Taylor's explicit approval is required before execution`,
+          `Approval ${id} is ${item.status}; the owner's explicit approval is required before execution`,
         );
       }
       item.status = "executing";

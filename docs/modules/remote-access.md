@@ -50,9 +50,9 @@ do not need a paid plan), and `cloudflared` installed on the Mac.
    kelly start --demo --trade boutique --public
    ```
    Because `KELLY_CLOUDFLARE_TUNNEL` is now set, `--public` automatically chooses Cloudflare
-   over Tailscale Funnel (`--public cloudflare` forces it explicitly; `--public tailscale`
-   starts Tailscale Serve instead, which is tailnet-only). Kelly is reachable at
-   `https://kelly.your-domain.com`.
+   over Tailscale Funnel (`--public cloudflare` forces it explicitly; `--public funnel` forces
+   Tailscale Funnel instead; `--private tailscale` starts Tailscale Serve instead of either —
+   tailnet-only, never public). Kelly is reachable at `https://kelly.your-domain.com`.
 
 **Stop it:** Ctrl+C in Kelly's window stops Kelly and the `cloudflared` process together.
 
@@ -91,7 +91,7 @@ an email login before the tablet ever reaches Kelly's own login page.
    kelly dashboard
    ```
    or, to start the local voice worker too, skip step 4 and run
-   `kelly start --public tailscale` (`kelly start` sets `KELLY_TUNNEL` from its own flags
+   `kelly start --private tailscale` (`kelly start` sets `KELLY_TUNNEL` from its own flags
    and ignores the `.env` value). Kelly prints one line once Tailscale Serve is up: `Remote access: https://<your-mac>.<tailnet>.ts.net`.
 6. Open that URL on the tablet's browser and log in with the counter account.
 
@@ -136,11 +136,11 @@ starts on its own when the Mac boots.
 
    Bare `--public` only picks Funnel when the repo's `.env` has no `KELLY_CLOUDFLARE_TUNNEL` —
    if you have already run `kelly tunnel setup` (see "Your own domain (Cloudflare)" above),
-   `--public` picks Cloudflare instead. Note that `--public tailscale` does not force Funnel:
-   it sets `KELLY_TUNNEL=tailscale`, which is Tailscale Serve (tailnet-only). With a
-   Cloudflare tunnel configured, there is currently no `kelly start` flag that forces Funnel;
-   use `KELLY_TUNNEL=funnel` with `kelly dashboard` instead. `--public cloudflare` forces
-   Cloudflare.
+   `--public` picks Cloudflare instead. To force one PUBLIC transport regardless of `.env`, use
+   `--public cloudflare` or `--public funnel`. There is no `--public tailscale`: that spelling
+   used to mean Tailscale Serve, which is tailnet-only — a private link mislabelled as public.
+   Serve now has the one honest spelling, `--private tailscale` (see "Setup: Tailscale" above),
+   and setting `KELLY_TUNNEL` directly in `.env` still works the same way for `kelly dashboard`.
 
    Kelly prints the public `https://…` link once Funnel is up, the same way Serve does. Because
    a tunnel is active and this is darwin, Kelly also runs `caffeinate -i -w <kelly pid>` beside

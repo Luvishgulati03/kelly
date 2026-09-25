@@ -193,8 +193,8 @@ test("scan: classifies, remembers content, nudges vague authors in-thread — on
 });
 
 test("summarize: provider failure falls back, Missing is code-computed, owner-name blocker escalates", async () => {
-  const previousOwnerName = process.env.KELLY_OWNER_NAME;
-  process.env.KELLY_OWNER_NAME = "Taylor";
+  const previousOwnerName = process.env.HENRY_OWNER_NAME;
+  process.env.HENRY_OWNER_NAME = "Taylor";
   const config = tempConfig();
   const store = new StandupStore(config);
   const activity = await activityFor(config);
@@ -225,7 +225,7 @@ test("summarize: provider failure falls back, Missing is code-computed, owner-na
   assert.equal(notifications.length, 1);
   assert.match(notifications[0].message, /blocker names you/);
   store.close();
-  if (previousOwnerName === undefined) delete process.env.KELLY_OWNER_NAME; else process.env.KELLY_OWNER_NAME = previousOwnerName;
+  if (previousOwnerName === undefined) delete process.env.HENRY_OWNER_NAME; else process.env.HENRY_OWNER_NAME = previousOwnerName;
 });
 
 test("summarize with zero content: no provider spend, roster silence still notifies", async () => {

@@ -19,7 +19,7 @@ export type ScoutSourceName = (typeof ALL_SCOUT_SOURCES)[number];
 
 /**
  * LinkedIn is deliberately absent: repeated browser trouble (authwall loops, the
- * Singleton-lock death spiral) killed that lane on 2026-08-14. Naukri rides Taylor's
+ * Singleton-lock death spiral) killed that lane on 2026-08-14. Naukri rides the owner's
  * already-logged-in session, the web lane is key-less DuckDuckGo, X stays best-effort.
  * `data/settings.json` → `{"jobs":{"sources":[…]}}` can re-enable a piece later.
  */
@@ -50,7 +50,7 @@ export interface ScoutLead {
 export interface ScoutCollection {
   /**
    * The Naukri session is expired/logged out. NOT fatal any more: the pass keeps whatever
-   * the web/X lanes returned and the service nudges Taylor once a day to log in.
+   * the web/X lanes returned and the service nudges the owner once a day to log in.
    */
   needsLogin: boolean;
   listings: ScoutListing[];

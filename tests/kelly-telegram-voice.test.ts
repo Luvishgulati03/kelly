@@ -57,7 +57,7 @@ function voiceUpdate(updateId: number, chatId = OWNER_CHAT, meta: TelegramAudioM
       message_id: updateId, date: Math.floor(Date.now() / 1000),
       voice: meta,
       chat: { id: Number(chatId), type: "private" },
-      from: { id: 7, first_name: "Taylor" },
+      from: { id: 7, first_name: "Owner" },
       ...extra,
     },
   };
@@ -69,7 +69,7 @@ function textUpdate(updateId: number, text: string, chatId = OWNER_CHAT): Telegr
     message: {
       message_id: updateId, date: Math.floor(Date.now() / 1000), text,
       chat: { id: Number(chatId), type: "private" },
-      from: { id: 7, first_name: "Taylor" },
+      from: { id: 7, first_name: "Owner" },
     },
   };
 }

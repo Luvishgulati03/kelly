@@ -191,7 +191,7 @@ test("setup: a DNS route already pointing at this tunnel is treated as fine", as
     fileExists: async (p) => p === "/usr/bin/cloudflared" || p === certPath,
     run: async (_cmd, args) => {
       if (args[0] === "tunnel" && args[1] === "list") {
-        return { stdout: JSON.stringify([{ id: tunnelId, name: "kelly-test" }]), stderr: "", exitCode: 0 };
+        return { stdout: JSON.stringify([{ id: tunnelId, name: "kelly" }]), stderr: "", exitCode: 0 };
       }
       if (args[0] === "tunnel" && args[1] === "route") {
         return { stdout: "", stderr: `record with that host already exists, pointing at ${tunnelId}.cfargotunnel.com`, exitCode: 1 };
@@ -301,14 +301,14 @@ test("setup + status: end-to-end against a temp HOME and a temp repo root", asyn
     const envPath = path.join(repoRoot, ".env");
     const content = await fs.readFile(envPath, "utf8");
     assert.match(content, /KELLY_TUNNEL=cloudflare/);
-    assert.match(content, /KELLY_CLOUDFLARE_TUNNEL=kelly-test/);
+    assert.match(content, /KELLY_CLOUDFLARE_TUNNEL=kelly/);
     assert.match(content, /KELLY_PUBLIC_HOST=kelly-test\.example\.com/);
     const stat = await fs.stat(envPath);
     assert.equal(stat.mode & 0o777, 0o600);
 
     const status = await runCloudflareTunnelStatus(deps);
     assert.equal(status.publicHost, "kelly-test.example.com");
-    assert.equal(status.tunnelName, "kelly-test");
+    assert.equal(status.tunnelName, "kelly");
   } finally {
     await fs.rm(homeDir, { recursive: true, force: true });
     await fs.rm(repoRoot, { recursive: true, force: true });

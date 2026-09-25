@@ -112,14 +112,14 @@ async function runGmailCommand(runtime: HenryRuntime, sub: string): Promise<void
     const to = option("--to");
     const subject = option("--subject");
     const body = option("--body") || args.slice(2).filter((item) => !item.startsWith("--") && item !== to && item !== subject).join(" ");
-    if (!to || !subject || !body) throw new Error("Usage: henry draft mail --to email --subject subject --body body");
+    if (!to || !subject || !body) throw new Error(`Usage: ${binName()} draft mail --to email --subject subject --body body`);
     const item = await runtime.gmail.queueEmail({
       to, subject, body,
       threadId: option("--thread-id"),
       inReplyTo: option("--in-reply-to") || option("--message-id"),
       references: option("--references"),
     });
-    print({ message: "Saved locally and queued for Taylor's approval", approvalId: item.id, dashboard: `http://${runtime.config.host}:${runtime.config.port}` });
+    print({ message: `Saved locally and queued for ${runtime.config.ownerName}'s approval`, approvalId: item.id, dashboard: `http://${runtime.config.host}:${runtime.config.port}` });
   } else if (sub === "draftreplies") {
     if (!runtime.draftReplies) throw new Error("draftreplies command is not available in this profile");
     const limit = Number(option("--limit")) || 5;
@@ -135,7 +135,7 @@ async function runGmailCommand(runtime: HenryRuntime, sub: string): Promise<void
           ? `Wrote ${result.drafted.length} local reply draft(s); no Gmail draft or message was created`
           : "No replies needed",
     });
-  } else throw new Error("Usage: henry gmail inbox|draft|reply|draftreplies");
+  } else throw new Error(`Usage: ${binName()} gmail inbox|draft|reply|draftreplies`);
 }
 
 /**
@@ -197,7 +197,7 @@ function telegramStatus(state: { armed: boolean; bridge: boolean; standup: boole
 }
 
 /**
- * Taylor's rule: the dashboard comes up with every interactive Henry, not just `henry dashboard`.
+ * The owner's rule: the dashboard comes up with every interactive session, not just the `dashboard` command.
  * It must never take the REPL down with it. `startDashboard` throws synchronously on a bad
  * remote-host config, and `server.listen` emits EADDRINUSE asynchronously when a second Henry
  * (or the scheduler daemon) already holds the port — with no handler that's an uncaught
@@ -430,7 +430,7 @@ async function repl(
         return;
       }
       const count = queue.push(value);
-      console.log(dim(`⏳ queued (${count}) — henry is still thinking`));
+      console.log(dim(`⏳ queued (${count}) — ${binName()} is still thinking`));
       safePrompt(true);
       return;
     }
@@ -444,7 +444,7 @@ async function repl(
         if (value.startsWith(":memory ")) { print(await runtime.memory.recall(value.slice(8))); safePrompt(); return; }
         if (value === ":provider") { console.log(note("info", `Primary provider: ${runtime.config.provider}`)); safePrompt(); return; }
         if (value.startsWith(":provider ")) { console.log(note("ok", `Primary provider set to ${await runtime.setProvider(value.slice(10).trim() as "codex" | "claude")}`)); safePrompt(); return; }
-        // PM MODE toggles — ":pm on|off" plus Taylor's literal phrasing "/project manager mode".
+        // PM MODE toggles — ":pm on|off" plus the owner's literal phrasing "/project manager mode".
         if (value === ":pm" || value === ":pm status") { console.log(note("info", `PM mode: ${runtime.config.pmMode ? "ON" : "off"}`)); safePrompt(); return; }
         if (value === ":pm on" || /^\/?project manager mode$/i.test(value)) { await runtime.setPmMode(true); console.log(note("ok", "PM mode ON — Henry is now your project manager (PMBOK-grounded, every decision with rationale). \":pm off\" to exit.")); safePrompt(); return; }
         if (value === ":pm off") { await runtime.setPmMode(false); console.log(note("ok", "PM mode OFF — back to regular Henry.")); safePrompt(); return; }
@@ -466,13 +466,52 @@ async function repl(
   });
 }
 
+/** The active profile's own command name, e.g. "kelly" or "henry" — never hardcoded, so a
+ *  usage string, error prefix, or example command reads correctly under either profile. */
+function binName(): string {
+  return getActiveProfile().name.toLowerCase();
+}
+
+/** Top-level commands present in every profile (src/profile.ts excludedServices is empty for Henry). */
+const ALWAYS_AVAILABLE_COMMANDS = [
+  "ask", "repl", "dashboard", "status", "tunnel", "users", "code", "provider", "memory",
+  "dispatch", "knowledge", "voice", "pm", "pr", "review", "approve", "schedule", "workflow",
+  "goal", "remind", "telegram", "designs",
+];
+/** Commands gated behind a profile's excludedServices (src/profile.ts) — [command, service]. */
+const GATED_COMMANDS: ReadonlyArray<readonly [string, string]> = [
+  ["jobs", "jobs"], ["cover", "cover"], ["resume", "resumeEditor"], ["jd", "tailor"],
+  ["gmail", "gmail"], ["draft", "gmail"], ["meetings", "meetings"], ["screenshots", "screenshots"],
+  ["mailwatch", "mailwatch"], ["standup", "standup"], ["linkedin", "linkedin"], ["tweet", "social"],
+  ["launch", "launch"],
+];
+/** The commands `kelly --help` / the unknown-command error actually list for the active profile. */
+function availableCommands(commerceEnabled: boolean): string[] {
+  const gated = GATED_COMMANDS.filter(([, service]) => !isServiceExcluded(service)).map(([command]) => command);
+  const commerce = commerceEnabled ? ["catalogue", "quote", "sheets"] : [];
+  return [...ALWAYS_AVAILABLE_COMMANDS, ...gated, ...commerce];
+}
+
 async function main(): Promise<void> {
   const command = args[0] || "repl";
+  // --help never needs the full agent runtime (DB, memory, provider) — just the config's
+  // commerceEnabled flag, so the printed command list matches the active profile exactly.
+  if (command === "--help" || command === "-h" || command === "help") {
+    const { loadConfig } = await import("./config.ts");
+    const config = loadConfig();
+    console.log(`${binName()}: ${getActiveProfile().description}`);
+    console.log(`Commands: ${availableCommands(config.commerceEnabled).join(", ")}`);
+    console.log(`Run \`${binName()} <command> --help\` (where supported) or \`${binName()} repl\` then \`:help\` for details.`);
+    return;
+  }
   // Standalone voice tools do not need the agent runtime, memory, or a provider.
   if (command === "voice") {
     if (process.env.AGENT_PROFILE === "kelly" && process.env.HENRY_TEST_ISOLATION !== "1") {
       const dotenv = await import("dotenv");
-      dotenv.config(); // Kelly reads only cwd .env; the launcher never loads Henry's repo .env.
+      // Root-anchored: every command finds the repo .env regardless of cwd (an already-set
+      // var, or a cwd .env, still wins — dotenv never overrides a variable that is set).
+      dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".env") });
+      dotenv.config();
     }
     await runVoiceCommand(args.slice(1));
     return;
@@ -482,7 +521,7 @@ async function main(): Promise<void> {
   try {
     if (command === "ask") {
       const prompt = args.slice(1).filter((item) => !item.startsWith("--")).join(" ");
-      if (!prompt) throw new Error("Usage: henry ask <prompt>");
+      if (!prompt) throw new Error(`Usage: ${binName()} ask <prompt>`);
       print((await runtime.agent.run(prompt, { surface: "repl", provider: option("--provider") as "codex" | "claude" | undefined })).response);
     } else if (command === "jd") {
       if (!runtime.tailor) throw new Error("jd command is not available in this profile");
@@ -504,7 +543,7 @@ async function main(): Promise<void> {
       for (const change of out.changes) console.log(`  · ${change}`);
       console.log(`\nresume: ${out.resumePdf}\ncover:  ${out.coverPdf}`);
       // Only pop Finder for a human at a terminal — automated/test invocations
-      // repeatedly reopening the folder read as a runaway loop to Taylor.
+      // repeatedly reopening the folder read as a runaway loop to the owner.
       if (process.stdout.isTTY) {
         const { spawn } = await import("node:child_process");
         spawn("open", [out.dir], { stdio: "ignore" }).once("error", () => {});
@@ -549,7 +588,7 @@ async function main(): Promise<void> {
     } else if (command === "dashboard") {
       keepAlive = true;
       // The dashboard is also a long-lived Henry process. Arm the same single
-      // Telegram pump here so `henry dashboard` does not leave the DM bridge
+      // Telegram pump here so `${binName()} dashboard` does not leave the DM bridge
       // silently offline when no REPL is open. The pump owns one getUpdates
       // reader and its SQLite lock prevents a second Henry process from racing it.
       const pump = runtime.startTelegramPump();
@@ -581,7 +620,7 @@ async function main(): Promise<void> {
       else if (sub === "start") print(await runtime.startTunnel());
       else if (sub === "stop") { await runtime.tunnel.stop(); print(runtime.tunnel.status()); }
       else if (sub === "setup") {
-        // `kelly tunnel setup <hostname> [--name kelly-test]` puts Kelly on the owner's own
+        // `kelly tunnel setup <hostname> [--name kelly]` puts Kelly on the owner's own
         // Cloudflare domain; `kelly tunnel setup --status` reports readiness without changing
         // anything. See src/remote/cloudflare-setup.ts.
         const setupArgs = args.slice(2);
@@ -591,13 +630,13 @@ async function main(): Promise<void> {
           await runCloudflareTunnelStatus(deps);
         } else {
           const hostname = setupArgs[0] && !setupArgs[0].startsWith("--") ? setupArgs[0] : undefined;
-          if (!hostname) throw new Error("Usage: kelly tunnel setup <hostname> [--name kelly-test]");
+          if (!hostname) throw new Error("Usage: kelly tunnel setup <hostname> [--name kelly]");
           const nameIndex = setupArgs.indexOf("--name");
           const name = nameIndex >= 0 ? setupArgs[nameIndex + 1] : undefined;
           await runCloudflareTunnelSetup(hostname, { name }, deps);
         }
       }
-      else throw new Error("Usage: henry tunnel status|start|stop|setup");
+      else throw new Error(`Usage: ${binName()} tunnel status|start|stop|setup`);
     } else if (command === "users") {
       // --demo boutique|electrical targets the same data dir `kelly start --demo --trade <t>`
       // resolves (bin/start.mjs), so the owner can create the demo's own accounts. Auth storage
@@ -619,7 +658,7 @@ async function main(): Promise<void> {
         const username = args[2];
         const role = option("--role");
         if (!username || username.startsWith("--") || (role !== "admin" && role !== "counter")) {
-          throw new Error("Usage: henry users add <username> --role admin|counter [--password-stdin]");
+          throw new Error(`Usage: ${binName()} users add <username> --role admin|counter [--password-stdin]`);
         }
         const password = await resolvePassword();
         createUser({ username, password, role });
@@ -628,15 +667,15 @@ async function main(): Promise<void> {
         print(listUsers());
       } else if (sub === "remove") {
         const username = args[2];
-        if (!username) throw new Error("Usage: henry users remove <username>");
+        if (!username) throw new Error(`Usage: ${binName()} users remove <username>`);
         console.log(deleteUser(username) ? `Removed user ${username}.` : `No such user: ${username}`);
       } else if (sub === "set-password") {
         const username = args[2];
-        if (!username) throw new Error("Usage: henry users set-password <username> [--password-stdin]");
+        if (!username) throw new Error(`Usage: ${binName()} users set-password <username> [--password-stdin]`);
         const password = await resolvePassword();
         console.log(setPassword(username, password) ? `Password updated for ${username}.` : `No such user: ${username}`);
       } else {
-        throw new Error("Usage: henry users add <username> --role admin|counter [--demo boutique|electrical] | list | remove <username> | set-password <username>");
+        throw new Error(`Usage: ${binName()} users add <username> --role admin|counter [--demo boutique|electrical] | list | remove <username> | set-password <username>`);
       }
     } else if (command === "memory") {
       const sub = args[1] || "search";
@@ -645,10 +684,10 @@ async function main(): Promise<void> {
       else if (sub === "index") print(await runtime.memory.index(args.includes("--fresh")));
       else if (sub === "graph") print(runtime.memory.graph());
       else if (sub === "dream") print(await runtime.memory.dream());
-      else throw new Error("Usage: henry memory search|remember|index|graph|dream");
+      else throw new Error(`Usage: ${binName()} memory search|remember|index|graph|dream`);
     } else if (command === "code" || command === "task") {
       const task = restAfter(command).filter((item) => !item.startsWith("--")).join(" ");
-      if (!task) throw new Error("Usage: henry code <task> [--cwd /path/to/repository]");
+      if (!task) throw new Error(`Usage: ${binName()} code <task> [--cwd /path/to/repository]`);
       print((await runtime.task(task, option("--cwd"))).response);
     } else if (command === "provider") {
       const target = args[1];
@@ -658,29 +697,29 @@ async function main(): Promise<void> {
       if (!runtime.jobs) throw new Error("jobs command is not available in this profile");
       const sub = args[1] || "list";
       if (sub === "inspect") {
-        if (!args[2]) throw new Error("Usage: henry jobs inspect <url>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} jobs inspect <url>`);
         print(await runtime.jobs.inspect(args[2]));
       } else if (sub === "prepare") {
-        if (!args[2] || args[2].startsWith("--")) throw new Error("Usage: henry jobs prepare <url> [--resume PATH]");
+        if (!args[2] || args[2].startsWith("--")) throw new Error(`Usage: ${binName()} jobs prepare <url> [--resume PATH]`);
         const resumePath = option("--resume");
         if (args.includes("--resume") && (!resumePath?.trim() || resumePath.startsWith("--"))) {
-          throw new Error("Usage: henry jobs prepare <url> [--resume PATH]; --resume requires a path");
+          throw new Error(`Usage: ${binName()} jobs prepare <url> [--resume PATH]; --resume requires a path`);
         }
         const draft = await runtime.jobs.prepare(args[2], undefined, resumePath);
         print({
           applicationId: draft.id, status: draft.status, approvalId: draft.approvalId,
           resumePdf: draft.resumePdfPath, missingFacts: draft.missingFacts,
           resumeEdits: draft.resumeEditsPath, independentlyReviewed: draft.review?.accepted === true,
-          next: `Review it, then: henry approve approve ${draft.approvalId} && henry approve send ${draft.approvalId}`,
+          next: `Review it, then: ${binName()} approve approve ${draft.approvalId} && ${binName()} approve send ${draft.approvalId}`,
         });
       } else if (sub === "list") {
         print({ summary: await runtime.jobs.store.summary(), applications: (await runtime.jobs.store.list()).map((item) => ({ id: item.id, title: item.posting.title, company: item.posting.company, status: item.status, approvalId: item.approvalId })) });
       } else if (sub === "fill") {
-        if (!args[2]) throw new Error("Usage: henry jobs fill <application-id>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} jobs fill <application-id>`);
         print(await runtime.jobs.fill(args[2]));
       } else if (sub === "login") {
         // One-time session grant for the morning scout: Naukri + X tabs in a headed
-        // window on the persistent profile. Taylor logs in, closes the window, done.
+        // window on the persistent profile. The owner logs in, closes the window, done.
         // TTY guard (2026-08-10): typed into Henry's CHAT, this command runs inside a
         // short-lived agent turn whose exit kills the browser mid-login — the
         // "window closes after 5 seconds" mystery. A human login needs a human terminal.
@@ -689,12 +728,12 @@ async function main(): Promise<void> {
         }
         console.log("Opening a browser window with Naukri + X login tabs…");
         await runtime.jobScout.login();
-        console.log("Sessions saved. The morning scout (and `henry jobs scout`) can now search as you.");
+        console.log(`Sessions saved. The morning scout (and \`${binName()} jobs scout\`) can now search as you.`);
       } else if (sub === "scout") {
         const prepare = Number(option("--prepare")) || 0;
         const scouted = await runtime.jobScout.scout({ prepare });
         print(scouted);
-        if (scouted.needsLogin) console.log("\nGrant sessions once with: henry jobs login");
+        if (scouted.needsLogin) console.log(`\nGrant sessions once with: ${binName()} jobs login`);
         else if (scouted.filePath) console.log(`\nShortlist: ${scouted.filePath}`);
       } else if (sub === "linkedin-cookie") {
         if (!process.stdout.isTTY) throw new Error("linkedin-cookie is interactive — run it in your own terminal.");
@@ -714,16 +753,16 @@ async function main(): Promise<void> {
           if (dropped > 0) console.log(`  (…and ${dropped} more learned but NOT searched — capped at ${learned.titles.length} titles/pass to keep the LinkedIn volume rail honest)`);
           console.log(`Profile: ${learned.profilePath}`);
         }
-      } else throw new Error("Usage: henry jobs inspect <url>|prepare <url> [--resume PATH]|list|fill <application-id>|login|linkedin-cookie|scout [--prepare N]|alerts-sync  (submission goes through henry approve; LinkedIn submission is blocked by design)");
+      } else throw new Error(`Usage: ${binName()} jobs inspect <url>|prepare <url> [--resume PATH]|list|fill <application-id>|login|linkedin-cookie|scout [--prepare N]|alerts-sync  (submission goes through ${binName()} approve; LinkedIn submission is blocked by design)`);
     } else if (command === "cover") {
       if (!runtime.cover) throw new Error("cover command is not available in this profile");
       const sub = args[1];
       if (sub === "import") {
-        if (!args[2]) throw new Error("Usage: henry cover import <path-to-resume.docx|.md|.txt>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} cover import <path-to-resume.docx|.md|.txt>`);
         print({ resumePath: await runtime.cover.importResume(args[2]) });
       } else {
         const input = args.slice(1).filter((item) => !item.startsWith("--")).join(" ");
-        if (!input) throw new Error("Usage: henry cover <job-url | jd-file | jd-text>  (or: henry cover import <resume-file>)");
+        if (!input) throw new Error(`Usage: ${binName()} cover <job-url | jd-file | jd-text>  (or: ${binName()} cover import <resume-file>)`);
         print(await runtime.cover.generate(input));
       }
     } else if (command === "resume") {
@@ -731,29 +770,29 @@ async function main(): Promise<void> {
       const sub = args[1];
       if (sub === "edit") {
         const instructions = args.slice(2).filter((item) => !item.startsWith("--")).join(" ");
-        if (!instructions) throw new Error("Usage: henry resume edit <instructions...>");
+        if (!instructions) throw new Error(`Usage: ${binName()} resume edit <instructions...>`);
         print(await runtime.resumeEditor.edit(instructions));
       } else if (sub === "promote") {
-        if (!args[2]) throw new Error("Usage: henry resume promote <markdown-path>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} resume promote <markdown-path>`);
         print({ resumePath: await runtime.resumeEditor.promote(args[2]) });
       } else if (sub === "show") {
         const text = await fs.readFile(runtime.config.resumeSourcePath, "utf8").catch(() => "");
         print({ resumePath: runtime.config.resumeSourcePath, preview: text.split(/\r?\n/).slice(0, 10).join("\n") });
-      } else throw new Error("Usage: henry resume edit <instructions...>|promote <markdown-path>|show");
+      } else throw new Error(`Usage: ${binName()} resume edit <instructions...>|promote <markdown-path>|show`);
     } else if (command === "meetings") {
       if (!runtime.meetings) throw new Error("meetings command is not available in this profile");
       const sub = args[1];
       if (sub === "shadow") {
-        if (!args[2]) throw new Error("Usage: henry meetings shadow <audio-file> [--title t]");
+        if (!args[2]) throw new Error(`Usage: ${binName()} meetings shadow <audio-file> [--title t]`);
         print(await runtime.meetings.process(args[2], option("--title")));
-      } else throw new Error("Usage: henry meetings shadow <audio-file> [--title t]");
+      } else throw new Error(`Usage: ${binName()} meetings shadow <audio-file> [--title t]`);
     } else if (command === "screenshots") {
       if (!runtime.screenshots) throw new Error("screenshots command is not available in this profile");
       const sub = args[1] || "backlog";
       if (sub === "backlog") print(await runtime.screenshots.sortBacklog(Number(option("--limit")) || 20));
-      else if (sub === "sort") { if (!args[2]) throw new Error("Usage: henry screenshots sort <image-path>"); print(await runtime.screenshots.sortOne(args[2])); }
+      else if (sub === "sort") { if (!args[2]) throw new Error(`Usage: ${binName()} screenshots sort <image-path>`); print(await runtime.screenshots.sortOne(args[2])); }
       else if (sub === "watch") { const close = await runtime.screenshots.watch(); keepAlive = true; console.log("Watching for screenshots. Ctrl+C to stop."); process.once("SIGINT", () => { close(); process.exit(0); }); }
-      else throw new Error("Usage: henry screenshots backlog|sort <path>|watch");
+      else throw new Error(`Usage: ${binName()} screenshots backlog|sort <path>|watch`);
     } else if (command === "catalogue" || command === "quote" || command === "sheets") {
       if (!runtime.commerce) throw new Error(`${command} is not enabled. Set HENRY_COMMERCE_ENABLED=true or use Kelly.`);
       print(await runCommerceCommand(runtime.commerce, command, args.slice(1)));
@@ -775,7 +814,7 @@ async function main(): Promise<void> {
           print(await new KnowledgeIngestor(runtime.config, runtime.activity, kb, runtime.agent.providerRunner).ingestCards({ limit: Number(option("--limit")) || 3 }));
         } else if (sub === "add") {
           const target = args[2];
-          if (!target) throw new Error("Usage: henry knowledge add <path> [--domain gtm|growth-strategy|product-management|project-management|software-development|community|sales|careers|general] [--name <batch-name>] [--distill]");
+          if (!target) throw new Error(`Usage: ${binName()} knowledge add <path> [--domain gtm|growth-strategy|product-management|project-management|software-development|community|sales|careers|general] [--name <batch-name>] [--distill]`);
           const { importKnowledge } = await import("./knowledge/importer.ts");
           const { KNOWLEDGE_DOMAINS } = await import("./knowledge/store.ts");
           const domainArg = option("--domain");
@@ -795,7 +834,7 @@ async function main(): Promise<void> {
             : "\nRaw indexing above used local embeddings only (free). Pass --distill to also generate strategy cards — that spends provider calls.");
         } else if (sub === "search") {
           const query = args.slice(2).filter((item) => !item.startsWith("--") && item !== option("--domain")).join(" ");
-          if (!query) throw new Error("Usage: henry knowledge search <query> [--domain gtm]");
+          if (!query) throw new Error(`Usage: ${binName()} knowledge search <query> [--domain gtm]`);
           print((await kb.recall(query, { domain: option("--domain") })).map((r) => ({ score: r.score, source: r.source, content: r.content.slice(0, 200) })));
         } else if (sub === "context") {
           print(await kb.context(args.slice(2).join(" "), { domain: option("--domain") }));
@@ -806,12 +845,12 @@ async function main(): Promise<void> {
           console.log(`\nWrote ${path.join(path.dirname(runtime.config.evalPath), "last-run.json")}`);
         } else if (sub === "stats") {
           print(kb.stats());
-        } else throw new Error("Usage: henry knowledge export|index|distill|add|search|context|eval|stats");
+        } else throw new Error(`Usage: ${binName()} knowledge export|index|distill|add|search|context|eval|stats`);
       } finally { kb.close(); }
     } else if (command === "dispatch") {
       const role = args[1] || "architect";
       const task = args.slice(2).filter((item) => item !== "--edit").join(" ");
-      if (!task) throw new Error("Usage: henry dispatch <role> <task>");
+      if (!task) throw new Error(`Usage: ${binName()} dispatch <role> <task>`);
       print((await runtime.luna.dispatch(role, task, { allowEdits: args.includes("--edit") })).response);
     } else if (command === "gmail") {
       await runGmailCommand(runtime, args[1] || "inbox");
@@ -819,11 +858,11 @@ async function main(): Promise<void> {
       const sub = args[1] || "replies";
       if (sub === "replies" || sub === "reply") await runGmailCommand(runtime, "draftreplies");
       else if (sub === "mail" || sub === "email") await runGmailCommand(runtime, "draft");
-      else throw new Error("Usage: henry draft replies [--limit 5] | henry draft mail --to email --subject subject --body body");
+      else throw new Error(`Usage: ${binName()} draft replies [--limit 5] | ${binName()} draft mail --to email --subject subject --body body`);
     } else if (command === "pr") {
       const sub = args[1] || "review";
       const target = args[2];
-      if (!target) throw new Error("Usage: henry pr review|merge <pr-number-or-url> [--cwd path] [--repo owner/name]");
+      if (!target) throw new Error(`Usage: ${binName()} pr review|merge <pr-number-or-url> [--cwd path] [--repo owner/name]`);
       const cwdArg = option("--cwd");
       const repoArg = option("--repo");
       const cwd = cwdArg || (repoArg?.startsWith("/") ? repoArg : runtime.config.rootDir);
@@ -834,30 +873,30 @@ async function main(): Promise<void> {
           target, path.resolve(cwd), repo, option("--check") || "npm test", option("--verify") || option("--check") || "npm test",
           (option("--method") || "squash") as "merge" | "squash" | "rebase",
         );
-        print({ ...result, next: `Review the plan, then: henry approve approve ${result.approvalId} && henry approve send ${result.approvalId}` });
-      } else throw new Error("Usage: henry pr review|merge <pr-number-or-url> [--cwd path] [--repo owner/name]");
+        print({ ...result, next: `Review the plan, then: ${binName()} approve approve ${result.approvalId} && ${binName()} approve send ${result.approvalId}` });
+      } else throw new Error(`Usage: ${binName()} pr review|merge <pr-number-or-url> [--cwd path] [--repo owner/name]`);
     } else if (command === "review") {
       const target = args[1];
-      if (!target) throw new Error("Usage: henry review <pr-number-or-url> [--cwd path] [--repo owner/name]");
+      if (!target) throw new Error(`Usage: ${binName()} review <pr-number-or-url> [--cwd path] [--repo owner/name]`);
       const cwd = option("--cwd") || (option("--repo")?.startsWith("/") ? option("--repo") : runtime.config.rootDir) || runtime.config.rootDir;
       const repo = option("--repo")?.startsWith("/") ? undefined : option("--repo");
       print(await runtime.reviewer.review(target, path.resolve(cwd), repo));
     } else if (command === "approve") {
       const sub = args[1] || "list";
       if (sub === "list") print(await runtime.approvals.list());
-      else if (sub === "approve") { if (!args[2]) throw new Error("Usage: henry approve approve <id>"); await runtime.approve(args[2]); console.log(`Approved ${args[2]}`); }
+      else if (sub === "approve") { if (!args[2]) throw new Error(`Usage: ${binName()} approve approve <id>`); await runtime.approve(args[2]); console.log(`Approved ${args[2]}`); }
       else if (sub === "send" || sub === "execute") {
-        if (!args[2]) throw new Error("Usage: henry approve send <id>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} approve send <id>`);
         const item = await runtime.approvals.get(args[2]);
         if (!item) throw new Error("Approval not found");
         if (item.status !== "approved") {
           throw new Error(
-            `Sending is blocked: approval ${args[2]} is ${item.status}. Run 'henry approve approve ${args[2]}' first; sending never approves implicitly.`,
+            `Sending is blocked: approval ${args[2]} is ${item.status}. Run '${binName()} approve approve ${args[2]}' first; sending never approves implicitly.`,
           );
         }
         print(await runtime.executeApproval(args[2]));
       }
-      else throw new Error("Usage: henry approve list|approve|send <id>");
+      else throw new Error(`Usage: ${binName()} approve list|approve|send <id>`);
     } else if (command === "schedule") {
       const sub = args[1] || "list";
       if (sub === "list") print(await runtime.scheduler.definitions());
@@ -879,7 +918,7 @@ async function main(): Promise<void> {
           print({
             cron: await writeCronFile(runtime.config, definitions),
             launchd: await writeLaunchdPlist(runtime.config, definitions),
-            note: "Review the generated files, then run `henry schedule install --cron` and/or `henry schedule install --launchd` to actually install them.",
+            note: `Review the generated files, then run \`${binName()} schedule install --cron\` and/or \`${binName()} schedule install --launchd\` to actually install them.`,
           });
         } else {
           const result: Record<string, unknown> = {};
@@ -897,7 +936,7 @@ async function main(): Promise<void> {
         print(result);
       }
       else if (sub === "status") print(await schedulerStatus(runtime.config));
-      else throw new Error("Usage: henry schedule list|run <id>|daemon|install [--cron] [--launchd] [--print]|uninstall [--cron] [--launchd]|status");
+      else throw new Error(`Usage: ${binName()} schedule list|run <id>|daemon|install [--cron] [--launchd] [--print]|uninstall [--cron] [--launchd]|status`);
     } else if (command === "workflow") {
       const sub = args[1] || "list";
       if (sub === "list") {
@@ -912,16 +951,16 @@ async function main(): Promise<void> {
         const problems = runtime.workflowEngine.registry.problems();
         if (Object.keys(problems).length) print({ invalid: problems });
       } else if (sub === "show") {
-        if (!args[2]) throw new Error("Usage: henry workflow show <name>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} workflow show <name>`);
         await runtime.workflowEngine.load();
         const workflow = runtime.workflowEngine.get(args[2]);
         if (!workflow) throw new Error(`Workflow not found: ${args[2]}`);
         print(workflow);
       } else if (sub === "run") {
-        if (!args[2]) throw new Error("Usage: henry workflow run <name>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} workflow run <name>`);
         print(await runtime.workflowEngine.run(args[2], "cli"));
       } else if (sub === "logs") {
-        if (!args[2]) throw new Error("Usage: henry workflow logs <name>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} workflow logs <name>`);
         const artifacts = await runtime.workflowEngine.artifacts(args[2]);
         print({ workflow: args[2], runs: artifacts });
         if (artifacts[0]) { console.log(`\n--- ${artifacts[0]} ---\n`); console.log(await fs.readFile(artifacts[0], "utf8")); }
@@ -930,14 +969,14 @@ async function main(): Promise<void> {
         keepAlive = true;
         print({ armed });
         console.log("Henry workflow engine is running. Press Ctrl+C to stop.");
-      } else throw new Error("Usage: henry workflow list|show <name>|run <name>|logs <name>|daemon");
+      } else throw new Error(`Usage: ${binName()} workflow list|show <name>|run <name>|logs <name>|daemon`);
     } else if (command === "goal") {
       const description = args.slice(1).filter((item) => !item.startsWith("--")).join(" ");
-      if (!description) throw new Error("Usage: henry goal <description...>");
+      if (!description) throw new Error(`Usage: ${binName()} goal <description...>`);
       const { filePath, raw } = await runtime.goals.intake(description);
       console.log(raw);
       console.log(`\nSaved plan: ${filePath}`);
-      console.log("Taylor reviews this plan, then uses `henry code`/`henry dispatch` (or asks Henry to proceed) — nothing here was auto-executed.");
+      console.log(`${runtime.config.ownerName} reviews this plan, then uses \`${binName()} code\`/\`${binName()} dispatch\` (or asks Henry to proceed) — nothing here was auto-executed.`);
     } else if (command === "remind") {
       const sub = args[1];
       if (sub === "list") {
@@ -946,7 +985,7 @@ async function main(): Promise<void> {
           randomDaily: item.randomDaily, nextFireAt: item.nextFireAt, approvalId: item.approvalId, status: item.status,
         })));
       } else if (sub === "cancel") {
-        if (!args[2]) throw new Error("Usage: henry remind cancel <id>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} remind cancel <id>`);
         print(await runtime.reminders.cancel(args[2]));
       } else {
         const executeApprovalId = option("--execute-approval");
@@ -955,8 +994,8 @@ async function main(): Promise<void> {
         const every = option("--every");
         const randomDailyValue = option("--random-daily");
         if (executeApprovalId) {
-          if (every) throw new Error("henry remind --execute-approval does not support --every — a scheduled send is one-shot, never recurring.");
-          if (!at && !inValue) throw new Error('Usage: henry remind --execute-approval <approvalId> --at "YYYY-MM-DD HH:mm" | --in "2h"');
+          if (every) throw new Error(`${binName()} remind --execute-approval does not support --every — a scheduled send is one-shot, never recurring.`);
+          if (!at && !inValue) throw new Error(`Usage: ${binName()} remind --execute-approval <approvalId> --at "YYYY-MM-DD HH:mm" | --in "2h"`);
           const dueAt = at ? parseAt(at) : parseIn(inValue!);
           const reminder = await runtime.reminders.createApprovalExecute(executeApprovalId, dueAt, option("--title"));
           print({ id: reminder.id, text: reminder.text, kind: reminder.kind, approvalId: reminder.approvalId, dueAt: reminder.dueAt, status: reminder.status });
@@ -964,7 +1003,7 @@ async function main(): Promise<void> {
           const promptText = option("--prompt");
           const text = promptText || (sub && !sub.startsWith("--") ? sub : undefined);
           const kind: ReminderKind = promptText ? "prompt" : "message";
-          const usage = 'Usage: henry remind "<text>" --at "YYYY-MM-DD HH:mm" | --in "2h" | --every "<cron>" | --random-daily 5  (or: henry remind --prompt "<instruction>" --at|--in|--every|--random-daily ...)';
+          const usage = `Usage: ${binName()} remind "<text>" --at "YYYY-MM-DD HH:mm" | --in "2h" | --every "<cron>" | --random-daily 5  (or: ${binName()} remind --prompt "<instruction>" --at|--in|--every|--random-daily ...)`;
           if (!text || (!at && !inValue && !every && !randomDailyValue)) throw new Error(usage);
           if (randomDailyValue && (at || inValue || every)) throw new Error("--random-daily cannot be combined with --at, --in, or --every");
           const randomCount = randomDailyValue ? Number(randomDailyValue) : undefined;
@@ -980,8 +1019,9 @@ async function main(): Promise<void> {
     } else if (command === "telegram") {
       const sub = args[1] || "test";
       if (sub === "test") {
-        const ok = await sendTelegram(runtime.config, "Henry → Telegram is live 🎉");
-        console.log(ok ? "ok — check your Telegram chat" : "fail — check HENRY_TELEGRAM_BOT_TOKEN / HENRY_TELEGRAM_CHAT_ID in .env, then see docs/modules/telegram.md");
+        const envPrefix = getActiveProfile().envPrefix;
+        const ok = await sendTelegram(runtime.config, `${getActiveProfile().name} → Telegram is live 🎉`);
+        console.log(ok ? "ok — check your Telegram chat" : `fail — check ${envPrefix}TELEGRAM_BOT_TOKEN / ${envPrefix}TELEGRAM_CHAT_ID in .env, then see docs/modules/telegram.md`);
       } else if (sub === "status") {
         const bridge = runtime.telegramBridge;
         print({
@@ -990,7 +1030,7 @@ async function main(): Promise<void> {
           standupChatConfigured: Boolean(runtime.config.telegramStandupChatId),
           bridge: { enabled: bridge.enabled, killSwitch: "telegram.bridge.enabled in data/settings.json", ...bridge.stats() },
           operatorMode: runtime.config.telegramOperatorMode,
-          note: "One getUpdates pump serves both; it runs inside `henry repl` or `henry schedule daemon`.",
+          note: `One getUpdates pump serves both; it runs inside \`${binName()} repl\` or \`${binName()} schedule daemon\`.`,
         });
       } else if (sub === "on" || sub === "off") {
         const { updateSettings } = await import("./util/settings.ts");
@@ -998,10 +1038,10 @@ async function main(): Promise<void> {
         console.log(`Telegram DM bridge ${sub === "on" ? "ON" : "OFF"}.`);
       } else if (sub === "operator") {
         const mode = args[2];
-        if (mode !== "on" && mode !== "off") throw new Error("Usage: henry telegram operator on|off");
+        if (mode !== "on" && mode !== "off") throw new Error(`Usage: ${binName()} telegram operator on|off`);
         await runtime.setTelegramOperatorMode(mode === "on");
-        console.log(`Telegram operator mode ${mode === "on" ? "ON" : "OFF"}. Restart the long-lived Henry process to apply it to its bridge.`);
-      } else throw new Error("Usage: henry telegram test|status|on|off|operator on|off");
+        console.log(`Telegram operator mode ${mode === "on" ? "ON" : "OFF"}. Restart the long-lived ${getActiveProfile().name} process to apply it to its bridge.`);
+      } else throw new Error(`Usage: ${binName()} telegram test|status|on|off|operator on|off`);
     } else if (command === "mailwatch") {
       if (!runtime.mailwatch) throw new Error("mailwatch command is not available in this profile");
       const sub = args[1] || "check";
@@ -1019,13 +1059,13 @@ async function main(): Promise<void> {
         const digest = await trackerDigest(runtime.config);
         console.log(digest.line);
         if (args.includes("--send")) await runtime.notifyOperator(digest.line, "Henry — job index");
-      } else throw new Error("Usage: henry mailwatch check|status|tracker|backfill --days <n>|digest [--send]");
+      } else throw new Error(`Usage: ${binName()} mailwatch check|status|tracker|backfill --days <n>|digest [--send]`);
     } else if (command === "pm") {
       const sub = args[1] || "status";
-      if (sub === "on") { await runtime.setPmMode(true); console.log("PM mode ON — Henry now operates as your project manager (PMBOK-grounded, decisions with rationale). `henry pm off` to exit."); }
+      if (sub === "on") { await runtime.setPmMode(true); console.log(`PM mode ON — ${getActiveProfile().name} now operates as your project manager (PMBOK-grounded, decisions with rationale). \`${binName()} pm off\` to exit.`); }
       else if (sub === "off") { await runtime.setPmMode(false); console.log("PM mode OFF."); }
       else if (sub === "status") console.log(`PM mode: ${runtime.config.pmMode ? "ON" : "off"}`);
-      else throw new Error("Usage: henry pm on|off|status");
+      else throw new Error(`Usage: ${binName()} pm on|off|status`);
     } else if (command === "standup") {
       if (isServiceExcluded("standup")) throw new Error("standup command is not available in this profile");
       const sub = args[1] || "status";
@@ -1051,11 +1091,11 @@ async function main(): Promise<void> {
         const result = await runtime.standup.summarize(date, { post: args.includes("--post"), session });
         if (result.markdown) { console.log(`\n${result.markdown}\n`); console.log(`Saved: ${result.filePath}`); }
         else console.log(`No ${result.session} updates collected for ${result.date}.${result.missing.length ? ` Missing: ${result.missing.join(", ")}` : ""}`);
-      } else throw new Error("Usage: henry standup status|discover|prompt|scan|summary [--date YYYY-MM-DD] [--session morning|evening] [--post]");
+      } else throw new Error(`Usage: ${binName()} standup status|discover|prompt|scan|summary [--date YYYY-MM-DD] [--session morning|evening] [--post]`);
     } else if (command === "linkedin") {
       if (!runtime.linkedin) throw new Error("linkedin command is not available in this profile");
       const topic = args.slice(1).filter((item) => !item.startsWith("--")).join(" ");
-      if (!topic) throw new Error("Usage: henry linkedin <topic...>");
+      if (!topic) throw new Error(`Usage: ${binName()} linkedin <topic...>`);
       const result = await runtime.linkedin.draft(topic);
       console.log(result.draft);
       console.log(`\nDraft saved — review and post manually: ${result.markdownPath}`);
@@ -1075,11 +1115,11 @@ async function main(): Promise<void> {
           const result = directText
             ? await runtime.xBrowser.stageText(directText)
             : await runtime.xBrowser.stage(option("--date"));
-          print({ ...result, next: `Review, then: henry approve approve ${result.approvalId} && henry approve send ${result.approvalId}` });
+          print({ ...result, next: `Review, then: ${binName()} approve approve ${result.approvalId} && ${binName()} approve send ${result.approvalId}` });
         } else if (action === "login") {
           if (!process.stdin.isTTY) throw new Error("X login is interactive — run `npx tsx src/cli.ts tweet browser login` in your own terminal, sign in, then press Ctrl-C.");
           await runtime.xBrowser.login();
-        } else throw new Error("Usage: henry tweet browser login|stage [--date YYYY-MM-DD] [--text \"exact tweet\"]");
+        } else throw new Error(`Usage: ${binName()} tweet browser login|stage [--date YYYY-MM-DD] [--text "exact tweet"]`);
       } else if (sub === "on" || sub === "off") {
         updateSettings(runtime.config.settingsPath, { social: { tweets: { enabled: sub === "on" } } });
         console.log(`Daily tech tweet: ${sub === "on" ? "ENABLED" : "OFF"}${sub === "on" && !readXCredentials() ? " (but the four X_* keys are missing — runs will stage, not post)" : ""}`);
@@ -1092,26 +1132,26 @@ async function main(): Promise<void> {
         if (result.posted) console.log(`Posted: https://x.com/i/status/${result.tweetId}`);
         else if (result.stagedPath) console.log(`Staged (not posted — ${result.reason}): ${result.stagedPath}`);
         else console.log(`Skipped: ${result.reason}`);
-      } else throw new Error("Usage: henry tweet [draft|on|off|status|browser login|stage]  (bare `tweet` runs today's pipeline; `draft` never posts)");
+      } else throw new Error(`Usage: ${binName()} tweet [draft|on|off|status|browser login|stage]  (bare \`tweet\` runs today's pipeline; \`draft\` never posts)`);
     } else if (command === "launch") {
       if (!runtime.launch) throw new Error("launch command is not available in this profile");
       const sub = args[1];
       if (sub === "intake") {
         const input = args.slice(2).filter((item) => !item.startsWith("--")).join(" ");
-        if (!input) throw new Error('Usage: henry launch intake "<product brief or repo path>"');
+        if (!input) throw new Error(`Usage: ${binName()} launch intake "<product brief or repo path>"`);
         const result = await runtime.launch.intake(input);
         console.log(result.markdown);
         console.log(`\nSaved: ${result.filePath}`);
-        console.log(`Taylor: fill in each ANSWER: line above, save the file, then run: henry launch run ${result.slug}`);
+        console.log(`${runtime.config.ownerName}: fill in each ANSWER: line above, save the file, then run: ${binName()} launch run ${result.slug}`);
       } else if (sub === "run") {
-        if (!args[2]) throw new Error("Usage: henry launch run <slug>");
+        if (!args[2]) throw new Error(`Usage: ${binName()} launch run <slug>`);
         const result = await runtime.launch.run(args[2]);
         console.log(result.dossier);
         console.log(`\nSaved: ${result.filePath}`);
       } else if (sub === "list") {
         print(await runtime.launch.list());
-      } else throw new Error('Usage: henry launch intake "<brief|path>" | run <slug> | list');
-    } else throw new Error("Commands: ask, repl, dashboard, status, tunnel, users, code, provider, jobs, cover, resume, jd, memory, dispatch, gmail, review, approve, schedule, workflow, goal, remind, telegram, mailwatch, standup, linkedin, tweet, launch");
+      } else throw new Error(`Usage: ${binName()} launch intake "<brief|path>" | run <slug> | list`);
+    } else throw new Error(`Commands: ${availableCommands(runtime.config.commerceEnabled).join(", ")}`);
   } finally {
     if (!keepAlive) runtime.close();
   }
@@ -1218,6 +1258,6 @@ async function runVoiceCommand(voiceArgs: string[]): Promise<void> {
 // Last-line backstop (audit 2026-08-09): long-lived Henry processes (repl, daemon,
 // dashboard) must survive a stray rejection from any corner — log it, keep living.
 process.on("unhandledRejection", (reason) => {
-  console.error(`henry: unhandled rejection (survived): ${reason instanceof Error ? reason.message : String(reason)}`);
+  console.error(`${binName()}: unhandled rejection (survived): ${reason instanceof Error ? reason.message : String(reason)}`);
 });
-main().catch((error) => { console.error(`henry: ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; });
+main().catch((error) => { console.error(`${binName()}: ${error instanceof Error ? error.message : String(error)}`); process.exitCode = 1; });

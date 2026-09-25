@@ -30,7 +30,7 @@ interface PendingAlert extends ParsedAlert {
 }
 
 /**
- * Taylor's explicit request: stop hitting codex every 45 minutes (~32x/day) and instead run 5
+ * The owner's explicit request: stop hitting codex every 45 minutes (~32x/day) and instead run 5
  * random checks/day (~6x fewer calls). The cron tick stays frequent (every 30 min, see
  * workflows/defaults.json) purely as a scheduling heartbeat; this plan decides which ticks
  * actually do a check.
@@ -464,7 +464,7 @@ export class MailWatchService {
     const fresh = await this.readState();
     const seen = new Set(fresh.seenIds);
     // Blast-dedupe (2026-08-11): recommendation emails re-arrive daily with near-identical
-    // subjects — each IS a new email, so id-dedupe passes and Taylor got the same ping
+    // subjects — each IS a new email, so id-dedupe passes and the owner got the same ping
     // 5x/day. A normalized subject seen in the last 7 days never re-alerts.
     const normalize = (subject: string) => subject.toLowerCase().replace(/[^a-z]+/g, " ").replace(/\d+/g, "#").trim().slice(0, 80);
     const recent = new Map((fresh.recentSubjects ?? []).map((entry) => [entry.key, entry.at]));

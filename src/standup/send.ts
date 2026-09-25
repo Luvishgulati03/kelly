@@ -6,7 +6,7 @@ const TELEGRAM_TIMEOUT_MS = 10_000;
 
 /**
  * SCOPE-GUARD: this is the STANDUP GROUP surface ONLY — the second of exactly two
- * pre-authorized Telegram sends (the other is `notify/telegram.ts`, pinned to Taylor's
+ * pre-authorized Telegram sends (the other is `notify/telegram.ts`, pinned to the owner's
  * own DM). `chat_id` is always read from config (`telegramStandupChatId`) — never
  * caller-supplied — and this function must never grow into a general send-to-anyone
  * surface. Outbound to any other destination stays behind the ApprovalStore.

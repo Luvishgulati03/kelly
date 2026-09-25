@@ -31,8 +31,9 @@ source of truth for identity and address.
 
 ## Run it
 
-Run Kelly commands from the repository root (Kelly reads `.env` from the current
-directory; only `kelly start` finds it from anywhere):
+Every Kelly command finds the repository's own `.env` regardless of your current
+directory (an already-exported variable, or a `.env` in the current directory, still
+wins):
 
 ```bash
 node bin/kelly.mjs start                 # dashboard on 7338 + local voice worker on 8765

@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <title><!--KELLY_SHOP--> · talk</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<meta name="theme-color" content="<!--KELLY_THEME_COLOR-->">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@700;800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
@@ -1154,11 +1159,33 @@ window.KellyOrb = KellyOrb;
     }
   }
 
+  /* ---------- screen wake lock: keeps the tablet display on for an active session ---------- */
+  let wakeLock = null;
+  async function requestWakeLock() {
+    if (!('wakeLock' in navigator)) return; // silently skipped when unsupported
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch { wakeLock = null; }
+  }
+  async function releaseWakeLock() {
+    if (!wakeLock) return;
+    const lock = wakeLock; wakeLock = null;
+    try { await lock.release(); } catch {}
+  }
+  // The OS releases the lock whenever the tab/screen is hidden; re-acquire it once the
+  // session is still active and the page becomes visible again (tablet screen-off/on, or
+  // switching back from another app).
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && sessionActive && !wakeLock) void requestWakeLock();
+  });
+
   /* ---------- session lifecycle ---------- */
   async function startSession() {
     if (sessionActive) return;
     sessionId++; const id = sessionId; sessionActive = true; sessionTurns = 0;
     reportSession('start');
+    void requestWakeLock();
     closeShowcase(); clearCaptions();
     talkBtn.setAttribute('aria-pressed', 'true'); talkBtn.setAttribute('aria-label', 'End session');
     ensurePlayMeter();
@@ -1186,6 +1213,7 @@ window.KellyOrb = KellyOrb;
   }
   function teardownSession(reason) {
     if (sessionActive) { reportSession('end', { turns: sessionTurns, ...(reason ? { reason } : {}) }); notifyParent('ended'); }
+    void releaseWakeLock();
     abortTurn(); fillerDone = Promise.resolve();
     sileroDiscard = true; sileroRunning = false; sileroSpeechAt = 0;
     sessionId++;

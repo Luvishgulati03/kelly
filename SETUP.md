@@ -408,11 +408,11 @@ Pick one:
 
 | Option | Who can open the link | Needs | Start command |
 | --- | --- | --- | --- |
-| Tailscale Serve | Only devices signed in to the owner's tailnet | Tailscale on the Mac and the tablet | `kelly start --public tailscale` |
+| Tailscale Serve | Only devices signed in to the owner's tailnet | Tailscale on the Mac and the tablet | `kelly start --private tailscale` |
 | Cloudflare, own domain | Anyone with the link (login page) | A domain whose DNS is on Cloudflare, `cloudflared` | `kelly tunnel setup ...` once, then `kelly start --public` |
-| Tailscale Funnel | Anyone with the link (login page) | Tailscale with HTTPS and Funnel enabled | `kelly start --public` (when no Cloudflare tunnel is configured) |
+| Tailscale Funnel | Anyone with the link (login page) | Tailscale with HTTPS and Funnel enabled | `kelly start --public` (when no Cloudflare tunnel is configured) or `kelly start --public funnel` to force it |
 
-Without `--public`, `kelly start` never starts a tunnel, whatever `.env` says.
+Without `--public` or `--private tailscale`, `kelly start` never starts a tunnel, whatever `.env` says.
 While a tunnel is running, Kelly also runs `caffeinate` so the Mac does not idle
 to sleep.
 
@@ -425,7 +425,7 @@ to sleep.
    https://login.tailscale.com/admin/dns
 3. Start Kelly:
    ```bash
-   kelly start --public tailscale
+   kelly start --private tailscale
    ```
    **Expect:** a line `Remote access: https://<mac-name>.<tailnet>.ts.net`.
 
@@ -469,7 +469,8 @@ record in the Cloudflare dashboard.
 1. Tailscale installed and signed in on the Mac, as in 11.1.
 2. Enable HTTPS certificates (https://login.tailscale.com/admin/dns) and the
    Funnel node attribute (https://login.tailscale.com/admin/acls).
-3. `kelly start --public` (or `--public tailscale` for Serve instead).
+3. `kelly start --public` (or `--public funnel` to force Funnel explicitly; use
+   `--private tailscale` instead for tailnet-only Serve).
    **Expect:** a public `https://...ts.net` link printed once Funnel is up.
 
 If Funnel is left on after a crash: `tailscale funnel --https=443 off`.

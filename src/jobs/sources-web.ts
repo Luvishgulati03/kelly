@@ -13,7 +13,7 @@ import type { ScoutPage } from "./sources-naukri.ts";
  * nothing and NEVER fails the pass — Naukri is the primary lane, this one is upside.
  * Everything it returns is untrusted scraped text (the title is the result's own
  * headline, the "company" is only a hostname guess), so the scoring prompt frames it
- * as data and the shortlist row is tagged `web` for Taylor to eyeball.
+ * as data and the shortlist row is tagged `web` for the owner to eyeball.
  */
 
 /** Volume rail: at most this many web leads per title reach the scoring prompt. */
@@ -66,7 +66,7 @@ function hostLabel(link: string): string {
 /**
  * Parses a DuckDuckGo HTML-endpoint page into listings. Ad rows, the redirector's own
  * links, and bare domain roots (`https://instahyre.com` — a board's front page, not a
- * posting) are dropped: a lead Taylor cannot open on a specific job is noise.
+ * posting) are dropped: a lead the owner cannot open on a specific job is noise.
  */
 export function parseDuckDuckGoResults(
   html: string,

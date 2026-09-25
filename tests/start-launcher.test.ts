@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 // @ts-expect-error JavaScript launcher intentionally has no build step.
-import { shellQuote, terminalCommand, waitReady, assertFree, supervise, resolveTunnelMode, resolvePublicOrigin, maybeKeepAwake, waitForTunnelActive } from "../bin/start.mjs";
+import { shellQuote, terminalCommand, waitReady, assertFree, supervise, resolveTunnelMode, resolvePublicOrigin, maybeKeepAwake, waitForTunnelActive, startKelly } from "../bin/start.mjs";
 import net from "node:net";
 import { spawn, type ChildProcess } from "node:child_process";
 
@@ -31,21 +31,48 @@ test("resolveTunnelMode: bare --public picks cloudflare when KELLY_CLOUDFLARE_TU
   assert.equal(resolveTunnelMode(["--public"], { KELLY_CLOUDFLARE_TUNNEL: "" }), "funnel");
 });
 
-test("resolveTunnelMode: --public tailscale / --public cloudflare force one transport regardless of env", () => {
-  assert.equal(resolveTunnelMode(["--public", "tailscale"], { KELLY_CLOUDFLARE_TUNNEL: "kelly-test" }), "tailscale");
+test("resolveTunnelMode: --public cloudflare / --public funnel force one PUBLIC transport regardless of env", () => {
+  assert.equal(resolveTunnelMode(["--public", "cloudflare"], { KELLY_CLOUDFLARE_TUNNEL: "kelly" }), "cloudflare");
+  assert.equal(resolveTunnelMode(["--public", "funnel"], { KELLY_CLOUDFLARE_TUNNEL: "kelly" }), "funnel");
   assert.equal(resolveTunnelMode(["--public", "cloudflare"], {}), "cloudflare");
   assert.equal(resolveTunnelMode(["--demo", "--public", "cloudflare"], {}), "cloudflare");
 });
 
-test("terminalCommand: preserves an explicit --public transport for the forwarded Terminal window", () => {
+test("resolveTunnelMode: --private tailscale starts tailnet-only Tailscale Serve, never a public transport", () => {
+  assert.equal(resolveTunnelMode(["--private", "tailscale"], {}), "tailscale");
+  assert.equal(resolveTunnelMode(["--private", "tailscale"], { KELLY_CLOUDFLARE_TUNNEL: "kelly" }), "tailscale");
+  assert.equal(resolveTunnelMode(["--demo", "--private", "tailscale"], {}), "tailscale");
+  // There is no --public tailscale spelling any more: an unrecognized forced value under
+  // --public simply does not match "cloudflare" or "funnel", so it is not itself a valid
+  // way to reach Serve (the CLI layer in startKelly() rejects it outright).
+  assert.notEqual(resolveTunnelMode(["--public", "tailscale"], {}), "tailscale");
+});
+
+test("terminalCommand: preserves an explicit --public transport or --private tailscale for the forwarded Terminal window", () => {
   assert.match(
     terminalCommand("/a b/node", "/repo/kelly.mjs", true, "boutique", "cloudflare"),
     /'--foreground' '--demo' '--trade' 'boutique' '--public' 'cloudflare'$/,
   );
   assert.match(
-    terminalCommand("/a b/node", "/repo/kelly.mjs", false, undefined, "tailscale"),
-    /'--foreground' '--public' 'tailscale'$/,
+    terminalCommand("/a b/node", "/repo/kelly.mjs", true, "boutique", "funnel"),
+    /'--foreground' '--demo' '--trade' 'boutique' '--public' 'funnel'$/,
   );
+  assert.match(
+    terminalCommand("/a b/node", "/repo/kelly.mjs", false, undefined, "private"),
+    /'--foreground' '--private' 'tailscale'$/,
+  );
+});
+
+test("startKelly: rejects the old --public tailscale spelling and points at --private tailscale instead", async () => {
+  await assert.rejects(startKelly(["--public", "tailscale"]), /--public accepts only cloudflare or funnel.*--private tailscale/);
+});
+
+test("startKelly: rejects an unrecognized --private transport", async () => {
+  await assert.rejects(startKelly(["--private", "funnel"]), /--private accepts only tailscale/);
+});
+
+test("startKelly: rejects combining --public and --private", async () => {
+  await assert.rejects(startKelly(["--public", "--private", "tailscale"]), /either --public or --private tailscale, not both/);
 });
 
 test("resolvePublicOrigin: derives https://<KELLY_PUBLIC_HOST> unless KELLY_PUBLIC_ORIGIN is already set", () => {

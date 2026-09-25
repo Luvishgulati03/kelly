@@ -70,7 +70,7 @@ test("process() transcribes, summarizes, writes files, remembers commitments, an
   await fs.access(result.outputPath);
   const markdown = await fs.readFile(result.markdownPath, "utf8");
   assert.match(markdown, /Q3 Planning Sync/);
-  assert.match(markdown, /## For Taylor/);
+  assert.match(markdown, /## For the owner/);
   assert.match(markdown, /Taylor will send the roadmap doc to Priya by Friday/);
 
   // Overview memory + one commitment memory.

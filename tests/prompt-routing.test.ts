@@ -26,7 +26,7 @@ test("Codex and Claude receive the same complete prompt contract for substantive
   for (const fullContractInstruction of [
     /standup status\|discover/,
     /Engineering workflow/,
-    /Never send or reply to an email without Taylor's explicit approval/,
+    /Never send or reply to an email without the owner's explicit approval/,
     /dashboard loopback-only/,
     /knowledge\.db.*never committed or pushed/,
     /delegate only independent investigation in parallel/,

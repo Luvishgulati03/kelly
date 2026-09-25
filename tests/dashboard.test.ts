@@ -24,7 +24,7 @@ test("dashboard exposes local health and status APIs", async () => {
     const observatory = await (await fetch(`${base}/memory`)).text();
     assert.equal(health.ok, true);
     assert.equal(status.name, "Henry");
-    assert.equal(status.user, "Taylor");
+    assert.equal(status.user, "the owner");
     assert.equal(tracesResponse.status, 200);
     assert.equal(traces.available, true);
     assert.match(observatory, /context traces/);
@@ -60,8 +60,8 @@ test("web chat: page serves, SSE send streams tokens, transcript persists, clear
   // The chat rides agent.run — stub it to stream two chunks then return the final text.
   (runtime.agent as unknown as { run: unknown }).run = async (_prompt: string, options?: { onEvent?: (event: { timestamp: string; stream: string; text: string; parsed?: Record<string, unknown> }) => void }) => {
     options?.onEvent?.({ timestamp: "", stream: "stdout", text: "", parsed: { text: "Hello " } });
-    options?.onEvent?.({ timestamp: "", stream: "stdout", text: "", parsed: { text: "Taylor!" } });
-    return { runId: "run-1", provider: "claude", response: "Hello Taylor!", exitCode: 0, durationMs: 12, events: [] };
+    options?.onEvent?.({ timestamp: "", stream: "stdout", text: "", parsed: { text: "there!" } });
+    return { runId: "run-1", provider: "claude", response: "Hello there!", exitCode: 0, durationMs: 12, events: [] };
   };
 
   const server = startDashboard(runtime);
@@ -84,12 +84,12 @@ test("web chat: page serves, SSE send streams tokens, transcript persists, clear
     assert.match(stream, /event: token/);
     assert.match(stream, /Hello /);
     assert.match(stream, /event: done/);
-    assert.match(stream, /Hello Taylor!/);
+    assert.match(stream, /Hello there!/);
 
     const history = await (await fetch(`${base}/api/chat/history`)).json() as { messages: Array<{ role: string; text: string }> };
     assert.equal(history.messages.length, 2, "user + henry messages must persist");
     assert.equal(history.messages[0].role, "user");
-    assert.equal(history.messages[1].text, "Hello Taylor!");
+    assert.equal(history.messages[1].text, "Hello there!");
 
     const clear = await fetch(`${base}/api/chat/clear`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
     assert.equal(clear.status, 200);

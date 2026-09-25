@@ -55,7 +55,7 @@ export function parseGoalPlan(response: string, fallbackGoal: string): GoalPlan 
   return { goal, tasks, questions };
 }
 
-function renderGoalFile(description: string, plan: GoalPlan, createdAt: string): string {
+function renderGoalFile(description: string, plan: GoalPlan, createdAt: string, ownerName: string): string {
   const tasks = plan.tasks.length
     ? plan.tasks.map((task) => `- [ ] ${task.description} (${task.tier})`).join("\n")
     : "- [ ] (no tasks parsed — see the raw plan in the activity log)";
@@ -70,7 +70,7 @@ function renderGoalFile(description: string, plan: GoalPlan, createdAt: string):
     "",
     tasks,
     "",
-    "## Open questions for Taylor",
+    `## Open questions for ${ownerName}`,
     "",
     questions,
     "",
@@ -86,7 +86,7 @@ export interface GoalIntakeResult {
 /**
  * Goal intake (MASTER_PLAN §11 doctrine): one t1 dispatch restates a goal, decomposes it
  * into 3-8 tier-tagged tasks, and surfaces open questions. Henry never auto-executes the
- * plan — Taylor reviews it, then runs `henry code`/`henry dispatch` or asks Henry to proceed.
+ * plan — the owner reviews it, then runs `henry code`/`henry dispatch` or asks Henry to proceed.
  */
 export class GoalService {
   constructor(
@@ -101,12 +101,12 @@ export class GoalService {
     if (!trimmed) throw new Error("Usage: henry goal <description...>");
 
     const task = [
-      "Taylor gave you a goal. Respond in this exact markdown format and nothing else — no preamble, no closing remarks.",
+      `${this.config.ownerName} gave you a goal. Respond in this exact markdown format and nothing else — no preamble, no closing remarks.`,
       "1. Restate the goal crisply on one line starting with 'GOAL:'.",
       "2. Under a '## Tasks' heading, decompose it into 3-8 concrete tasks. Each task is a markdown checkbox line: '- [ ] <task> (tier: t0|t1|t2)', tagged with the suggested executor tier per MASTER_PLAN.md §11 doctrine — t0 for triage/formatting/summaries, t1 for routine implementation, t2 for architecture or hard judgment calls.",
-      "3. Under a '## Open questions' heading, list open questions for Taylor, each as '- <question>'. If there are none, write '- none'.",
-      "Do not execute any task yourself. Do not invent facts about Taylor's situation — if you need information to decompose well, surface it as an open question instead of guessing.",
-      `\nGoal from Taylor: ${trimmed}`,
+      `3. Under a '## Open questions' heading, list open questions for ${this.config.ownerName}, each as '- <question>'. If there are none, write '- none'.`,
+      `Do not execute any task yourself. Do not invent facts about ${this.config.ownerName}'s situation — if you need information to decompose well, surface it as an open question instead of guessing.`,
+      `\nGoal from ${this.config.ownerName}: ${trimmed}`,
     ].join("\n");
 
     const result = await this.luna.dispatch("architect", task, { tier: "t1" });
@@ -118,7 +118,7 @@ export class GoalService {
     const createdAt = new Date().toISOString();
     const base = `${createdAt.slice(0, 10)}-${slugify(trimmed)}`;
     const filePath = path.join(this.config.goalsDir, `${base}.md`);
-    await fs.writeFile(filePath, renderGoalFile(trimmed, plan, createdAt), "utf8");
+    await fs.writeFile(filePath, renderGoalFile(trimmed, plan, createdAt, this.config.ownerName), "utf8");
 
     await this.activity.record(
       "task.started",

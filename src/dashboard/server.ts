@@ -40,6 +40,7 @@ import { parseDesignsBlock } from "../designs/block.ts";
 import { MAX_DESIGN_BYTES } from "../designs/store.ts";
 import { galleryFastPath } from "../designs/fastpath.ts";
 import { voicePrompt } from "../designs/vocabulary.ts";
+import { encodeSolidPng } from "../designs/png.ts";
 import { isLookupRequest } from "../voice/intent.ts";
 
 const EVENTS_POLL_MS = 2000;
@@ -188,8 +189,8 @@ const brandedHtmlFileCache = new Map<string, string>();
  * Shared "read once, brand per request" helper for the two shop-branded pages (owner voice
  * review and the counter tablet): each raw .html file is read from disk (and cached) exactly
  * once per path; every request after that is a cheap string substitution over the cached
- * bytes. `<!--KELLY_SHOP-->`, `<!--KELLY_MARK-->` and `<!--KELLY_ACCENT-->` are the same three
- * placeholders both pages use.
+ * bytes. `<!--KELLY_SHOP-->`, `<!--KELLY_MARK-->`, `<!--KELLY_ACCENT-->` and
+ * `<!--KELLY_THEME_COLOR-->` are the same four placeholders every branded page uses.
  */
 async function brandedHtml(filePath: string, shopName: string, accent: TradeAccent): Promise<string> {
   let raw = brandedHtmlFileCache.get(filePath);
@@ -203,7 +204,8 @@ async function brandedHtml(filePath: string, shopName: string, accent: TradeAcce
   return raw
     .replaceAll("<!--KELLY_SHOP-->", shop)
     .replace("<!--KELLY_MARK-->", mark)
-    .replace("<!--KELLY_ACCENT-->", accentBlock);
+    .replace("<!--KELLY_ACCENT-->", accentBlock)
+    .replaceAll("<!--KELLY_THEME_COLOR-->", escapeHtml(accent.copper));
 }
 
 const VOICE_HTML_PATH = fileURLToPath(new URL("./voice.html", import.meta.url));
@@ -238,6 +240,44 @@ const TALK_HTML_PATH = fileURLToPath(new URL("./talk.html", import.meta.url));
  *  way `/voice` and `/counter` are. */
 async function talkHtml(shopName: string, accent: TradeAccent): Promise<string> {
   return brandedHtml(TALK_HTML_PATH, shopName, accent);
+}
+
+/** "#rrggbb" -> {r,g,b}; falls back to the copper accent if a color string is malformed. */
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const match = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(hex.trim());
+  if (!match) return { r: 208, g: 138, b: 75 };
+  return { r: parseInt(match[1]!, 16), g: parseInt(match[2]!, 16), b: parseInt(match[3]!, 16) };
+}
+
+// Trade accents are fixed at startup (never change without a restart), so each icon size is
+// generated once, lazily, and cached for the process lifetime — the same "read/build once,
+// serve the cached bytes" shape as the branded HTML pages above.
+const iconPngCache = new Map<number, Buffer>();
+/** A simple generated two-tone square icon (top=copper, bottom=copper2) — no external asset. */
+function iconPng(size: number, accent: TradeAccent): Buffer {
+  let png = iconPngCache.get(size);
+  if (!png) {
+    png = encodeSolidPng(size, size, hexToRgb(accent.copper), hexToRgb(accent.copper2));
+    iconPngCache.set(size, png);
+  }
+  return png;
+}
+
+const MANIFEST_ICON_SIZES = [192, 512] as const;
+/** The installable web app manifest: name from the shop, standalone display, Talk as the
+ *  start URL (the counter tablet's hands-free page), themed with the trade's own accent. */
+function manifestJson(shopName: string, accent: TradeAccent): Record<string, unknown> {
+  return {
+    name: shopName,
+    short_name: shopName.length > 12 ? shopName.slice(0, 12) : shopName,
+    display: "standalone",
+    start_url: "/talk",
+    background_color: "#141516",
+    theme_color: accent.copper,
+    icons: MANIFEST_ICON_SIZES.map((size) => ({
+      src: `/icon-${size}.png`, sizes: `${size}x${size}`, type: "image/png",
+    })),
+  };
 }
 
 // Constructed once per dashboard server below; the worker owns model configuration,
@@ -939,7 +979,11 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       // route the owner had — is admin-only; the local-admin bypass inside sessionUserFor
       // is what keeps their localhost experience exactly as it was.
       const route = url.pathname.replace(/\/$/, "") || "/";
-      const publicPath = route === "/login" || route === "/logout" || route === "/api/health";
+      // The manifest and its icons carry no secrets (shop name, trade accent colors) and must
+      // be fetchable by a browser before login (installability from /login) and by the counter
+      // role, so they are public like /login itself rather than gated per-role below.
+      const publicPath = route === "/login" || route === "/logout" || route === "/api/health"
+        || route === "/manifest.webmanifest" || route === "/icon-192.png" || route === "/icon-512.png";
       const user = await sessionUserFor(request, runtime);
       if (!publicPath && !user) {
         if (request.method === "GET" && wantsHtml(request)) { redirect(response, "/login"); return; }
@@ -972,6 +1016,17 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       if (request.method === "GET" && route === "/login") {
         response.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" });
         response.end(await loginHtml());
+        return;
+      }
+      if (request.method === "GET" && route === "/manifest.webmanifest") {
+        response.writeHead(200, { "content-type": "application/manifest+json; charset=utf-8", "cache-control": "no-store" });
+        response.end(JSON.stringify(manifestJson(runtime.config.shopName, runtime.trade.accent)));
+        return;
+      }
+      if (request.method === "GET" && (route === "/icon-192.png" || route === "/icon-512.png")) {
+        const size = route === "/icon-192.png" ? 192 : 512;
+        response.writeHead(200, { "content-type": "image/png", "cache-control": "public, max-age=86400" });
+        response.end(iconPng(size, runtime.trade.accent));
         return;
       }
       if (request.method === "GET" && route === "/logout") {

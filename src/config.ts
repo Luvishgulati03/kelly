@@ -5,30 +5,25 @@ import { fileURLToPath } from "node:url";
 import { getActiveProfile } from "./profile.ts";
 import { parseTradeId, tradePack, type TradeId } from "./trade/index.ts";
 
-// Profile-aware env loading: Henry and Kelly have distinct state and env files.
-// - Henry: loads repo .env, respects CWD .env (HENRY_* vars, legacy behavior)
-// - Kelly: uses ~/.kelly state by default, does NOT load Henry's .env
-// This ensures Kelly can coexist with Henry without cross-talk.
+// Profile-aware env loading: Henry and Kelly share one repo .env (disambiguated by
+// HENRY_*/KELLY_* prefixes — see `env()` below) but keep separate state directories.
+// Both profiles root-anchor to the repo .env so every command finds it regardless of
+// the caller's cwd, not just `kelly start`; an already-exported var or a cwd .env still
+// wins, because dotenv never overrides a variable that is already set.
 function loadProfileEnv(): void {
   // Test isolation (tests/isolate.mjs): the owner's repo/cwd .env must never reach a test
   // process. dotenv only fills variables that are unset, so a test that deletes e.g.
   // KELLY_TUNNEL before the first loadConfig() would otherwise get the owner's value back.
   if (process.env.HENRY_TEST_ISOLATION === "1") return;
-  const profile = getActiveProfile();
-  if (profile.id === "henry") {
-    // Henry's historic behavior: repo .env + cwd .env
-    // (dotenv never overrides already-set vars)
-    dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".env") });
-    dotenv.config();
-  } else if (profile.id === "kelly") {
-    // Kelly's behavior: only read explicit KELLY_* and cwd .env
-    // Do NOT read Henry's repo .env to avoid cross-talk
-    dotenv.config(); // Only read from CWD .env if present
-  }
+  dotenv.config({ path: path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", ".env") });
+  dotenv.config();
 }
 
 // Load on first config call (lazy), not at module import time
 let envLoaded = false;
+
+/** The neutral fallback for `ownerName` when no `<PREFIX>OWNER_NAME` is configured. */
+export const DEFAULT_OWNER_NAME = "the owner";
 
 const DEFAULT_SCREENSHOT_CATEGORIES = ["work", "design-reference", "receipts", "memes", "documents", "code", "_unsorted"];
 // No titles are baked in: an unconfigured scout skips with a reason (src/jobs/scout.ts) until
@@ -76,6 +71,12 @@ export interface HenryConfig {
   requireOutboundApproval: boolean;
   /** The owner's own email address (HENRY_OWNER_EMAIL; legacy DAD_EMAIL still honoured). */
   ownerEmail?: string;
+  /**
+   * The owner's own name, used in runtime prompts, messages, and UI text
+   * (HENRY_OWNER_NAME / KELLY_OWNER_NAME). Defaults to the neutral "the owner"
+   * so an unconfigured install never invents or inherits someone else's name.
+   */
+  ownerName: string;
   knowledgeDir: string;
   knowledgeDbPath: string;
   /** Recall-event JSONL sink for src/metrics/recall-metrics.ts (docs/dashboard-design-v2.md §C). */
@@ -99,7 +100,7 @@ export interface HenryConfig {
   /** Operator-notification channel only (never a general send-to-anyone surface). */
   telegramBotToken?: string;
   telegramChatId?: string;
-  /** Explicit opt-in for local code edits and research initiated from Taylor's Telegram DM. */
+  /** Explicit opt-in for local code edits and research initiated from the owner's Telegram DM. */
   telegramOperatorMode: boolean;
   /** The team standup group — the ONLY chat the standup poller reads and the group sender writes. */
   telegramStandupChatId?: string;
@@ -119,14 +120,14 @@ export interface HenryConfig {
   /** PM MODE: Henry operates as a project manager (PMBOK-grounded decisions with rationale). Persisted in settings.json. */
   pmMode: boolean;
   standupDbPath: string;
-  /** Rendered per-day standup summaries Taylor actually reads (`data/standups/<date>.md`). */
+  /** Rendered per-day standup summaries the owner actually reads (`data/standups/<date>.md`). */
   standupsDir: string;
   mailwatchPath: string;
   /** Today's randomized check-times plan (§ mailwatch tick planner) — separate file so a corrupt/racy write never touches the dedupe state in `mailwatchPath`. */
   mailwatchPlanPath: string;
   /** Canonical job-application ledger (keyed company+role, status history) — the source of truth `job-tracker.md` is regenerated from. */
   jobTrackerPath: string;
-  /** Human-readable ledger Taylor actually reads — regenerated from `jobTrackerPath` after every update. */
+  /** Human-readable ledger the owner actually reads — regenerated from `jobTrackerPath` after every update. */
   jobTrackerMarkdownPath: string;
   draftRepliesDir: string;
   /** Morning job-scout role titles (HENRY_JOB_SCOUT_TITLES, comma-separated; empty until configured). */
@@ -137,7 +138,7 @@ export interface HenryConfig {
   scoutDbPath: string;
   /** Learned job-alert profile (jobs alerts-sync) — overrides jobScoutTitles when present. */
   scoutProfilePath: string;
-  /** Per-day ranked shortlists Taylor actually reads (`data/scout/<date>.md`). */
+  /** Per-day ranked shortlists the owner actually reads (`data/scout/<date>.md`). */
   scoutDir: string;
   /** Fixed-per-install trade pack (KELLY_TRADE), chosen at setup; defaults to "electrical". */
   trade: TradeId;
@@ -239,7 +240,7 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
     allowRemoteDashboard: bool(env("ALLOW_REMOTE_DASHBOARD"), false),
     provider: profile.id === "kelly" ? "codex" : env("PROVIDER") === "claude" ? "claude" : "codex",
     // Keep the model policy inside Henry instead of inheriting an operator's global
-    // Codex setting. Taylor's orchestration contract: Sol coordinates ordinary
+    // Codex setting. The owner's orchestration contract: Sol coordinates ordinary
     // work, a cheaper 5.5 worker handles t0 tasks, and Luna gets the hard t2 work.
     codexModel: env("CODEX_MODEL") || "gpt-5.6-sol",
     codexT0Model: env("CODEX_T0_MODEL") || "gpt-5.5",
@@ -258,6 +259,7 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
     claudeT2Model: profile.id === "kelly" ? undefined : env("CLAUDE_T2_MODEL") || "opus",
     requireOutboundApproval: bool(env("REQUIRE_OUTBOUND_APPROVAL"), true),
     ownerEmail: env("OWNER_EMAIL") || process.env.DAD_EMAIL || undefined,
+    ownerName: env("OWNER_NAME") || DEFAULT_OWNER_NAME,
     knowledgeDir: resolveFromRoot(rootDir, env("KNOWLEDGE_DIR"), "knowledge"),
     knowledgeDbPath: path.join(dataDir, "knowledge.db"),
     metricsDir: path.join(dataDir, "metrics"),

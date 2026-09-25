@@ -16,8 +16,8 @@ export interface LinkedInDraft {
 }
 
 /**
- * LinkedIn post drafting: one t1 read-only call in Taylor's voice, grounded in personality.md
- * and resume.md. DRAFT ONLY — there is no posting integration; Taylor reviews and posts by hand.
+ * LinkedIn post drafting: one t1 read-only call in the owner's voice, grounded in personality.md
+ * and resume.md. DRAFT ONLY — there is no posting integration; the owner reviews and posts by hand.
  */
 export class LinkedInDraftService {
   constructor(
@@ -34,19 +34,19 @@ export class LinkedInDraftService {
     const persona = await fs.readFile(path.join(this.config.rootDir, "personality.md"), "utf8").catch(() => "");
     const resume = await fs.readFile(this.config.resumeSourcePath, "utf8").catch(() => "");
     const memoryContext = await this.memory.context(
-      `LinkedIn post about: ${trimmed}. Taylor's voice, career narrative, recent work, positioning for Product Manager roles.`,
+      `LinkedIn post about: ${trimmed}. ${this.config.ownerName}'s voice, career narrative, recent work, positioning for Product Manager roles.`,
       8,
     ).catch(() => "");
 
     const prompt = [
-      "Draft a LinkedIn post in Taylor's voice on the topic below. Taylor is a product-minded software engineer targeting Product Manager roles — write a substantive builder-narrative post grounded in real work, not a listicle or hype announcement.",
+      `Draft a LinkedIn post in ${this.config.ownerName}'s voice on the topic below. ${this.config.ownerName} is a product-minded software engineer targeting Product Manager roles — write a substantive builder-narrative post grounded in real work, not a listicle or hype announcement.`,
       "Rules: 120-220 words. Hook first line (never 'Excited to announce...' or similar openers). No hashtag spam — zero to two hashtags, only if they add real discoverability. No emojis unless one lands naturally and sparingly. No generic filler, no forced humility, no flattery padding.",
       "Ground every concrete claim (roles, metrics, outcomes) in the resume and recalled-memory context below — never invent achievements, employers, or numbers not present there. If the topic needs a detail you don't have, write around it rather than inventing it.",
       "Return ONLY the finished post text as markdown (plain paragraphs, no heading, no commentary about the post).",
       `\n--- topic ---\n${trimmed}`,
       `\n--- personality / voice notes ---\n${persona || "n/a"}`,
       `\n--- resume highlights ---\n${resume || "n/a"}`,
-      `\n--- recalled memories (Taylor's thinking) ---\n${memoryContext || "n/a"}`,
+      `\n--- recalled memories (${this.config.ownerName}'s thinking) ---\n${memoryContext || "n/a"}`,
     ].join("\n");
 
     const result = await this.runner.run(prompt, { role: "linkedin-draft", readOnly: true, tier: "t1" });

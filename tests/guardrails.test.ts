@@ -5,11 +5,11 @@ import { assertOutboundExecutionClaim } from "../src/guardrails.ts";
 test("outbound guardrail rejects email sends before execution claim", () => {
   assert.throws(
     () => assertOutboundExecutionClaim({ kind: "gmail.send", status: "pending" }),
-    /Taylor's explicit approval/,
+    /the owner's explicit approval/,
   );
   assert.throws(
     () => assertOutboundExecutionClaim({ kind: "gmail.send", status: "approved" }),
-    /Taylor's explicit approval/,
+    /the owner's explicit approval/,
   );
   assert.doesNotThrow(() => assertOutboundExecutionClaim({ kind: "gmail.send", status: "executing" }));
 });

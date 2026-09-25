@@ -61,7 +61,7 @@ test("updateTracker: a new application creates an entry and regenerates the mark
   ]);
   assert.equal(result.created, 1);
   assert.equal(result.changed, 0);
-  // Taylor's rule: an "applied" acknowledgement is INDEXED but never notified.
+  // The owner's rule: an "applied" acknowledgement is INDEXED but never notified.
   assert.deepEqual(result.notifications, []);
   assert.equal(result.events.length, 1, "the event still reaches Engram even with no notification");
 

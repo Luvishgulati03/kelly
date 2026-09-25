@@ -9,7 +9,7 @@ import dotenv from "dotenv";
 
 /**
  * `kelly tunnel setup <hostname>`: a one-time, idempotent setup flow for putting Kelly on the
- * owner's own Cloudflare domain (`https://kelly-test.<domain>`), instead of Tailscale Funnel.
+ * owner's own Cloudflare domain (`https://kelly.<domain>`), instead of Tailscale Funnel.
  * Every external call (cloudflared, DNS resolution, filesystem) goes through the injected
  * CloudflareSetupDeps so tests never spawn the real `cloudflared` binary or touch a real HOME.
  *
@@ -54,16 +54,16 @@ export interface CloudflareStatusReport {
 const DNS_TIMEOUT_MS = 3_000;
 const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i;
 
-/** Lowercase DNS hostname, no scheme, no path, at least one dot (e.g. `kelly-test.example.com`). */
+/** Lowercase DNS hostname, no scheme, no path, at least one dot (e.g. `kelly.example.com`). */
 export function validateHostname(raw: string): string {
   const hostname = (raw ?? "").trim();
-  if (!hostname) throw new Error("Usage: kelly tunnel setup <hostname> [--name kelly-test]");
+  if (!hostname) throw new Error("Usage: kelly tunnel setup <hostname> [--name kelly]");
   if (hostname.includes("://")) throw new Error(`Hostname must not include a scheme (http:// or https://): ${hostname}`);
   if (hostname.includes("/")) throw new Error(`Hostname must not include a path: ${hostname}`);
   if (hostname !== hostname.toLowerCase()) throw new Error(`Hostname must be lowercase: ${hostname}`);
   const pattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
   if (!pattern.test(hostname)) {
-    throw new Error(`"${hostname}" does not look like a DNS hostname, e.g. kelly-test.example.com`);
+    throw new Error(`"${hostname}" does not look like a DNS hostname, e.g. kelly.example.com`);
   }
   return hostname;
 }
@@ -203,7 +203,7 @@ export interface CloudflareTunnelSetupOptions {
 /** Runs the full idempotent setup flow described in docs/modules/remote-access.md. */
 export async function runCloudflareTunnelSetup(rawHostname: string, options: CloudflareTunnelSetupOptions, deps: CloudflareSetupDeps): Promise<void> {
   const hostname = validateHostname(rawHostname);
-  const name = options.name?.trim() || "kelly-test";
+  const name = options.name?.trim() || "kelly";
 
   const cloudflaredPath = await findCloudflared(deps);
   if (!cloudflaredPath) {

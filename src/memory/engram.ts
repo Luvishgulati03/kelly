@@ -5,6 +5,7 @@ import { Engram } from "engram-memory";
 import type { GraphExport, RecallResult } from "engram-memory";
 import type { HenryConfig } from "../config.ts";
 import type { ActivityLog } from "../activity.ts";
+import { getActiveProfile } from "../profile.ts";
 import { LocalEmbeddingProvider } from "../embeddings.ts";
 import { hashQuery, planContextInjection, recordRecallEvent, recordRecallTrace } from "../metrics/recall-metrics.ts";
 
@@ -50,10 +51,11 @@ export class HenryMemory {
     const stats = this.engine.stats();
     const previous = await fs.readFile(this.embeddingMarkerPath, "utf8").catch(() => null);
     if (stats.count > 0 && previous !== null && previous.trim() !== currentProvider) {
+      const bin = getActiveProfile().name.toLowerCase();
       console.warn(
-        `Henry memory: embedding provider changed (was "${previous.trim()}", now "${currentProvider}"). ` +
+        `${getActiveProfile().name} memory: embedding provider changed (was "${previous.trim()}", now "${currentProvider}"). ` +
         `Existing vectors in ${this.config.dbPath} were embedded with the old provider and won't recall well ` +
-        `against new queries. Run \`henry memory index --fresh\` once to re-embed.`,
+        `against new queries. Run \`${bin} memory index --fresh\` once to re-embed.`,
       );
       // Keep the OLD marker on mismatch: overwriting it here would self-silence
       // this warning after a single startup while the stale vectors are still on

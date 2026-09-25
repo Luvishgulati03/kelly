@@ -30,8 +30,9 @@ tests, `AGENTS.md`, and `SETUP.md` win when they disagree.
 
 ## Run it
 
-Run Kelly commands from the repository root. Kelly reads `.env` from the current
-directory; only `kelly start` finds the repository `.env` from anywhere.
+Every Kelly command finds the repository's own `.env` regardless of your current
+directory (an already-exported variable, or a `.env` in the current directory, still
+wins).
 
 ```bash
 node bin/kelly.mjs start                           # dashboard (7338) + voice worker (8765) in a new Terminal window

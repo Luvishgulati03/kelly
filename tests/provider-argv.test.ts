@@ -14,7 +14,7 @@ import type { DispatchTier, ProviderName } from "../src/types.ts";
 /**
  * THE ARGV PINS.
  *
- * Henry is agentic by design: its brain runs CLI commands and edits files on Taylor's machine,
+ * Henry is agentic by design: its brain runs CLI commands and edits files on the owner's machine,
  * and that is the product. The argv each provider CLI is spawned with is therefore load-bearing
  * — `--dangerously-skip-permissions` on claude, `danger-full-access` on codex unless the caller
  * asked for `readOnly`.
@@ -54,7 +54,7 @@ function everyArgv(): Shape[] {
 
 test("claude argv is the prompt then --dangerously-skip-permissions", () => {
   // This is the argv Henry's brain has always spawned, and it is how Henry edits files on
-  // Taylor's machine.
+  // the owner's machine.
   assert.deepEqual(claudeArgs("do the thing"), ["-p", "do the thing", "--dangerously-skip-permissions"]);
   assert.deepEqual(
     claudeArgs("p", { tier: "t2", model: "sonnet", session: { id: "abc", fresh: false } }),

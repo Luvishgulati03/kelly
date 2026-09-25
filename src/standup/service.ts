@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { HenryConfig } from "../config.ts";
+import { DEFAULT_OWNER_NAME, type HenryConfig } from "../config.ts";
 import type { ActivityLog } from "../activity.ts";
 import type { ProviderRunner } from "../providers/runner.ts";
 import type { HenryMemory } from "../memory/engram.ts";
@@ -223,7 +223,7 @@ export class StandupService {
 
   /**
    * Composes one session's team summary from the PARSED rows (structure came from scan),
-   * saves it (SQLite + data/standups/<date>[-evening].md), remembers it, and DMs Taylor.
+   * saves it (SQLite + data/standups/<date>[-evening].md), remembers it, and DMs the owner.
    * The EVENING summary is a progress report: the morning summary is included as context
    * so it reports delivered-vs-planned per person, not just a second list. The Missing
    * list is computed in code against the roster, never model-invented. A provider failure
@@ -277,10 +277,10 @@ export class StandupService {
     await fs.writeFile(filePath, `${markdown}\n`, "utf8");
 
     const blockersText = rows.flatMap((row) => row.parsed?.blockers ?? []).join(" ");
-    // Owner's name, configured via KELLY_OWNER_NAME/HENRY_OWNER_NAME — unset means this
-    // escalation never fires rather than matching a hardcoded default.
-    const ownerName = (process.env.KELLY_OWNER_NAME || process.env.HENRY_OWNER_NAME || "").trim();
-    const mentionsOwner = ownerName
+    // Owner's name, configured via KELLY_OWNER_NAME/HENRY_OWNER_NAME (config.ownerName) —
+    // the neutral default never fires this escalation rather than matching a hardcoded name.
+    const ownerName = this.config.ownerName.trim();
+    const mentionsOwner = ownerName && ownerName !== DEFAULT_OWNER_NAME
       ? new RegExp(ownerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(blockersText)
       : false;
     await this.memory?.remember(`${label} summary ${date}:\n${markdown.slice(0, 2000)}`, {

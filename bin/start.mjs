@@ -11,23 +11,41 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const launcher = path.join(root, "bin/kelly.mjs");
 export const shellQuote = (value) => "'" + value.replaceAll("'", "'\\''") + "'";
 
+/**
+ * publicFlag: `false` (no tunnel flag at all) | `true` (bare `--public`) | `"cloudflare"` /
+ * `"funnel"` (`--public <transport>`, forcing one PUBLIC transport) | `"private"`
+ * (`--private tailscale`, forcing tailnet-only Tailscale Serve — never public).
+ */
 export function terminalCommand(node, entry, demo = false, trade, publicFlag = false) {
-  const publicArgs = publicFlag === "tailscale" || publicFlag === "cloudflare" ? ["--public", publicFlag] : publicFlag ? ["--public"] : [];
+  const publicArgs =
+    publicFlag === "cloudflare" || publicFlag === "funnel" ? ["--public", publicFlag]
+    : publicFlag === "private" ? ["--private", "tailscale"]
+    : publicFlag ? ["--public"]
+    : [];
   return [node, entry, "start", "--foreground", ...(demo ? ["--demo"] : []), ...(trade ? ["--trade", trade] : []), ...publicArgs].map(shellQuote).join(" ");
 }
 
 /**
- * `--public` (with or without `--demo`) turns on a public tunnel; otherwise the tunnel stays
- * off, as today. `--public tailscale` / `--public cloudflare` force one transport. Bare
- * `--public` picks Cloudflare when the effective env (process env plus the repo .env this
- * launcher already loads) has KELLY_CLOUDFLARE_TUNNEL configured (see `kelly tunnel setup`),
- * otherwise Tailscale Funnel.
+ * `--public` (with or without `--demo`) turns on a PUBLIC tunnel reachable by anyone;
+ * otherwise the tunnel stays off, as today. Bare `--public` picks Cloudflare when the
+ * effective env (process env plus the repo .env this launcher already loads) has
+ * KELLY_CLOUDFLARE_TUNNEL configured (see `kelly tunnel setup`), otherwise Tailscale Funnel
+ * (also a public link). `--public cloudflare` / `--public funnel` force one of those two
+ * PUBLIC transports regardless of env.
+ *
+ * `--private tailscale` is a separate, deliberately different flag: it starts Tailscale
+ * Serve, which is reachable ONLY from devices on the same tailnet, never the open internet.
+ * There is no `--public tailscale` — that spelling used to mean Serve, which silently
+ * mislabelled a private link as public; the private transport now only has the one honest
+ * spelling.
  */
 export function resolveTunnelMode(args, env = process.env) {
+  const privateIndex = args.indexOf("--private");
+  if (privateIndex !== -1 && args[privateIndex + 1] === "tailscale") return "tailscale";
   const index = args.indexOf("--public");
   if (index === -1) return "off";
   const forced = args[index + 1];
-  if (forced === "tailscale" || forced === "cloudflare") return forced;
+  if (forced === "cloudflare" || forced === "funnel") return forced;
   return env.KELLY_CLOUDFLARE_TUNNEL ? "cloudflare" : "funnel";
 }
 
@@ -164,26 +182,42 @@ export async function supervise(commands, ready, options = {}) {
 
 export async function startKelly(args) {
   if (args.includes("--help")) {
-    console.log("kelly start: dashboard + local voice in a new macOS Terminal window.\nkelly start --foreground: run both here; Ctrl+C stops both.\nkelly start --demo: isolated fictional catalogue on a local port.\nkelly start --demo --trade boutique|electrical: pick the demo trade pack (default electrical).\nkelly start [--demo] --public: turns on a public tunnel so the link is reachable by anyone — Cloudflare (your own domain, see `kelly tunnel setup <hostname>`) when KELLY_CLOUDFLARE_TUNNEL is configured, otherwise Tailscale Funnel; keeps this Mac awake while it runs. Requires an admin account (kelly users add <name> --role admin [--demo <trade>]).\nkelly start --public tailscale|cloudflare: force one tunnel transport instead of the automatic choice.\nUses Kelly's repository .env. No downloads. Without --public, remote tunnels are disabled.");
+    console.log("kelly start: dashboard + local voice in a new macOS Terminal window.\nkelly start --foreground: run both here; Ctrl+C stops both.\nkelly start --demo: isolated fictional catalogue on a local port.\nkelly start --demo --trade boutique|electrical: pick the demo trade pack (default electrical).\nkelly start [--demo] --public: turns on a PUBLIC tunnel so the link is reachable by anyone — Cloudflare (your own domain, see `kelly tunnel setup <hostname>`) when KELLY_CLOUDFLARE_TUNNEL is configured, otherwise Tailscale Funnel; keeps this Mac awake while it runs. Requires an admin account (kelly users add <name> --role admin [--demo <trade>]).\nkelly start --public cloudflare|funnel: force one PUBLIC transport instead of the automatic choice.\nkelly start --private tailscale: starts Tailscale Serve instead — reachable ONLY from devices on your own tailnet, never the public internet.\nUses Kelly's repository .env. No downloads. Without --public or --private, remote tunnels are disabled.");
     return;
   }
   const tradeIndex = args.indexOf("--trade");
   const trade = tradeIndex === -1 ? undefined : args[tradeIndex + 1];
   let knownFlags = tradeIndex === -1 ? args : [...args.slice(0, tradeIndex), ...args.slice(tradeIndex + 2)];
+
   const publicIndexInArgs = args.indexOf("--public");
   const publicValueRaw = publicIndexInArgs === -1 ? undefined : args[publicIndexInArgs + 1];
-  const publicValue = publicValueRaw === "tailscale" || publicValueRaw === "cloudflare" ? publicValueRaw : undefined;
+  const publicValueLooksLikeFlag = publicValueRaw === undefined || publicValueRaw.startsWith("--");
+  const publicValue = !publicValueLooksLikeFlag && (publicValueRaw === "cloudflare" || publicValueRaw === "funnel") ? publicValueRaw : undefined;
+  if (publicIndexInArgs !== -1 && !publicValueLooksLikeFlag && !publicValue) {
+    throw new Error("--public accepts only cloudflare or funnel. For tailnet-only Tailscale Serve, use --private tailscale instead.");
+  }
   if (publicValue) {
     const publicIndexInKnown = knownFlags.indexOf("--public");
     knownFlags = [...knownFlags.slice(0, publicIndexInKnown + 1), ...knownFlags.slice(publicIndexInKnown + 2)];
   }
-  if (knownFlags.some((arg) => !["--foreground", "--demo", "--public"].includes(arg))) throw new Error("Usage: kelly start [--foreground] [--demo] [--trade boutique|electrical] [--public [tailscale|cloudflare]]");
+
+  const privateIndexInArgs = args.indexOf("--private");
+  const privateValueRaw = privateIndexInArgs === -1 ? undefined : args[privateIndexInArgs + 1];
+  if (privateIndexInArgs !== -1 && privateValueRaw !== "tailscale") throw new Error("--private accepts only tailscale (Tailscale Serve, tailnet-only).");
+  if (privateIndexInArgs !== -1) {
+    const privateIndexInKnown = knownFlags.indexOf("--private");
+    knownFlags = [...knownFlags.slice(0, privateIndexInKnown + 1), ...knownFlags.slice(privateIndexInKnown + 2)];
+  }
+
+  if (knownFlags.some((arg) => !["--foreground", "--demo", "--public", "--private"].includes(arg))) throw new Error("Usage: kelly start [--foreground] [--demo] [--trade boutique|electrical] [--public [cloudflare|funnel]] [--private tailscale]");
+  if (publicIndexInArgs !== -1 && privateIndexInArgs !== -1) throw new Error("Use either --public or --private tailscale, not both.");
   if (trade !== undefined && !args.includes("--demo")) throw new Error("--trade is only valid with --demo.");
   if (trade !== undefined && !["boutique", "electrical"].includes(trade)) throw new Error("--trade must be boutique or electrical.");
+  const publicFlag = privateIndexInArgs !== -1 ? "private" : publicValue || publicIndexInArgs !== -1;
   if (process.platform === "darwin" && !args.includes("--foreground")) {
     const script = 'on run argv\ntell application "Terminal"\nactivate\ndo script (item 1 of argv)\nend tell\nend run';
     await new Promise((resolve, reject) => {
-      const child = spawn("/usr/bin/osascript", ["-e", script, terminalCommand(process.execPath, launcher, args.includes("--demo"), trade, publicValue || args.includes("--public"))], { shell: false, stdio: "inherit" });
+      const child = spawn("/usr/bin/osascript", ["-e", script, terminalCommand(process.execPath, launcher, args.includes("--demo"), trade, publicFlag)], { shell: false, stdio: "inherit" });
       child.once("error", reject);
       child.once("exit", (code) => code === 0 ? resolve() : reject(new Error("Could not open Terminal. Run kelly start --foreground instead.")));
     });

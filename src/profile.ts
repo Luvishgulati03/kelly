@@ -27,7 +27,7 @@ const PROFILES: Record<AgentProfileId, AgentProfile> = {
   kelly: {
     id: "kelly",
     name: "Kelly",
-    description: "Electrical-shop quotation assistant",
+    description: "Voice counter assistant for small shops",
     envPrefix: "KELLY_",
     excludedServices: new Set([
       "gmail",

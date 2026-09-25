@@ -52,7 +52,7 @@ async function readResumeSource(sourcePath: string): Promise<string> {
 }
 
 /**
- * HARD RAIL (Taylor, 2026-08-09: "i dont want my linkedin to be banned"): automation
+ * HARD RAIL (the owner, 2026-08-09: "i dont want my linkedin to be banned"): automation
  * never fills or submits on LinkedIn — not with approval, not in any mode. LinkedIn's
  * bot detection restricts accounts over automated Easy Apply, and his account is
  * job-search-critical. Reading/preparing stays allowed (answers + tailored resume are
@@ -119,7 +119,7 @@ function postingFromSnapshot(snapshot: JobPageSnapshot): JobPosting {
 
 function renderApprovalBody(draft: JobApplicationDraft): string {
   const answers = Object.entries(draft.answers).map(([question, answer]) => `### ${question}\n${answer}`).join("\n\n");
-  const missing = draft.missingFacts.length ? `\n\nMissing facts requiring Taylor's input:\n${draft.missingFacts.map((item) => `- ${item}`).join("\n")}` : "";
+  const missing = draft.missingFacts.length ? `\n\nMissing facts requiring the owner's input:\n${draft.missingFacts.map((item) => `- ${item}`).join("\n")}` : "";
   const resume = draft.resumePdfPath ? `\n\n## Resume attachment\nPDF: ${draft.resumePdfPath}${draft.resumeMarkdownPath ? `\nMarkdown: ${draft.resumeMarkdownPath}` : "\nOriginal supplied PDF (unchanged)."}` : "";
   return [
     `Job application: ${draft.posting.title} at ${draft.posting.company}`,
@@ -133,7 +133,7 @@ function renderApprovalBody(draft: JobApplicationDraft): string {
     resume,
     missing,
     "",
-    "Submitting this application requires Taylor's explicit approval.",
+    "Submitting this application requires the owner's explicit approval.",
   ].join("\n");
 }
 

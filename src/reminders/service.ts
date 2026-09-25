@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { Cron } from "croner";
 import type { HenryConfig } from "../config.ts";
 import type { ActivityLog } from "../activity.ts";
+import { getActiveProfile } from "../profile.ts";
 
 export type ReminderStatus = "pending" | "fired" | "cancelled";
 
@@ -210,7 +211,7 @@ export class ReminderService {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
         const parked = `${this.config.remindersPath}.corrupt-${Date.now()}`;
         await fs.rename(this.config.remindersPath, parked).catch(() => undefined);
-        console.error(`henry reminders: could not parse ${this.config.remindersPath} — parked at ${parked}`);
+        console.error(`${getActiveProfile().name.toLowerCase()} reminders: could not parse ${this.config.remindersPath} — parked at ${parked}`);
       }
       this.items = [];
     }
