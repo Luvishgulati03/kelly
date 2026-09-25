@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import http from "node:http";
+import zlib from "node:zlib";
 import { chromium, type Browser, type Page } from "playwright";
 
 function tone(samples: number): Buffer {
@@ -122,6 +123,8 @@ interface ServerState {
   /* Sample counts of a single /api/voice/speak response, one MediaRecorder-style
      framed chunk per entry. Defaults to the original two 0.1s frames. */
   speakFrameSamplesList: number[];
+  /* PNG bytes served at /api/designs/:id/image and /thumb, keyed by design id. */
+  designImages: Map<string, Buffer>;
 }
 
 async function createServer(html: string): Promise<ServerState> {
@@ -133,6 +136,7 @@ async function createServer(html: string): Promise<ServerState> {
     html, parentMessagesRoute: false,
     chatScenario: null, keepScenarioAliveOnAbort: false, pendingScenarioTimers: [],
     speakFrameSamplesList: [1600, 1600],
+    designImages: new Map(),
   };
   const server = http.createServer(async (req, res) => {
     const route = pathOf(req.url);
@@ -208,6 +212,12 @@ async function createServer(html: string): Promise<ServerState> {
       };
       if (state.chatDoneDelayMs > 0) setTimeout(send, state.chatDoneDelayMs); else send();
       return;
+    }
+    const designImage = route.match(/^\/api\/designs\/([^/]+)\/(image|thumb)$/);
+    if (designImage) {
+      const png = state.designImages.get(designImage[1]);
+      if (!png) { res.writeHead(404).end(); return; }
+      res.setHeader("content-type", "image/png"); res.end(png); return;
     }
     if (route === "/api/voice/speak") {
       state.speakRequestTimes.push(Date.now());
@@ -710,6 +720,268 @@ test("talk engine: filler default (1200ms) fires within 1.0-2.5s of the chat/sen
     assert.equal(state.fillerCalls.length, 1, "exactly one filler request on this slow turn");
     const gap = state.fillerCalls[0].at - state.chatRequestTimes[0];
     assert.ok(gap >= 1000 && gap <= 2500, `filler requested ${gap}ms after chat/send (expected 1000-2500ms)`);
+    await page.close();
+  } finally {
+    await browser.close();
+    await closeServer(state);
+  }
+});
+
+/* ---------------------------------------------------------------- designs showcase ---------------------------------------------------------------- */
+
+const PNG_CRC = (() => {
+  const table = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; table[n] = c >>> 0; }
+  return table;
+})();
+function pngChunk(type: string, data: Buffer): Buffer {
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  let c = 0xffffffff; for (const byte of body) c = PNG_CRC[(c ^ byte) & 0xff] ^ (c >>> 8);
+  const len = Buffer.alloc(4); len.writeUInt32BE(data.length, 0);
+  const crc = Buffer.alloc(4); crc.writeUInt32BE((c ^ 0xffffffff) >>> 0, 0);
+  return Buffer.concat([len, body, crc]);
+}
+type Rgb = [number, number, number];
+/* A portrait "garment" stand-in: a diagonal two-colour gradient with a soft light disc, so a
+   crossfade between two of them is visible in a screenshot. */
+function gradientPng(width: number, height: number, a: Rgb, b: Rgb): Buffer {
+  const raw = Buffer.alloc((width * 3 + 1) * height);
+  let o = 0;
+  for (let y = 0; y < height; y++) {
+    raw[o++] = 0;
+    for (let x = 0; x < width; x++) {
+      const t = Math.min(1, Math.max(0, (x / width + y / height) / 2));
+      const dx = x - width * .5, dy = y - height * .38;
+      const glow = Math.max(0, 1 - Math.sqrt(dx * dx + dy * dy) / (width * .42)) * .45;
+      for (let k = 0; k < 3; k++) raw[o++] = Math.round(Math.min(255, (a[k] * (1 - t) + b[k] * t) * (1 - glow) + 255 * glow));
+    }
+  }
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), pngChunk("IHDR", ihdr), pngChunk("IDAT", zlib.deflateSync(raw)), pngChunk("IEND", Buffer.alloc(0))]);
+}
+const PALETTE: [Rgb, Rgb][] = [
+  [[196, 40, 88], [250, 170, 60]],
+  [[30, 110, 200], [60, 210, 180]],
+  [[120, 50, 170], [240, 100, 160]],
+  [[20, 140, 90], [230, 220, 90]],
+  [[200, 90, 30], [110, 30, 60]],
+];
+function design(n: number, category: string, caption: string) {
+  const id = "dsg_" + String(n).padStart(16, "0");
+  return { id, category, tags: [], caption, url: `/api/designs/${id}/image`, thumb: `/api/designs/${id}/thumb` };
+}
+const THREE = [design(1, "lehenga", "Bridal lehenga, zari border"), design(2, "saree", "Banarasi silk saree"), design(3, "suit", "Anarkali suit with dupatta")];
+const TWO = [design(4, "gown", "Evening gown, sequin bodice"), design(5, "lehenga", "Pastel lehenga")];
+const ONE = [design(1, "lehenga", "Bridal lehenga, zari border")];
+function seedImages(state: ServerState) {
+  for (let n = 1; n <= 5; n++) state.designImages.set("dsg_" + String(n).padStart(16, "0"), gradientPng(300, 420, ...PALETTE[n - 1]));
+}
+function designsTurn(designs: unknown[]): ScenarioStep[] {
+  return [
+    { delayMs: 0, event: "designs", data: { designs } },
+    { delayMs: 10, event: "spoken", data: { text: "Here are some designs." } },
+    { delayMs: 40, event: "done", data: { response: "", spoken: "" } },
+  ];
+}
+const plainTurn: ScenarioStep[] = [
+  { delayMs: 0, event: "spoken", data: { text: "Two suits cost 2,205 rupees." } },
+  { delayMs: 40, event: "done", data: { response: "", spoken: "" } },
+];
+const SHOT_DIR = "/private/tmp/claude-501/-Users-luvishgulati-Downloads-henry/097420ed-722e-42f7-9330-d4ccb33257ef/scratchpad/dash";
+const LAUNCH_ARGS = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"];
+const showcaseOpen = (page: Page) => page.evaluate(() => (window as any).KellyTalk.testing.showcaseOpen as boolean);
+const slideIndex = (page: Page) => page.evaluate(() => (window as any).KellyTalk.testing.slideIndex as number);
+const stateText = (page: Page) => page.evaluate(() => document.querySelector("#state")?.textContent);
+
+test("talk showcase: designs open a glass slideshow that blends, navigates, and closes without ending the session", { timeout: 120000 }, async () => {
+  const html = await loadHtml();
+  const state = await createServer(html);
+  seedImages(state);
+  const browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS });
+  const errors: string[] = [];
+  try {
+    const page = await browser.newPage({ viewport: { width: 1024, height: 768 } });
+    await page.route("https://**/*", (route) => route.abort());
+    await page.addInitScript({ content: FAKE_VAD_INIT_SRC });
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(`${state.base}/talk`);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Tap to talk");
+    assert.equal(await page.locator("#showcase").isHidden(), true, "showcase starts hidden");
+    await page.evaluate(() => { (window as any).KellyTalk.testing.slideMs = 300; });
+    await press(page);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+
+    // --- a designs turn opens the showcase and docks the orb ---
+    state.chatScenario = designsTurn(THREE);
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => (window as any).KellyTalk.testing.showcaseOpen, { timeout: 5000 });
+    const dialog = page.getByRole("dialog", { name: "Designs" });
+    await dialog.waitFor({ state: "visible" });
+    assert.equal(await dialog.getAttribute("aria-modal"), "false", "non-modal: the conversation continues");
+    assert.equal(await page.locator("#talk").evaluate((el) => el.classList.contains("mini")), true, "the orb container is docked small");
+    assert.equal(await page.evaluate(() => document.body.classList.contains("showcase-on")), true);
+    assert.equal(await page.locator("#scDots .sc-dot").count(), 3, "one dot per design");
+    await page.waitForFunction(() => (window as any).KellyTalk.testing.slideIndex >= 1, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    assert.equal(await showcaseOpen(page), true, "still open once the reply finished and the mic re-armed");
+    const docked = await page.locator("#talk").boundingBox();
+    assert.ok(docked && docked.width > 60 && docked.width < 130, `mini orb is about 96px (got ${docked?.width})`);
+
+    // --- navigation: freeze auto-advance, then prev/next, dots, arrow keys ---
+    await page.evaluate(() => { (window as any).KellyTalk.testing.slideMs = 60000; });
+    await page.waitForTimeout(800);
+    const start = await slideIndex(page);
+    await page.getByRole("button", { name: "Next design", exact: true }).click();
+    assert.equal(await slideIndex(page), (start + 1) % 3, "next moves forward");
+    await page.getByRole("button", { name: "Previous design", exact: true }).click();
+    assert.equal(await slideIndex(page), start, "previous moves back");
+    await page.locator("#scDots .sc-dot").nth(2).click();
+    assert.equal(await slideIndex(page), 2, "a dot jumps to its slide");
+    await page.waitForFunction(() => document.querySelectorAll("#scDots .sc-dot")[2].getAttribute("aria-current") === "true");
+    await page.locator("body").press("ArrowRight");
+    assert.equal(await slideIndex(page), 0, "ArrowRight wraps to the first slide");
+    await page.waitForFunction(() => document.querySelector("#scText")?.textContent === "Bridal lehenga, zari border", { timeout: 3000 });
+    assert.equal(await page.locator("#scCount").textContent(), "1 / 3");
+
+    // --- a tap on the image opens the lightbox at that slide ---
+    await page.mouse.move(0, 0);
+    await page.locator("#scStage").click({ position: { x: 200, y: 150 } });
+    await page.waitForFunction(() => (document.getElementById("lightbox") as HTMLDialogElement).open, { timeout: 3000 });
+    assert.equal(await page.evaluate(() => document.getElementById("lightbox")!.dataset.index), "0", "lightbox opens at the tapped slide");
+    await page.locator("#lbClose").click();
+    assert.equal(await showcaseOpen(page), true, "closing the lightbox leaves the showcase open");
+
+    // --- Escape closes the showcase, not the session ---
+    await page.locator("body").press("Escape");
+    await page.waitForFunction(() => !(window as any).KellyTalk.testing.showcaseOpen, { timeout: 3000 });
+    await page.waitForFunction(() => document.getElementById("showcase")!.hidden, { timeout: 3000 });
+    assert.equal(await stateText(page), "Listening", "session still listening after Escape");
+    assert.equal(await page.evaluate(() => (window as any).KellyTalk.testing.micActive), true, "mic still active");
+    assert.equal(await page.locator("#talk").getAttribute("aria-pressed"), "true");
+    assert.equal(await page.locator("#talk").evaluate((el) => el.classList.contains("mini")), false, "the orb returns to full size");
+
+    // --- reopen, then a second designs turn replaces the slides in place ---
+    state.chatScenario = designsTurn(THREE);
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => (window as any).KellyTalk.testing.showcaseOpen, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    await page.locator("#scDots .sc-dot").nth(1).click();
+    await page.evaluate(() => {
+      (window as any).__openSamples = [];
+      (window as any).__openSampler = setInterval(() => (window as any).__openSamples.push((window as any).KellyTalk.testing.showcaseOpen), 10);
+    });
+    state.chatScenario = designsTurn(TWO);
+    await page.evaluate(() => (window as any).__fakeVad.speechStart());
+    await page.evaluate(() => (window as any).__fakeVad.realStart());
+    assert.equal(await showcaseOpen(page), true, "the customer starting to speak does not close the showcase");
+    await page.evaluate(async () => { await Promise.resolve(); (window as any).__fakeVad.speechEnd(new Float32Array(16000)); });
+    await page.waitForFunction(() => document.querySelectorAll("#scDots .sc-dot").length === 2, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    const samples: boolean[] = await page.evaluate(() => { clearInterval((window as any).__openSampler); return (window as any).__openSamples; });
+    assert.ok(samples.length > 5 && samples.every(Boolean), "never closed while the slides were replaced");
+    assert.equal(await slideIndex(page), 0, "the new set restarts at slide 1");
+    await page.waitForFunction(() => document.querySelector("#scText")?.textContent === "Evening gown, sequin bodice", { timeout: 3000 });
+    assert.equal(await page.locator("#scCount").textContent(), "1 / 2");
+
+    // --- a following turn whose done arrives without designs closes it ---
+    state.chatScenario = plainTurn;
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => !(window as any).KellyTalk.testing.showcaseOpen, { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+
+    // --- a single design: no dots, no arrows, no auto-advance ---
+    await page.evaluate(() => { (window as any).KellyTalk.testing.slideMs = 300; });
+    state.chatScenario = designsTurn(ONE);
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => (window as any).KellyTalk.testing.showcaseOpen, { timeout: 5000 });
+    await page.waitForTimeout(1200);
+    assert.equal(await slideIndex(page), 0, "one design never auto-advances");
+    assert.equal(await page.locator("#scDots").isVisible(), false, "no dots for one design");
+    assert.equal(await page.locator("#scNext").isVisible(), false, "no arrows for one design");
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+
+    // --- ending the session closes it ---
+    await pressLabeled(page, "End session");
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Tap to talk", { timeout: 5000 });
+    assert.equal(await showcaseOpen(page), false, "teardown closes the showcase");
+    await page.waitForFunction(() => document.getElementById("showcase")!.hidden, { timeout: 3000 });
+    assert.deepEqual(errors, [], "no page errors");
+    await page.close();
+  } finally {
+    await browser.close();
+    await closeServer(state);
+  }
+});
+
+test("talk showcase: screenshots at phone, tablet and desktop sizes", { timeout: 120000 }, async () => {
+  const html = await loadHtml();
+  const state = await createServer(html);
+  seedImages(state);
+  await fs.mkdir(SHOT_DIR, { recursive: true });
+  const browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS });
+  const errors: string[] = [];
+  try {
+    const sizes = [
+      { name: "phone", width: 400, height: 800 },
+      { name: "tablet", width: 768, height: 1024 },
+      { name: "desktop", width: 1380, height: 900 },
+    ];
+    for (const size of sizes) {
+      const page = await browser.newPage({ viewport: { width: size.width, height: size.height } });
+      await page.route("https://**/*", (route) => route.abort());
+      await page.addInitScript({ content: FAKE_VAD_INIT_SRC });
+      page.on("pageerror", (error) => errors.push(error.message));
+      await page.goto(`${state.base}/talk`);
+      await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Tap to talk");
+      await page.evaluate(() => { (window as any).KellyTalk.testing.slideMs = 60000; });
+      await press(page);
+      await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+      state.chatScenario = designsTurn([...THREE, design(4, "gown", "Evening gown, sequin bodice"), design(5, "lehenga", "Pastel lehenga")]);
+      await fireSileroUtterance(page);
+      await page.waitForFunction(() => (window as any).KellyTalk.testing.showcaseOpen, { timeout: 5000 });
+      await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+      await page.mouse.move(2, 2);
+      await page.waitForTimeout(1300);
+      await page.screenshot({ path: `${SHOT_DIR}/showcase-${size.name}.png` });
+      if (size.name === "tablet") {
+        await page.getByRole("button", { name: "Next design", exact: true }).click();
+        await page.mouse.move(2, 2);
+        await page.waitForTimeout(380);
+        await page.screenshot({ path: `${SHOT_DIR}/showcase-tablet-blend.png` });
+      }
+      await page.close();
+    }
+    assert.deepEqual(errors, [], "no page errors");
+  } finally {
+    await browser.close();
+    await closeServer(state);
+  }
+});
+
+test("talk engine: every slow turn asks for filler v=0 first and v=1 second, never a rotating index", { timeout: 60000 }, async () => {
+  const html = await loadHtml();
+  const state = await createServer(html);
+  const browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS });
+  try {
+    const page = await openTalkPage(browser, state.base);
+    await page.evaluate(() => { const t = (window as any).KellyTalk.testing; t.fillerMs = 200; t.secondFillerMs = 800; });
+    await press(page);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+
+    // Two turns slow enough for both phrases.
+    state.chatDoneDelayMs = 1600;
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    assert.deepEqual(state.fillerCalls.map((c) => c.v), ["0", "1"], "first slow turn: v=0 then v=1");
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    assert.deepEqual(state.fillerCalls.map((c) => c.v), ["0", "1", "0", "1"], "second slow turn starts again at v=0");
+
+    // A turn slow enough only for the first phrase.
+    state.chatDoneDelayMs = 500;
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    assert.deepEqual(state.fillerCalls.map((c) => c.v), ["0", "1", "0", "1", "0"], "a moderately slow turn hears only v=0");
     await page.close();
   } finally {
     await browser.close();

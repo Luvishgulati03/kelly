@@ -112,7 +112,7 @@ test("talk page: hands-free orb, greeting, VAD turns, reprompt/sleep, mute, desi
     assert.equal(await page.locator("#thread").count(), 0, "no chat thread");
     assert.equal(await page.locator("#talk").count(), 1, "only the orb button");
     assert.equal(await page.locator("#talk canvas").count(), 1, "the orb canvas lives inside the talk button");
-    assert.equal(await page.locator("#gallery").isHidden(), true, "gallery starts hidden");
+    assert.equal(await page.locator("#showcase").isHidden(), true, "the designs showcase starts hidden");
     assert.equal(await page.locator("#captions").isHidden(), true, "captions hidden without the query flag");
     assert.equal(await page.evaluate(() => typeof (window as any).KellyOrb?.mount), "function", "orb module is mounted");
 
@@ -167,7 +167,8 @@ test("talk page: hands-free orb, greeting, VAD turns, reprompt/sleep, mute, desi
     assert.equal(chatCalls.length, 2);
     assert.equal(speakCalls.length, 2);
 
-    // --- (8) designs event renders the strip; it hides again on the next turn ---
+    // --- (8) designs open the glass showcase; it stays open while the customer speaks and
+    // closes once a later turn answers without designs ---
     includeDesignsNextTurn = true;
     await page.evaluate(() => {
       const t = (window as any).KellyTalk.testing;
@@ -175,19 +176,20 @@ test("talk page: hands-free orb, greeting, VAD turns, reprompt/sleep, mute, desi
     });
     await page.waitForTimeout(300);
     await page.evaluate(() => { const t = (window as any).KellyTalk.testing; t.silenceMs = 100; t.levelOverride = 0; });
-    await page.waitForFunction(() => document.querySelector("#gallery")?.children.length === 2, { timeout: 15000 });
-    assert.equal(await page.locator("#gallery").isHidden(), false, "the design strip is visible once designs arrive");
+    await page.waitForFunction(() => (window as any).KellyTalk.testing.showcaseOpen && document.querySelectorAll("#scDots .sc-dot").length === 2, { timeout: 15000 });
+    assert.equal(await page.locator("#showcase").isHidden(), false, "the showcase is visible once designs arrive");
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
 
-    // Start a new turn and confirm the strip is cleared as soon as the next utterance begins.
+    // The customer keeps talking with the designs on screen: speech alone does not close it.
     await page.evaluate(() => {
       const t = (window as any).KellyTalk.testing;
       t.speechMs = 50; t.silenceMs = 5000; t.levelOverride = 0.9;
     });
-    await page.waitForFunction(() => document.querySelector("#gallery")?.hasAttribute("hidden"), { timeout: 15000 });
     await page.waitForTimeout(300);
+    assert.equal(await page.evaluate(() => (window as any).KellyTalk.testing.showcaseOpen), true, "speaking does not close the showcase");
     await page.evaluate(() => { const t = (window as any).KellyTalk.testing; t.silenceMs = 100; t.levelOverride = 0; });
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    await page.waitForFunction(() => !(window as any).KellyTalk.testing.showcaseOpen, { timeout: 15000 });
 
     // --- (6a) Press while speaking stops playback and goes to Listening ---
     await page.evaluate(() => {
