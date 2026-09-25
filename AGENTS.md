@@ -26,6 +26,14 @@ Read `SETUP-PROMPT.md` and `SETUP.md` completely, then execute their guided flow
 5. Install, configure, and verify each step with the commands in `SETUP.md`,
    without sending anything or committing private data.
 
+**A second Kelly on the same Mac.** Unset `KELLY_DATA_DIR` / `KELLY_MEMORY_DIR` mean
+`~/.kelly/data` and `~/.kelly/memory`, shared by every checkout for this macOS user. If
+this Mac already has a Kelly (check `ls ~/.kelly` and any running `kelly start`), set both
+to directories no other install uses, in this install's `.env` or exported in the shell,
+BEFORE running any `kelly` command, including `kelly status` and `kelly users add`.
+Otherwise the new install silently reads and writes the existing shop's catalogue, users,
+and memory. Give it its own `KELLY_PORT` and `KELLY_KOKORO_URL` port too. See SETUP.md step 4.
+
 Once setup is complete, the private `soul.md` and `personality.md` become the
 source of truth for identity and address.
 
@@ -106,8 +114,8 @@ tasks that touch the same files must run sequentially or in isolated worktrees.
 ## Memory
 
 Engram is the source of retrieval truth for operator preferences and durable shop
-context. Kelly's state lives under `~/.kelly` by default (`KELLY_DATA_DIR`,
-`KELLY_MEMORY_DIR`). Recall before a meaningful turn and capture outcomes after it.
+context. Kelly's state lives in `KELLY_DATA_DIR` and
+`KELLY_MEMORY_DIR` (exported shell value, else the repository `.env`, else `~/.kelly`). Recall before a meaningful turn and capture outcomes after it.
 
 ## Knowledge base
 

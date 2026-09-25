@@ -71,11 +71,11 @@ if (!process.env.HENRY_MEMORY_DIR) {
 
 // Kelly test isolation (separate from Henry)
 if (!process.env.KELLY_DATA_DIR) {
-  process.env.KELLY_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-test-data-"));
+  process.env.KELLY_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-isolated-data-"));
 }
 
 if (!process.env.KELLY_MEMORY_DIR) {
-  process.env.KELLY_MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-test-memory-"));
+  process.env.KELLY_MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-isolated-memory-"));
 }
 
 // Remote-access / owner-identity isolation (see header). Unconditional on purpose.
@@ -85,7 +85,7 @@ process.env.HENRY_TUNNEL = "off";
 process.env.KELLY_CLOUDFLARE_TUNNEL = "";
 process.env.KELLY_PUBLIC_HOST = "";
 process.env.KELLY_PUBLIC_ORIGIN = "";
-const noBinaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-test-no-binaries-"));
+const noBinaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-isolated-no-binaries-"));
 process.env.KELLY_CLOUDFLARED_PATH = path.join(noBinaryDir, "missing", "cloudflared");
 process.env.KELLY_TAILSCALE_PATH = path.join(noBinaryDir, "missing", "tailscale");
 process.env.HENRY_DASH_SECRET = crypto.randomBytes(32).toString("hex");

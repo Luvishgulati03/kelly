@@ -845,7 +845,7 @@ export function localAdminBypassEnabled(runtime: HenryRuntime): boolean {
 }
 
 /**
- * Who is calling, in priority order: a valid `henry_sess` cookie, else the remote
+ * Who is calling, in priority order: a valid session cookie (`kelly_sess` / `henry_sess`), else the remote
  * token header (admin), else the local-admin bypass (the owner on this machine),
  * else nobody. A stale cookie never costs the owner their access — it just falls
  * through to the bypass.

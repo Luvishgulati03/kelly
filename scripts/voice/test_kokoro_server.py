@@ -119,5 +119,63 @@ class WorkerProtocolTests(unittest.TestCase):
         self.assertEqual(self.model.calls, [])
 
 
+class EspeakDataPathTests(unittest.TestCase):
+    """espeak-ng truncates data paths of 160+ bytes and falls back to a build path."""
+
+    def setUp(self) -> None:
+        import os
+        import tempfile
+
+        self.tmp = tempfile.mkdtemp(prefix="espeak-test-")
+        self.addCleanup(__import__("shutil").rmtree, self.tmp, True)
+        self.old_env = os.environ.pop("KELLY_ESPEAK_DATA_PATH", None)
+        self.addCleanup(self._restore_env)
+
+    def _restore_env(self) -> None:
+        import os
+
+        if self.old_env is not None:
+            os.environ["KELLY_ESPEAK_DATA_PATH"] = self.old_env
+        else:
+            os.environ.pop("KELLY_ESPEAK_DATA_PATH", None)
+
+    def make_data(self, length: int) -> str:
+        import os
+
+        prefix = os.path.realpath(self.tmp)
+        filler = "d" * max(1, length - len(prefix) - len("/espeak-ng-data") - 1)
+        data = os.path.join(prefix, filler, "espeak-ng-data")
+        os.makedirs(data)
+        Path(data, "phontab").write_bytes(b"x")
+        return data
+
+    def test_short_path_is_used_unchanged(self) -> None:
+        import os
+
+        data = self.make_data(120)
+        os.environ["KELLY_ESPEAK_DATA_PATH"] = data
+        self.assertEqual(worker.espeak_data_path(bases=[self.tmp]), data)
+
+    def test_long_path_is_copied_to_a_short_reusable_directory(self) -> None:
+        import os
+
+        data = self.make_data(200)
+        os.environ["KELLY_ESPEAK_DATA_PATH"] = data
+        short_base = os.path.join(self.tmp, "s")
+        os.mkdir(short_base)
+        first = worker.espeak_data_path(bases=[short_base])
+        self.assertLess(len(os.fsencode(os.path.realpath(first))), 160)
+        self.assertTrue(Path(first, "phontab").is_file())
+        self.assertEqual(worker.espeak_data_path(bases=[short_base]), first)
+
+    def test_long_path_without_a_short_base_fails_clearly(self) -> None:
+        import os
+
+        data = self.make_data(200)
+        os.environ["KELLY_ESPEAK_DATA_PATH"] = data
+        with self.assertRaisesRegex(RuntimeError, "KELLY_ESPEAK_DATA_PATH"):
+            worker.espeak_data_path(bases=[os.path.dirname(data)])
+
+
 if __name__ == "__main__":
     unittest.main()

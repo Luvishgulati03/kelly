@@ -9,10 +9,13 @@ No model files are downloaded by this program. Example:
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import secrets
+import shutil
 import sys
+import tempfile
 import threading
 import wave
 from array import array
@@ -29,6 +32,69 @@ MAX_TOKENS = 2_000
 SOCKET_TIMEOUT_SECONDS = 10
 INFERENCE_TIMEOUT_SECONDS = 120
 CPU_THREADS = max(1, min(4, os.cpu_count() or 1))
+# espeak-ng copies its data directory path into a fixed 160-byte buffer
+# (N_PATH_HOME). A longer path is silently truncated, espeak-ng then falls back
+# to the directory compiled into the espeakng-loader wheel (a CI build path such
+# as /Users/runner/work/...), and the first synthesis calls exit() from C.
+# phonemizer resolves symlinks before handing the path over, so a short symlink
+# does not help: a short-path copy of the data is needed.
+ESPEAK_PATH_BUFFER = 160
+
+
+def _fits(path: str) -> bool:
+    # Measure the resolved path: that is what phonemizer passes to espeak-ng.
+    return len(os.fsencode(os.path.realpath(path))) < ESPEAK_PATH_BUFFER
+
+
+def short_espeak_copy(data_path: str, bases: list[str] | None = None) -> str:
+    """Copy espeak-ng data to a short path once and reuse it on later starts."""
+    source = os.path.realpath(data_path)
+    digest = hashlib.sha256(source.encode("utf-8", "surrogateescape")).hexdigest()[:12]
+    for base in bases or [tempfile.gettempdir(), "/tmp"]:
+        target = os.path.join(
+            os.path.realpath(base), f"kelly-espeak-{digest}", "espeak-ng-data"
+        )
+        if len(os.fsencode(target)) >= ESPEAK_PATH_BUFFER:
+            continue
+        if os.path.isfile(os.path.join(target, "phontab")):
+            return target
+        try:
+            parent = os.path.dirname(target)
+            os.makedirs(parent, mode=0o700, exist_ok=True)
+            staging = tempfile.mkdtemp(prefix="copy-", dir=parent)
+            shutil.copytree(source, os.path.join(staging, "espeak-ng-data"))
+            try:
+                os.rename(os.path.join(staging, "espeak-ng-data"), target)
+            except OSError:
+                pass  # another worker finished the same copy first
+            shutil.rmtree(staging, ignore_errors=True)
+        except OSError:
+            continue
+        if os.path.isfile(os.path.join(target, "phontab")):
+            return target
+    raise RuntimeError(
+        "espeak-ng data path is too long and no short temporary directory is "
+        "writable; set KELLY_ESPEAK_DATA_PATH to a copy of espeak-ng-data at a "
+        "path shorter than 160 characters"
+    )
+
+
+def espeak_data_path(bases: list[str] | None = None) -> str | None:
+    """espeak-ng data from the installed espeakng-loader wheel, at a usable path.
+
+    KELLY_ESPEAK_DATA_PATH overrides the wheel's copy. Returns None when the
+    loader is not installed so kokoro-onnx keeps its own fallback behaviour.
+    """
+    data_path = os.environ.get("KELLY_ESPEAK_DATA_PATH", "")
+    if not data_path:
+        try:
+            import espeakng_loader
+        except ImportError:
+            return None
+        data_path = espeakng_loader.get_data_path()
+    if _fits(data_path):
+        return data_path
+    return short_espeak_copy(data_path, bases)
 
 
 def load_model(model_path: str, voices_path: str) -> Any:
@@ -36,6 +102,7 @@ def load_model(model_path: str, voices_path: str) -> Any:
     try:
         import onnxruntime as ort
         from kokoro_onnx import Kokoro
+        from kokoro_onnx.config import EspeakConfig
     except ImportError as exc:
         raise RuntimeError(
             "TTS dependencies are missing; install scripts/voice/requirements.txt"
@@ -51,9 +118,13 @@ def load_model(model_path: str, voices_path: str) -> Any:
         sess_options=options,
         providers=["CPUExecutionProvider"],
     )
+    # Pin the espeak-ng data directory explicitly (see ESPEAK_PATH_BUFFER):
+    # kokoro-onnx passes the wheel's path through unchanged, which breaks when
+    # the repository lives under a long directory path.
+    espeak = EspeakConfig(data_path=espeak_data_path())
     # The installed 0.4.9 API exposes from_session; its ordinary constructor
     # would create a second, unbounded default ONNX Runtime session.
-    return Kokoro.from_session(session, voices_path)
+    return Kokoro.from_session(session, voices_path, espeak_config=espeak)
 
 
 def pcm_wav(samples: Any, sample_rate: int) -> bytes:

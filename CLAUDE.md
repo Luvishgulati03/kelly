@@ -25,6 +25,14 @@ contain placeholders, this is a fresh install for a new owner. Then:
 3. Ask for the problem statement first, then the trade, then the trade pack's own
    setup questions, and confirm the plan with the owner before configuring.
 
+**A second Kelly on the same Mac.** Unset `KELLY_DATA_DIR` / `KELLY_MEMORY_DIR` mean
+`~/.kelly/data` and `~/.kelly/memory`, shared by every checkout for this macOS user. If
+this Mac already has a Kelly (check `ls ~/.kelly` and any running `kelly start`), set both
+to directories no other install uses, in this install's `.env` or exported in the shell,
+BEFORE running any `kelly` command, including `kelly status` and `kelly users add`.
+Otherwise the new install silently reads and writes the existing shop's catalogue, users,
+and memory. Give it its own `KELLY_PORT` and `KELLY_KOKORO_URL` port too. See SETUP.md step 4.
+
 If a local-only `context.md` exists, it is development history. Current code,
 tests, `AGENTS.md`, and `SETUP.md` win when they disagree.
 
@@ -44,7 +52,8 @@ node bin/kelly.mjs status                          # JSON readout, no provider c
 ```
 
 `npm link` installs the `kelly` command, so `kelly <command>` works too. Runtime
-state lives in `~/.kelly/data` and `~/.kelly/memory`. Voice models and the
+state lives in `KELLY_DATA_DIR` and `KELLY_MEMORY_DIR` (exported shell value, else this
+repository's `.env`, else `~/.kelly/data` and `~/.kelly/memory`). Voice models and the
 Python environment live in the ignored `data/voice/` folder of this repository.
 
 ## Engineering checks

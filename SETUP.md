@@ -26,10 +26,10 @@ Three rules for the whole runbook:
 2. **Never commit private files.** `.env`, `soul.md`, `personality.md`, `data/`,
    `memory/`, and `knowledge/` are ignored by Git on purpose. Catalogues, rate
    cards, design photos, transcripts, and model files stay local.
-3. **Run Kelly commands from the repository root.** Kelly reads `.env` from the
-   current directory. Only `kelly start` finds the repository `.env` from
-   anywhere. A command run from another folder silently falls back to defaults
-   (electrical trade, port 7337).
+3. **One `.env` per install.** Every Kelly command reads the repository's `.env`,
+   whatever folder you run it from; a value exported in the shell overrides it.
+   A second Kelly on the same Mac needs its own `KELLY_DATA_DIR` and
+   `KELLY_MEMORY_DIR` (step 4).
 
 ---
 
@@ -54,22 +54,37 @@ You need:
 Install the command-line tools:
 
 ```bash
-brew install node git whisper-cpp ffmpeg python@3.12
+brew install node git whisper.cpp ffmpeg python@3.12
 brew install poppler        # only if you will import supplier PDFs (provides pdftotext)
 ```
 
-- `whisper-cpp` provides `whisper-cli`, the speech-to-text engine.
+- `whisper.cpp` provides `whisper-cli`, the speech-to-text engine. The formula
+  used to be called `whisper-cpp`; that old name still redirects to
+  `whisper.cpp` (check with `brew info whisper.cpp`, which lists
+  `Old Names: whisper-cpp`).
 - `ffmpeg` is needed only for Telegram voice notes, but it is small and useful.
 - `python@3.12` is for the Kokoro speech worker. `kokoro-onnx==0.4.9` supports
   Python 3.10 to 3.13, so do not rely on a plain `python3`, which may be older
-  or newer.
+  or newer. Python 3.12 may already be on the Mac from the python.org
+  installer instead of Homebrew; either works. Find the one you have and use
+  that exact path wherever this file says `$PY312`:
+
+  ```bash
+  command -v python3.12
+  # Homebrew:          /opt/homebrew/bin/python3.12
+  # python.org build:  /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+  PY312="$(command -v python3.12)"
+  ```
+
+  If `command -v python3.12` prints nothing, neither is installed: run
+  `brew install python@3.12` and try again.
 
 **Verify:**
 
 ```bash
 node -v                          # v22 or newer
 which whisper-cli                # /opt/homebrew/bin/whisper-cli
-/opt/homebrew/bin/python3.12 --version   # Python 3.12.x
+"$PY312" --version               # Python 3.12.x
 ```
 
 ## 2. Get the code and install
@@ -126,6 +141,26 @@ KELLY_SHOP_NAME=Your Shop     # shown on the dashboard and spoken in the greetin
 KELLY_PORT=7338               # keep unless 7338 is taken
 ```
 
+**Where Kelly keeps its state.** The catalogue, quotes, designs, logins,
+settings and memory live in `KELLY_DATA_DIR` and `KELLY_MEMORY_DIR`. When both
+are unset, Kelly uses `~/.kelly/data` and `~/.kelly/memory`. That default is
+shared by every Kelly checkout for the same macOS user, so:
+
+- **Only Kelly on this Mac:** you may leave them unset.
+- **More than one Kelly on this Mac** (a second shop, a test clone, a fresh
+  install next to an existing one): set both, to directories no other install
+  uses, **before running any `kelly` command** (even `kelly status` or
+  `kelly users add` would otherwise read and write the first install's data):
+
+  ```bash
+  KELLY_DATA_DIR=~/.kelly-second-shop/data
+  KELLY_MEMORY_DIR=~/.kelly-second-shop/memory
+  ```
+
+  Use `~/...` or an absolute path; a relative path resolves from the
+  repository root. A value exported in the shell overrides `.env`. Also give
+  each install its own `KELLY_PORT` and Kokoro port in `KELLY_KOKORO_URL`.
+
 Set `KELLY_SHOP_NAME` **before** importing a boutique rate card: rows without a
 brand column are stored under the shop name, and boutique quotes look them up
 by that name. If you rename the shop later, import and publish the rate card
@@ -143,8 +178,9 @@ kelly status
 ```
 
 **Expect:** JSON with `"name": "Kelly"`, `"provider": "codex"`,
-`"dashboard": "http://127.0.0.1:7338"`, and a `trade` block showing the chosen
-trade and shop name. This makes no provider call.
+`"dashboard": "http://127.0.0.1:7338"`, a `trade` block showing the chosen
+trade and shop name, and a data directory that matches `KELLY_DATA_DIR` (or
+`~/.kelly/data` when unset). This makes no provider call.
 
 ## 5. Voice stack
 
@@ -190,7 +226,7 @@ and download it again.
 ### 5.2 Python environment for Kokoro
 
 ```bash
-/opt/homebrew/bin/python3.12 -m venv data/voice/venv
+"$PY312" -m venv data/voice/venv   # PY312 from step 1: command -v python3.12
 data/voice/venv/bin/pip install -r scripts/voice/requirements.txt
 ```
 
@@ -565,15 +601,44 @@ The Python environment is missing or broken. Re-run step 5.2. Confirm
 `data/voice/venv/bin/python -c "import kokoro_onnx"` exits quietly. If the venv
 is elsewhere, set `KELLY_VOICE_PYTHON`.
 
+**Speech stops with `Error processing file '/Users/runner/work/espeakng-loader/espeakng-loader/espeak-ng/_dynamic/share/espeak-ng-data/phontab': No such file or directory.`**
+The path is not on your Mac: it is where the `espeakng-loader` wheel was
+built. espeak-ng (which Kokoro uses to turn text into phonemes) only accepts a
+data directory path shorter than 160 characters. When the repository sits
+deep in the file system, the path to
+`data/voice/venv/lib/python3.12/site-packages/espeakng_loader/espeak-ng-data`
+is longer than that, espeak-ng silently falls back to the build path, and the
+worker exits on the first sentence. The worker now copies that directory once
+to a short temporary path (`kelly-espeak-<hash>` under the system temp
+directory) and uses the copy; you do not need Homebrew `espeak-ng`. If it
+still happens, update the repository, or point `KELLY_ESPEAK_DATA_PATH` in
+`.env` at an absolute path to a copy of `espeak-ng-data` whose full path is under 160 characters.
+Moving the checkout to a short path such as `~/kelly` also fixes it.
+
+**`Speech is unavailable: the local voice worker exited ...` in the `kelly start` window.**
+The dashboard keeps running (typed chat and quotes still work) and Kelly
+restarts the speech worker after 5 s, then 10, 20, 40 and every 60 s. The
+worker's own error is printed just above that line; fix it using the entries
+here, and speech comes back on the next retry without restarting Kelly.
+
 **`kelly voice status` shows `"transcription": "not configured"`.**
 `whisper-cli` is not installed or the paths are not in `.env`, or you ran it
-outside the repository root. `brew install whisper-cpp`, then check step 5.3.
+outside the repository root. `brew install whisper.cpp`, then check step 5.3.
 
 **`Port 7338 is already in use` (or 8765).**
 Another Kelly (or a demo) is already running. Find it with
 `lsof -nP -iTCP:7338 -sTCP:LISTEN` and stop it with Ctrl+C in its window. Kelly
 never kills another process for you. To move ports, change `KELLY_PORT` or the
 port in `KELLY_KOKORO_URL`.
+
+**Signed out of the dashboard after an update.**
+Kelly's session cookie is now called `kelly_sess` (it used to share Henry's
+`henry_sess` name). Browsers holding the old cookie must log in once more.
+
+**`kelly status` shows another shop's data, or users you never created.**
+Two Kelly installs on this Mac are sharing `~/.kelly`. Give this one its own
+`KELLY_DATA_DIR` and `KELLY_MEMORY_DIR` in `.env` (step 4) and run the command
+again.
 
 **Login says the account is locked.**
 Five wrong passwords in 15 minutes lock that username for 15 minutes. Wait, or
@@ -608,8 +673,9 @@ then import and publish the rate card again. Also check it was published
 (`kelly catalogue review`).
 
 **Wrong trade, port 7337, or missing settings.**
-The command ran outside the repository root, so `.env` was not read. `cd` into
-the repository and run it again.
+`.env` is missing or a value was exported in the shell (exported values win).
+Check `ls -la .env` in the repository and `env | grep KELLY_`, then run the
+command again.
 
 **The install hangs with no error.**
 The repository is in an iCloud-synced folder. Move it (step 2), delete
@@ -642,10 +708,10 @@ The repository is in an iCloud-synced folder. Move it (step 2), delete
 | --- | --- |
 | Settings and secrets | `.env` in the repository root (mode 0600) |
 | Persona | `soul.md`, `personality.md` in the repository root |
-| Runtime data (catalogue, quotes, designs, logins, transcripts, settings) | `~/.kelly/data` |
-| Owner memory | `~/.kelly/memory` |
+| Runtime data (catalogue, quotes, designs, logins, transcripts, settings) | `KELLY_DATA_DIR` (default `~/.kelly/data`) |
+| Owner memory | `KELLY_MEMORY_DIR` (default `~/.kelly/memory`) |
 | Speech models and Python environment | `data/voice/models`, `data/voice/venv` |
 | Templates and demo data | `data/templates`, `data/demo`, `data/demo-boutique` |
 
-All of these are ignored by Git. Back up `~/.kelly` and `.env` if the shop
-depends on them.
+All of these are ignored by Git. Back up the data and memory directories (by
+default `~/.kelly`) and `.env` if the shop depends on them.

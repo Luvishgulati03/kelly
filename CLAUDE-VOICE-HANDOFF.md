@@ -187,7 +187,7 @@ download models, delete files, touch node_modules, or stage unrelated work.
 Run the focused Telegram voice tests and npm run typecheck. Review your own
 diff for authorization bypasses, duplicate processing, unbounded downloads,
 token leakage, temp-file cleanup, and regressions in text chat. Commit only the
-assigned files with a focused message. Do not push unless Luvish explicitly
+assigned files with a focused message. Do not push unless the owner explicitly
 asks you to. Finish with the commit hash, changed files, exact test results,
 remaining risks, and anything the main developer must integrate.
 ```

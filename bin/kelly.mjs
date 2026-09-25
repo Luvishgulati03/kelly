@@ -1,24 +1,21 @@
 #!/usr/bin/env node
-// Kelly launcher: sets profile and default state directory before any module initialization.
+// Kelly launcher: sets the profile and state directories before any module initialization.
 // Source code root and state root are distinct concepts.
 
-import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { applyKellyStateEnv } from "./kelly-env.mjs";
 
 // Set Kelly profile FIRST, before any env loading or config parsing
 process.env.AGENT_PROFILE = "kelly";
 
-// Determine Kelly's state directory (separate from source root)
-// Priority: explicit KELLY_DATA_DIR → ~/.kelly → other KELLY_* vars
-const kellyHome = path.join(os.homedir(), ".kelly");
-if (!process.env.KELLY_DATA_DIR && !process.env.KELLY_MEMORY_DIR) {
-  // Only set defaults if not explicitly overridden
-  if (!process.env.KELLY_DATA_DIR) process.env.KELLY_DATA_DIR = path.join(kellyHome, "data");
-  if (!process.env.KELLY_MEMORY_DIR) process.env.KELLY_MEMORY_DIR = path.join(kellyHome, "memory");
-}
-
-// Do NOT load Henry's .env; let profile-aware config handle Kelly vars
-// (The repo's .env is loaded for Henry; Kelly has separate state)
+// State directories: exported shell value > this repository's .env > ~/.kelly/{data,memory}.
+// The repo .env is read here, before the default is applied, so a second install on the same
+// Mac can keep its own KELLY_DATA_DIR / KELLY_MEMORY_DIR. Test processes never read it.
+applyKellyStateEnv({
+  root: path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."),
+  loadDotenv: process.env.HENRY_TEST_ISOLATION !== "1",
+});
 
 import { register } from "tsx/esm/api";
 register();

@@ -129,9 +129,28 @@ export async function waitReady(url, options = {}) {
   throw new Error("Kelly startup timed out. Check the service output and local voice configuration.");
 }
 
+/** Speech-worker restart backoff: 5 s doubling to 60 s, the same schedule as the tunnel. */
+export const RETRY_INITIAL_MS = 5_000;
+export const RETRY_MAX_MS = 60_000;
+
+/**
+ * Runs every command and stops them together on Ctrl+C. A REQUIRED command (the dashboard)
+ * exiting stops everything, as before. An OPTIONAL command (`optional: true`, the speech
+ * worker) exiting does not: the dashboard keeps serving typed chat and quotes, one line says
+ * speech is unavailable and why, and the command is restarted with backoff (5 s doubling to
+ * 60 s; the delay resets once a run has stayed up for the maximum delay).
+ */
 export async function supervise(commands, ready, options = {}) {
   const children = [];
+  const timers = new Set();
+  const down = new Set();
   const launch = options.spawnProcess || spawn;
+  const log = options.log || ((line) => console.error(line));
+  const retryInitialMs = options.retryInitialMs ?? RETRY_INITIAL_MS;
+  const retryMaxMs = options.retryMaxMs ?? RETRY_MAX_MS;
+  const now = options.now || Date.now;
+  const schedule = options.schedule || ((fn, ms) => setTimeout(fn, ms));
+  const cancel = options.cancel || ((timer) => clearTimeout(timer));
   let stopping = false;
   let finish;
   const ended = new Promise((resolve) => { finish = resolve; });
@@ -145,6 +164,8 @@ export async function supervise(commands, ready, options = {}) {
   const stop = async (failed = false) => {
     if (stopping) return;
     stopping = true;
+    for (const timer of timers) cancel(timer);
+    timers.clear();
     for (const child of children) signal(child, "SIGTERM");
     // Include grandchildren such as the Python speech worker in shutdown.
     await new Promise((resolve) => setTimeout(resolve, options.graceMs ?? 1500));
@@ -156,19 +177,45 @@ export async function supervise(commands, ready, options = {}) {
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
   process.once("SIGHUP", onSignal);
+  const start = (command, state) => {
+    const child = launch(command.file, command.args, {
+      cwd: root, env: options.env || process.env, shell: false,
+      detached: process.platform !== "win32", stdio: ["ignore", "inherit", "inherit"],
+    });
+    children.push(child);
+    down.delete(command);
+    const startedAt = now();
+    let handled = false;
+    const ended = (reason) => {
+      if (handled || stopping) return;
+      handled = true;
+      const index = children.indexOf(child);
+      if (index !== -1) children.splice(index, 1);
+      if (command.optional) down.add(command);
+      if (!command.optional) {
+        log(`Kelly service ${reason}; stopping the other service.`);
+        void stop(true);
+        return;
+      }
+      if (now() - startedAt >= retryMaxMs) state.delay = retryInitialMs;
+      const wait = state.delay;
+      state.delay = Math.min(state.delay * 2, retryMaxMs);
+      log(`${command.label || "Optional service"} is unavailable: ${command.why || "the worker"} ${reason} (see its error above). ${command.stillWorks || "The dashboard keeps running."} Retrying in ${Math.round(wait / 1000)} s.`);
+      const timer = schedule(() => {
+        timers.delete(timer);
+        if (!stopping) start(command, state);
+      }, wait);
+      timers.add(timer);
+    };
+    child.once("error", (error) => ended(`could not start (${error.message})`));
+    child.once("exit", (code) => ended(`exited (${code ?? "signal"})`));
+    return child;
+  };
   try {
-    for (const command of commands) {
-      const child = launch(command.file, command.args, {
-        cwd: root, env: options.env || process.env, shell: false,
-        detached: process.platform !== "win32", stdio: ["ignore", "inherit", "inherit"],
-      });
-      children.push(child);
-      child.once("error", (error) => { console.error(`Kelly service could not start: ${error.message}`); void stop(true); });
-      child.once("exit", (code) => {
-        if (!stopping) { console.error(`Kelly service exited (${code ?? "signal"}); stopping the other service.`); void stop(true); }
-      });
-    }
-    await ready(() => !stopping);
+    for (const command of commands) start(command, { delay: retryInitialMs });
+    // optionalDown(label): the optional command with that label has exited and is waiting to
+    // be restarted, so readiness checks can stop waiting on it.
+    await ready(() => !stopping, (label) => [...down].some((command) => command.label === label));
     await ended;
   } catch (error) {
     await stop(true);
@@ -312,15 +359,24 @@ export async function startKelly(args) {
   const dashboard = `http://127.0.0.1:${config.port}`;
   console.log("Starting Kelly dashboard and local speech worker. Ctrl+C in this window stops both.");
   await supervise([
-    { file: process.execPath, args: [launcher, "voice", "serve"] },
+    {
+      file: process.execPath, args: [launcher, "voice", "serve"], optional: true,
+      label: "Speech", why: "the local voice worker", stillWorks: "Typed chat and quotes still work.",
+    },
     { file: process.execPath, args: [launcher, "dashboard"] },
-  ], async (alive) => {
-    await Promise.all([
-      waitReady(new URL("/health", voiceUrl), { token, alive }),
+  ], async (alive, optionalDown) => {
+    // Only the dashboard gates readiness: a speech worker that fails to start is retried in
+    // the background instead of taking typed chat and quotes down with it.
+    const [, speechReady] = await Promise.all([
       waitReady(`${dashboard}/api/health`, { alive }),
+      waitReady(new URL("/health", voiceUrl), { token, alive: () => alive() && !optionalDown("Speech") }).then(() => true, (error) => {
+        // An exited worker was already reported by supervise(); only explain other failures.
+        if (alive() && !optionalDown("Speech")) console.error(`Speech is unavailable: ${error.message} Typed chat and quotes still work.`);
+        return false;
+      }),
     ]);
     if (!alive()) return;
-    console.log(`Kelly is ready.\nDashboard: ${dashboard}\nVoice: ${dashboard}/voice\n${tunnelMode === "off" ? "Local only. " : ""}Press Ctrl+C to stop both services.`);
+    console.log(`Kelly is ready.\nDashboard: ${dashboard}\n${speechReady ? `Voice: ${dashboard}/voice` : "Voice: unavailable for now (see above); typed chat and quotes work."}\n${tunnelMode === "off" ? "Local only. " : ""}Press Ctrl+C to stop both services.`);
     if (tunnelMode !== "off") {
       // Best-effort: the dashboard's own process already started/announced the tunnel; this
       // only decides whether to keep the Mac awake, so a failed check here must never crash

@@ -121,10 +121,11 @@ By hand, on macOS with Apple Silicon, Node 22 or newer, and a Codex login:
 git clone https://github.com/Luvishgulati03/kelly.git ~/kelly && cd ~/kelly
 npm install
 cp KELLY.env.example .env && chmod 600 .env     # set KELLY_TRADE and KELLY_SHOP_NAME
+# second Kelly on this Mac? also set KELLY_DATA_DIR and KELLY_MEMORY_DIR first (SETUP.md step 4)
 cp soul.example.md soul.md
 cp personality.example.md personality.md
 codex login
-brew install whisper-cpp ffmpeg python@3.12
+brew install whisper.cpp ffmpeg python@3.12
 # download the three speech models and create the Python venv: SETUP.md section 5
 node bin/kelly.mjs users add owner --role admin
 node bin/kelly.mjs users add counter --role counter

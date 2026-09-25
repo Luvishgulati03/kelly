@@ -54,14 +54,14 @@ function fakeDeps(overrides: Partial<CloudflareSetupDeps> = {}): { deps: Cloudfl
 // ---------------------------------------------------------------------------
 
 test("validateHostname: accepts a plain lowercase DNS hostname", () => {
-  assert.equal(validateHostname("kelly-test.example.com"), "kelly-test.example.com");
+  assert.equal(validateHostname("shop-demo.example.com"), "shop-demo.example.com");
   assert.equal(validateHostname("example.com"), "example.com");
 });
 
 test("validateHostname: rejects a scheme, a path, uppercase, or a bare label", () => {
-  assert.throws(() => validateHostname("https://kelly-test.example.com"), /scheme/);
-  assert.throws(() => validateHostname("kelly-test.example.com/path"), /path/);
-  assert.throws(() => validateHostname("Kelly-Test.example.com"), /lowercase/);
+  assert.throws(() => validateHostname("https://shop-demo.example.com"), /scheme/);
+  assert.throws(() => validateHostname("shop-demo.example.com/path"), /path/);
+  assert.throws(() => validateHostname("Shop-Demo.example.com"), /lowercase/);
   assert.throws(() => validateHostname("kellytest"), /does not look like a DNS hostname/);
   assert.throws(() => validateHostname(""), /Usage: kelly tunnel setup/);
 });
@@ -75,7 +75,7 @@ test("findCloudflared: missing cloudflared surfaces a clear brew-install message
   const found = await findCloudflared(deps);
   assert.equal(found, undefined);
   await assert.rejects(
-    runCloudflareTunnelSetup("kelly-test.example.com", {}, deps),
+    runCloudflareTunnelSetup("shop-demo.example.com", {}, deps),
     /brew install cloudflared/,
   );
 });
@@ -111,12 +111,12 @@ test("setup: login is skipped when cert.pem already exists", async () => {
     fileExists: async (p) => p === "/usr/bin/cloudflared" || p === certPath,
     run: async (_cmd, args) => {
       if (args[0] === "tunnel" && args[1] === "list") return { stdout: "[]", stderr: "", exitCode: 0 };
-      if (args[0] === "tunnel" && args[1] === "create") return { stdout: "Created tunnel kelly-test with id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", stderr: "", exitCode: 0 };
+      if (args[0] === "tunnel" && args[1] === "create") return { stdout: "Created tunnel shop-demo with id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", stderr: "", exitCode: 0 };
       if (args[0] === "tunnel" && args[1] === "route") return { stdout: "", stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 0 };
     },
   });
-  await runCloudflareTunnelSetup("kelly-test.example.com", {}, deps);
+  await runCloudflareTunnelSetup("shop-demo.example.com", {}, deps);
   assert.equal(calls.some((c) => c.kind === "runInherit"), false);
 });
 
@@ -126,12 +126,12 @@ test("setup: login runs with inherited stdio when cert.pem is absent", async () 
     fileExists: async (p) => p === "/usr/bin/cloudflared",
     run: async (_cmd, args) => {
       if (args[0] === "tunnel" && args[1] === "list") return { stdout: "[]", stderr: "", exitCode: 0 };
-      if (args[0] === "tunnel" && args[1] === "create") return { stdout: "Created tunnel kelly-test with id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", stderr: "", exitCode: 0 };
+      if (args[0] === "tunnel" && args[1] === "create") return { stdout: "Created tunnel shop-demo with id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", stderr: "", exitCode: 0 };
       if (args[0] === "tunnel" && args[1] === "route") return { stdout: "", stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 0 };
     },
   });
-  await runCloudflareTunnelSetup("kelly-test.example.com", {}, deps);
+  await runCloudflareTunnelSetup("shop-demo.example.com", {}, deps);
   const loginCall = calls.find((c) => c.kind === "runInherit");
   assert.ok(loginCall, "expected cloudflared tunnel login to run with inherited stdio");
   assert.deepEqual(loginCall!.args, ["tunnel", "login"]);
@@ -148,13 +148,13 @@ test("setup: an existing tunnel with the requested name is reused, not recreated
     fileExists: async (p) => p === "/usr/bin/cloudflared" || p === certPath,
     run: async (_cmd, args) => {
       if (args[0] === "tunnel" && args[1] === "list") {
-        return { stdout: JSON.stringify([{ id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", name: "kelly-test" }]), stderr: "", exitCode: 0 };
+        return { stdout: JSON.stringify([{ id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", name: "shop-demo" }]), stderr: "", exitCode: 0 };
       }
       if (args[0] === "tunnel" && args[1] === "route") return { stdout: "", stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 0 };
     },
   });
-  await runCloudflareTunnelSetup("kelly-test.example.com", {}, deps);
+  await runCloudflareTunnelSetup("shop-demo.example.com", {}, deps);
   assert.equal(calls.some((c) => c.args[0] === "tunnel" && c.args[1] === "create"), false);
 });
 
@@ -169,7 +169,7 @@ test("setup: a DNS route already used by something else stops with a clear messa
     fileExists: async (p) => p === "/usr/bin/cloudflared" || p === certPath,
     run: async (_cmd, args) => {
       if (args[0] === "tunnel" && args[1] === "list") {
-        return { stdout: JSON.stringify([{ id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", name: "kelly-test" }]), stderr: "", exitCode: 0 };
+        return { stdout: JSON.stringify([{ id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", name: "shop-demo" }]), stderr: "", exitCode: 0 };
       }
       if (args[0] === "tunnel" && args[1] === "route") {
         return { stdout: "", stderr: "failed to add route: record with that host already exists", exitCode: 1 };
@@ -178,7 +178,7 @@ test("setup: a DNS route already used by something else stops with a clear messa
     },
   });
   await assert.rejects(
-    runCloudflareTunnelSetup("kelly-test.example.com", {}, deps),
+    runCloudflareTunnelSetup("shop-demo.example.com", {}, deps),
     /already routed to something else.*Cloudflare dashboard|choose a different hostname/s,
   );
 });
@@ -199,7 +199,7 @@ test("setup: a DNS route already pointing at this tunnel is treated as fine", as
       return { stdout: "", stderr: "", exitCode: 0 };
     },
   });
-  await runCloudflareTunnelSetup("kelly-test.example.com", {}, deps);
+  await runCloudflareTunnelSetup("shop-demo.example.com", {}, deps);
 });
 
 // ---------------------------------------------------------------------------
@@ -215,7 +215,7 @@ test("setup: writes .env keeping other lines, replacing existing keys, with a .e
     fileExists: async (p) => p === "/usr/bin/cloudflared" || p === certPath || p === envPath,
     run: async (_cmd, args) => {
       if (args[0] === "tunnel" && args[1] === "list") return { stdout: "[]", stderr: "", exitCode: 0 };
-      if (args[0] === "tunnel" && args[1] === "create") return { stdout: "Created tunnel kelly-test with id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", stderr: "", exitCode: 0 };
+      if (args[0] === "tunnel" && args[1] === "create") return { stdout: "Created tunnel shop-demo with id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", stderr: "", exitCode: 0 };
       if (args[0] === "tunnel" && args[1] === "route") return { stdout: "", stderr: "", exitCode: 0 };
       return { stdout: "", stderr: "", exitCode: 0 };
     },
@@ -224,15 +224,15 @@ test("setup: writes .env keeping other lines, replacing existing keys, with a .e
   const chmodCalls: Array<{ path: string; mode: number }> = [];
   deps.chmod = async (p, mode) => { chmodCalls.push({ path: p, mode }); };
 
-  await runCloudflareTunnelSetup("kelly-test.example.com", { name: "kelly-test" }, deps);
+  await runCloudflareTunnelSetup("shop-demo.example.com", { name: "shop-demo" }, deps);
 
   const updated = files.get(envPath)!;
   assert.match(updated, /KELLY_TRADE=boutique/);
   assert.match(updated, /KELLY_PORT=7338/);
   assert.match(updated, /KELLY_TUNNEL=cloudflare/);
   assert.doesNotMatch(updated, /KELLY_TUNNEL=off/);
-  assert.match(updated, /KELLY_CLOUDFLARE_TUNNEL=kelly-test/);
-  assert.match(updated, /KELLY_PUBLIC_HOST=kelly-test\.example\.com/);
+  assert.match(updated, /KELLY_CLOUDFLARE_TUNNEL=shop-demo/);
+  assert.match(updated, /KELLY_PUBLIC_HOST=shop-demo\.example\.com/);
   assert.equal(files.get(backupPath), "KELLY_TRADE=boutique\nKELLY_TUNNEL=off\nKELLY_PORT=7338\n");
   assert.ok(chmodCalls.some((c) => c.path === envPath && c.mode === 0o600));
 });
@@ -250,12 +250,12 @@ test("status: never prints cert.pem contents, only presence", async () => {
     fileExists: async (p) => p === "/usr/bin/cloudflared" || p === certPath || p === envPath,
     readFile: async (p) => {
       if (p === certPath) return secretCertContents;
-      if (p === envPath) return "KELLY_CLOUDFLARE_TUNNEL=kelly-test\nKELLY_PUBLIC_HOST=kelly-test.example.com\n";
+      if (p === envPath) return "KELLY_CLOUDFLARE_TUNNEL=shop-demo\nKELLY_PUBLIC_HOST=shop-demo.example.com\n";
       throw new Error(`ENOENT: ${p}`);
     },
     run: async (_cmd, args) => {
       if (args[0] === "tunnel" && args[1] === "list") {
-        return { stdout: JSON.stringify([{ id: "abc", name: "kelly-test" }]), stderr: "", exitCode: 0 };
+        return { stdout: JSON.stringify([{ id: "abc", name: "shop-demo" }]), stderr: "", exitCode: 0 };
       }
       return { stdout: "", stderr: "", exitCode: 0 };
     },
@@ -265,7 +265,7 @@ test("status: never prints cert.pem contents, only presence", async () => {
   const report = await runCloudflareTunnelStatus(deps);
   assert.equal(report.certPresent, true);
   assert.equal(report.tunnelExists, true);
-  assert.equal(report.publicHost, "kelly-test.example.com");
+  assert.equal(report.publicHost, "shop-demo.example.com");
   assert.equal(report.dns.cname, true);
 
   const combined = logs.join("\n");
@@ -291,23 +291,23 @@ test("setup + status: end-to-end against a temp HOME and a temp repo root", asyn
       chmod: (p, mode) => fs.chmod(p, mode),
       run: async (_cmd, args) => {
         if (args[0] === "tunnel" && args[1] === "list") return { stdout: "[]", stderr: "", exitCode: 0 };
-        if (args[0] === "tunnel" && args[1] === "create") return { stdout: "Created tunnel kelly-test with id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", stderr: "", exitCode: 0 };
+        if (args[0] === "tunnel" && args[1] === "create") return { stdout: "Created tunnel shop-demo with id aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee\n", stderr: "", exitCode: 0 };
         if (args[0] === "tunnel" && args[1] === "route") return { stdout: "", stderr: "", exitCode: 0 };
         return { stdout: "", stderr: "", exitCode: 0 };
       },
     });
-    await runCloudflareTunnelSetup("kelly-test.example.com", {}, deps);
+    await runCloudflareTunnelSetup("shop-demo.example.com", {}, deps);
 
     const envPath = path.join(repoRoot, ".env");
     const content = await fs.readFile(envPath, "utf8");
     assert.match(content, /KELLY_TUNNEL=cloudflare/);
     assert.match(content, /KELLY_CLOUDFLARE_TUNNEL=kelly/);
-    assert.match(content, /KELLY_PUBLIC_HOST=kelly-test\.example\.com/);
+    assert.match(content, /KELLY_PUBLIC_HOST=shop-demo\.example\.com/);
     const stat = await fs.stat(envPath);
     assert.equal(stat.mode & 0o777, 0o600);
 
     const status = await runCloudflareTunnelStatus(deps);
-    assert.equal(status.publicHost, "kelly-test.example.com");
+    assert.equal(status.publicHost, "shop-demo.example.com");
     assert.equal(status.tunnelName, "kelly");
   } finally {
     await fs.rm(homeDir, { recursive: true, force: true });

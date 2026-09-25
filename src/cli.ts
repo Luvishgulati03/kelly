@@ -208,13 +208,13 @@ function startDashboardBeside(runtime: HenryRuntime): void {
   const url = `http://${runtime.config.host}:${runtime.config.port}`;
   try {
     const server = startDashboard(runtime);
-    server.on("listening", () => console.log(note("ok", `Henry dashboard: ${url}`)));
+    server.on("listening", () => console.log(note("ok", `${getActiveProfile().name} dashboard: ${url}`)));
     server.on("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "EADDRINUSE") console.log(note("ok", `Henry dashboard: ${url} (already running — reusing it)`));
-      else console.log(note("warn", `Henry dashboard unavailable: ${error.message}`));
+      if (error.code === "EADDRINUSE") console.log(note("ok", `${getActiveProfile().name} dashboard: ${url} (already running — reusing it)`));
+      else console.log(note("warn", `${getActiveProfile().name} dashboard unavailable: ${error.message}`));
     });
   } catch (error) {
-    console.log(note("warn", `Henry dashboard unavailable: ${error instanceof Error ? error.message : String(error)}`));
+    console.log(note("warn", `${getActiveProfile().name} dashboard unavailable: ${error instanceof Error ? error.message : String(error)}`));
   }
 }
 
@@ -597,11 +597,11 @@ async function main(): Promise<void> {
         server.on("error", (error: NodeJS.ErrnoException) => {
           // Same degradation as the repl path (audit 2026-08-09 L1) — a running repl
           // already holds the port, which must not crash this command.
-          if (error.code === "EADDRINUSE") console.log(`Henry dashboard: http://${runtime.config.host}:${runtime.config.port} (already running — reusing it)`);
-          else console.log(`Henry dashboard unavailable: ${error.message}`);
+          if (error.code === "EADDRINUSE") console.log(`${getActiveProfile().name} dashboard: http://${runtime.config.host}:${runtime.config.port} (already running — reusing it)`);
+          else console.log(`${getActiveProfile().name} dashboard unavailable: ${error.message}`);
         });
       } catch (error) {
-        console.log(`Henry dashboard unavailable: ${error instanceof Error ? error.message : String(error)}`);
+        console.log(`${getActiveProfile().name} dashboard unavailable: ${error instanceof Error ? error.message : String(error)}`);
       }
       startReminderTicker(runtime.reminders, runtime.activity, {
         role: "dashboard",
@@ -610,7 +610,7 @@ async function main(): Promise<void> {
         executeApproval: (approvalId) => runtime.executeApproval(approvalId),
       });
       announceTelegramPump(pump);
-      console.log(`Henry dashboard: http://${runtime.config.host}:${runtime.config.port}`);
+      console.log(`${getActiveProfile().name} dashboard: http://${runtime.config.host}:${runtime.config.port}`);
       await announceTunnel(runtime);
     } else if (command === "status") {
       print(await runtime.status());

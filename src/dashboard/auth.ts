@@ -32,8 +32,15 @@ export type SessionUser = {
   role: Role;
 };
 
-/** Session cookie name (server.ts reads request cookies by this name). */
-export const SESSION_COOKIE = "henry_sess";
+/**
+ * Session cookie name, per profile: `kelly_sess` under Kelly, `henry_sess` under Henry.
+ * Resolved at call time so the launcher's setActiveProfile() always wins. Renaming the Kelly
+ * cookie (it used to be `henry_sess`) means an existing Kelly browser session has to log in
+ * once more; the old cookie is deliberately not accepted, so logout stays a single cookie.
+ */
+export function sessionCookieName(): string {
+  return `${getActiveProfile().id}_sess`;
+}
 
 const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, slid forward on every authenticated read
 const ROLES: readonly Role[] = ["admin", "counter"];
@@ -194,8 +201,8 @@ function verifiedToken(cookieValue: string): string | undefined {
 
 /** Every candidate value for `name` in the header, in the order they appear — a Cookie
  * header MAY legally repeat a name (a stale duplicate from a cookie-path/domain change, or
- * another localhost app planting its own `henry_sess`), and the caller must not assume the
- * first one is Henry's. */
+ * another localhost app planting its own session cookie), and the caller must not assume the
+ * first one is ours. */
 function cookieValues(cookieHeader: string | undefined, name: string): string[] {
   if (!cookieHeader) return [];
   const values: string[] = [];
@@ -209,7 +216,7 @@ function cookieValues(cookieHeader: string | undefined, name: string): string[] 
 }
 
 /**
- * Verifies every `henry_sess` candidate in the header — first valid wins — instead of
+ * Verifies every session-cookie candidate in the header — first valid wins — instead of
  * trusting only the first one present. A junk cookie planted by another localhost app (or a
  * stale duplicate left behind by a cookie-path change) can easily sort before Henry's real
  * cookie in the Cookie header; trusting only the first candidate would then lock a
@@ -219,7 +226,7 @@ function cookieValues(cookieHeader: string | undefined, name: string): string[] 
  * nothing that matters for any realistic cookie count.
  */
 function firstVerifiedToken(cookieHeader: string | undefined): string | undefined {
-  for (const candidate of cookieValues(cookieHeader, SESSION_COOKIE)) {
+  for (const candidate of cookieValues(cookieHeader, sessionCookieName())) {
     const token = verifiedToken(candidate);
     if (token) return token;
   }
@@ -307,7 +314,7 @@ export function issueSession(user: SessionUser, opts: { secure?: boolean } = {})
   );
   const maxAge = Math.floor(SESSION_TTL_MS / 1000);
   const secure = opts.secure ? "; Secure" : "";
-  return { cookie: `${SESSION_COOKIE}=${token}.${signToken(token)}; HttpOnly; SameSite=Lax${secure}; Path=/; Max-Age=${maxAge}` };
+  return { cookie: `${sessionCookieName()}=${token}.${signToken(token)}; HttpOnly; SameSite=Lax${secure}; Path=/; Max-Age=${maxAge}` };
 }
 
 /** Resolves the caller from their cookie: HMAC first, then the database. Expired rows are purged on the way past, and a live session slides forward 7 days. */
@@ -355,7 +362,7 @@ export function endSession(cookieHeader: string | undefined): void {
 /** Set-Cookie value that expires the session cookie in the browser. Same `secure` contract as issueSession above. */
 export function clearedSessionCookie(opts: { secure?: boolean } = {}): string {
   const secure = opts.secure ? "; Secure" : "";
-  return `${SESSION_COOKIE}=; HttpOnly; SameSite=Lax${secure}; Path=/; Max-Age=0`;
+  return `${sessionCookieName()}=; HttpOnly; SameSite=Lax${secure}; Path=/; Max-Age=0`;
 }
 
 // ---------------------------------------------------------------------------

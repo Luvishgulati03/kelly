@@ -72,9 +72,10 @@ labels in:
 Search before and after:
 
 ```bash
-rg -n "Henry|henry|HENRY_|Luvish" --glob '!node_modules/**' --glob '!data/**' --glob '!memory/**'
+rg -n "Henry|henry|HENRY_|<OldOwnerName>" --glob '!node_modules/**' --glob '!data/**' --glob '!memory/**'
 ```
 
+Replace `<OldOwnerName>` with the previous owner's name, if the fork inherited one.
 Review every match. Some historical migration notes or attribution may
 legitimately retain the original name.
 
@@ -124,7 +125,7 @@ npm test
 npm link
 nova status
 nova ask "State your name and hard approval boundary in two sentences."
-rg -n "Henry|henry|HENRY_|Luvish" --glob '!node_modules/**' --glob '!data/**' --glob '!memory/**'
+rg -n "Henry|henry|HENRY_|<OldOwnerName>" --glob '!node_modules/**' --glob '!data/**' --glob '!memory/**'
 git diff --check
 git status --short
 ```

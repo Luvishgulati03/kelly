@@ -34,7 +34,7 @@ test("panel keeps alignment when a value is far too long to fit: it wraps under 
   setColorEnabled(true);
   const box = panel("status", [
     { key: "provider", value: "codex" },
-    { key: "root", value: "/Users/kelly-tester/Downloads/kelly-with-a-very-long-path/that/keeps/going/and/going" },
+    { key: "root", value: "/Users/sample-owner/Downloads/kelly-with-a-very-long-path/that/keeps/going/and/going" },
   ], { width: 50 });
   assertAligned(box);
   for (const width of widths(box)) assert.equal(width <= 50, true);
