@@ -314,6 +314,7 @@ window.KellyOrb = KellyOrb;
     rearmMs: 300,
     fillerMs: 1200,
     secondFillerMs: 12000,
+    toolFillerMs: 300,
     preSpeechPadMs: 300,
     sileroPositive: .55,
     sileroNegative: .35,
@@ -1066,15 +1067,20 @@ window.KellyOrb = KellyOrb;
   }
 
   /* ---------- holding phrases while a model turn runs ----------
-     The gallery fast path answers in milliseconds and never hears one. A model turn that has
-     kept the customer waiting fillerMs gets the first phrase (v=0, "please wait a few moments"),
-     and at secondFillerMs the second (v=1, "thank you for waiting"), in every turn.
+     Only a turn that is actually gathering information hears one: the server sends a
+     `gathering` SSE event when the request asks for a price/quotation or designs
+     (reason "request") or when the model starts a tool/command (reason "tool"). Small talk
+     never gets that event, so it never hears a filler; the orb just shows Thinking.
+     After "request", the first phrase (v=0, "please wait a few moments") plays fillerMs
+     after the event and the second (v=1, "thank you for waiting") at secondFillerMs; after
+     "tool" the first plays after toolFillerMs and the second keeps the same spacing after it
+     (secondFillerMs - fillerMs later).
      The reply waits for a phrase already playing rather than cutting it off mid-word. */
   function cancelFillers() { fillerTimers.forEach(clearTimeout); fillerTimers = []; }
-  function scheduleFillers(id) {
+  function scheduleFillers(id, firstDelay) {
     cancelFillers();
     if (muted) return;
-    [testing.fillerMs, testing.secondFillerMs].forEach((delay, phrase) => {
+    [firstDelay, firstDelay + Math.max(0, testing.secondFillerMs - testing.fillerMs)].forEach((delay, phrase) => {
       fillerTimers.push(setTimeout(() => {
         if (id !== sessionId || state !== 'thinking') return;
         fillerDone = (async () => {
@@ -1093,12 +1099,12 @@ window.KellyOrb = KellyOrb;
 
   /* ---------- chat turn: SSE spoken / designs / done / error ---------- */
   async function sendPrompt(id, prompt, transcriptId) {
-    let spokenArrived = false, designsArrived = false;
+    let spokenArrived = false, designsArrived = false, gatheringSeen = false;
     const turn = ++turnCounter;
     await conversationReady;
     if (id !== sessionId || turn !== turnCounter) return;
     beginTurnSpeech(id, turn);
-    scheduleFillers(id);
+    cancelFillers(); // no filler until this turn's `gathering` event says it is looking something up
     chatAbort = new AbortController();
     const stale = () => id !== sessionId || turn !== turnCounter;
     try {
@@ -1119,7 +1125,14 @@ window.KellyOrb = KellyOrb;
           const ev = block.match(/^event: (.+)$/m)?.[1], raw = block.match(/^data: (.+)$/m)?.[1]; if (!raw) continue;
           let data; try { data = JSON.parse(raw); } catch { continue; }
           if (stale()) return;
-          if (ev === 'spoken') { spokenArrived = true; if (muted) setReply(data.text || ''); else queueSpeech(turn, data.text); }
+          if (ev === 'gathering') {
+            // Once per turn, and never once the answer (or designs) is already here.
+            if (!gatheringSeen && !spokenArrived && !designsArrived) {
+              gatheringSeen = true;
+              scheduleFillers(id, data.reason === 'tool' ? testing.toolFillerMs : testing.fillerMs);
+            }
+          }
+          else if (ev === 'spoken') { spokenArrived = true; if (muted) setReply(data.text || ''); else queueSpeech(turn, data.text); }
           else if (ev === 'designs') { cancelFillers(); if (data.designs && data.designs.length) { designsArrived = true; openShowcase(data.designs); } }
           else if (ev === 'done') {
             cancelFillers();

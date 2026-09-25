@@ -40,6 +40,7 @@ import { parseDesignsBlock } from "../designs/block.ts";
 import { MAX_DESIGN_BYTES } from "../designs/store.ts";
 import { galleryFastPath } from "../designs/fastpath.ts";
 import { voicePrompt } from "../designs/vocabulary.ts";
+import { isLookupRequest } from "../voice/intent.ts";
 
 const EVENTS_POLL_MS = 2000;
 
@@ -1702,6 +1703,36 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
             // `done.spoken` (below, once the full response is in) is unaffected — it stays the
             // quote-aware fallback for a client that only waits for completion.
             const spokenFilter = voiceMode ? createSpokenFenceFilter((text) => sseWrite(response, "spoken", { text })) : undefined;
+            // Kelly Talk plays its holding phrase ONLY after a `gathering` event: the request
+            // itself asks for a price/quotation or items (src/voice/intent.ts), or, failing
+            // that, the model actually starts a tool/command. Once per turn, voice turns only,
+            // and the event never carries the command text or its arguments.
+            let gatheringSent = false;
+            const signalGathering = (reason: "request" | "tool"): void => {
+              if (!voiceMode || gatheringSent) return;
+              gatheringSent = true;
+              sseWrite(response, "gathering", { reason });
+            };
+            // Codex JSONL: item.started/item.completed for a command or tool call. Claude
+            // stream-json: a tool_use content block (whole assistant message or a streamed
+            // content_block_start).
+            const isToolStart = (parsed: Record<string, unknown> | undefined): boolean => {
+              if (!parsed) return false;
+              if (parsed.type === "item.started" || parsed.type === "item.completed") {
+                const itemType = (parsed.item as Record<string, unknown> | undefined)?.type;
+                return itemType === "command_execution" || itemType === "mcp_tool_call" || itemType === "custom_tool_call";
+              }
+              if (parsed.type === "assistant") {
+                const content = (parsed.message as Record<string, unknown> | undefined)?.content;
+                return Array.isArray(content) && content.some((block) => (block as Record<string, unknown> | null)?.type === "tool_use");
+              }
+              if (parsed.type === "stream_event") {
+                const inner = parsed.event as Record<string, unknown> | undefined;
+                return inner?.type === "content_block_start" && (inner.content_block as Record<string, unknown> | undefined)?.type === "tool_use";
+              }
+              return false;
+            };
+            if (voiceMode && isLookupRequest(prompt, runtime.trade)) signalGathering("request");
             const emitToken = (raw: string | undefined): void => {
               if (!raw) return;
               const visible = spokenFilter ? spokenFilter.push(raw) : raw;
@@ -1735,6 +1766,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
                   let agentMessageCount = 0;
                   return (event: ProviderEvent) => {
                     const parsed = event.parsed as Record<string, unknown> | undefined;
+                    if (voiceMode && !gatheringSent && isToolStart(parsed)) signalGathering("tool");
                     if (parsed && typeof parsed.text === "string") { emitToken(String(parsed.text)); return; }
                     if (parsed?.type !== "item.completed") return;
                     const item = parsed.item as Record<string, unknown> | undefined;
@@ -1762,6 +1794,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
                 let agentMessageCount = 0;
                 return (event: ProviderEvent) => {
                   const parsed = event.parsed as Record<string, unknown> | undefined;
+                  if (voiceMode && !gatheringSent && isToolStart(parsed)) signalGathering("tool");
                   if (parsed && typeof parsed.text === "string") { emitToken(String(parsed.text)); return; }
                   if (parsed?.type !== "item.completed") return;
                   const item = parsed.item as Record<string, unknown> | undefined;

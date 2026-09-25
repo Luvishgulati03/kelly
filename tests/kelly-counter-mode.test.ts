@@ -514,3 +514,82 @@ test("Kokoro warm-up synthesises once at startup and records voice.tts.warm, not
     await new Promise<void>((resolve) => kokoro.close(() => resolve()));
   }
 });
+
+/* ------------------------------------------------------------------ *
+ * `gathering` SSE event: the Talk page's holding phrase is earned only
+ * by a lookup request or a real tool/command start, once per voice turn
+ * ------------------------------------------------------------------ */
+
+type RawOnEvent = (event: { parsed?: Record<string, unknown> }) => void;
+
+test("chat/send emits `gathering` only for voice lookups or a tool start, once per turn, never with command text", async () => {
+  await withVoiceDashboard(async (base, runtime) => {
+    const auth = { authorization: "Bearer counter-voice-test-token" };
+    let script: (onEvent: RawOnEvent | undefined) => void = () => undefined;
+    let runs = 0;
+    (runtime.agent as unknown as { run: unknown }).run = async (_prompt: string, options?: { onEvent?: RawOnEvent }) => {
+      runs += 1;
+      script(options?.onEvent);
+      return { runId: `gathering-${runs}`, provider: "codex", exitCode: 0, durationMs: 1, events: [], response: "```spoken\nOk.\n```\nOk." };
+    };
+    const send = async (prompt: string, voice: boolean) => {
+      const response = await fetch(`${base}/api/chat/send`, {
+        method: "POST",
+        headers: { ...auth, "content-type": "application/json" },
+        body: JSON.stringify({ prompt, ...(voice ? { voice: true } : {}) }),
+      });
+      assert.equal(response.status, 200);
+      return parseSse(await response.text());
+    };
+
+    // Small talk: the model runs, but no gathering event (so the Talk page plays no filler).
+    script = (onEvent) => { onEvent?.({ parsed: { text: "```spoken\nThank you, goodbye.\n```\nGoodbye." } }); };
+    const bye = await send("thank you, bye", true);
+    assert.equal(runs, 1, "the small-talk turn really reached the model");
+    assert.ok(!bye.some((e) => e.event === "gathering"), "no gathering event for a goodbye");
+
+    // A price request: gathering(request) arrives before the model's first token.
+    script = (onEvent) => { onEvent?.({ parsed: { text: "Two suits cost 1000 rupees.\n" } }); };
+    const price = await send("how much for two suits", true);
+    const priceKinds = price.map((e) => e.event);
+    assert.equal(priceKinds.filter((k) => k === "gathering").length, 1, "exactly one gathering event");
+    assert.equal(priceKinds[0], "gathering", "gathering is the first SSE event of the turn");
+    assert.ok(priceKinds.indexOf("gathering") < priceKinds.indexOf("token"), "gathering arrives before the first token");
+    assert.deepEqual(price[0].data, { reason: "request" });
+
+    // An unclassified prompt whose Codex run starts commands: gathering(tool) once, no command text anywhere.
+    const secretCommand = "cat /srv/private/secret-rates.json --token=abc123";
+    script = (onEvent) => {
+      onEvent?.({ parsed: { type: "item.completed", item: { type: "reasoning", text: "Thinking." } } });
+      onEvent?.({ parsed: { type: "item.started", item: { type: "command_execution", command: secretCommand, text: secretCommand } } });
+      onEvent?.({ parsed: { type: "item.completed", item: { type: "command_execution", command: secretCommand, aggregated_output: "500 per unit" } } });
+      onEvent?.({ parsed: { type: "item.started", item: { type: "mcp_tool_call", server: "excel", tool: "read", arguments: { path: secretCommand } } } });
+      onEvent?.({ parsed: { type: "item.completed", item: { type: "agent_message", text: "```spoken\nDone checking.\n```\nDone checking." } } });
+    };
+    const tool = await send("can you check something for me", true);
+    const toolGathering = tool.filter((e) => e.event === "gathering");
+    assert.equal(toolGathering.length, 1, "gathering(tool) is sent once per turn");
+    assert.deepEqual(toolGathering[0].data, { reason: "tool" });
+    for (const e of tool) {
+      const serialized = JSON.stringify(e.data);
+      assert.doesNotMatch(serialized, /secret-rates|abc123|cat \/srv/, `${e.event} must never carry the command text`);
+    }
+
+    // A Claude stream-json tool_use block counts as a tool start too.
+    script = (onEvent) => {
+      onEvent?.({ parsed: { type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: secretCommand } }] } } });
+      onEvent?.({ parsed: { text: "```spoken\nDone.\n```\nDone." } });
+    };
+    const claudeTool = await send("can you check one more thing", true);
+    assert.deepEqual(claudeTool.filter((e) => e.event === "gathering").map((e) => e.data), [{ reason: "tool" }]);
+    for (const e of claudeTool) assert.doesNotMatch(JSON.stringify(e.data), /secret-rates|abc123/);
+
+    // Non-voice turns never get a gathering event, even for a lookup that starts a command.
+    script = (onEvent) => {
+      onEvent?.({ parsed: { type: "item.started", item: { type: "command_execution", command: secretCommand } } });
+      onEvent?.({ parsed: { text: "Two suits cost 1000 rupees.\n" } });
+    };
+    const typed = await send("how much for two suits", false);
+    assert.ok(!typed.some((e) => e.event === "gathering"), "non-voice turns emit no gathering event");
+  });
+});

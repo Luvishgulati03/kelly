@@ -107,6 +107,9 @@ interface ServerState {
   fillerResponseSentAt: number[];
   conversationsCreated: number;
   chatDoneDelayMs: number;
+  /* When set, the default /api/chat/send path sends a `gathering` event with this reason
+     as soon as the request arrives (the real server does so for a lookup request). */
+  chatGathering: "request" | "tool" | null;
   spokenText: string;
   html: string;
   parentMessagesRoute: boolean;
@@ -132,7 +135,7 @@ async function createServer(html: string): Promise<ServerState> {
     base: "", server: null as any,
     greetingCalls: 0, repromptCalls: 0, uploads: [], chatCalls: [], chatRequestTimes: [], speakCalls: [],
     speakRequestTimes: [], fillerCalls: [], fillerResponseSentAt: [],
-    conversationsCreated: 0, chatDoneDelayMs: 0, spokenText: "Here are some lehenga designs.",
+    conversationsCreated: 0, chatDoneDelayMs: 0, chatGathering: null, spokenText: "Here are some lehenga designs.",
     html, parentMessagesRoute: false,
     chatScenario: null, keepScenarioAliveOnAbort: false, pendingScenarioTimers: [],
     speakFrameSamplesList: [1600, 1600],
@@ -205,6 +208,7 @@ async function createServer(html: string): Promise<ServerState> {
         }
         return;
       }
+      if (state.chatGathering) sse(res, "gathering", { reason: state.chatGathering });
       const send = () => {
         sse(res, "spoken", { text: state.spokenText });
         sse(res, "done", { response: state.spokenText, spoken: state.spokenText });
@@ -464,7 +468,8 @@ test("talk engine: holding fillers while the model thinks", { timeout: 60000 }, 
     await press(page);
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
 
-    // --- slow turn: exactly one filler plays, and the reply speak request starts after it ---
+    // --- slow lookup turn: exactly one filler plays, and the reply speak request starts after it ---
+    state.chatGathering = "request";
     state.chatDoneDelayMs = 1200;
     await page.evaluate(() => (window as any).__fakeVad.speechStart());
     await page.evaluate(() => (window as any).__fakeVad.realStart());
@@ -713,6 +718,7 @@ test("talk engine: filler default (1200ms) fires within 1.0-2.5s of the chat/sen
     assert.equal(fillerMs, 1200, "sanity check: the page's default fillerMs is 1200");
 
     state.chatDoneDelayMs = 3000; // slow turn: long enough for the first filler, short enough to avoid the second
+    state.chatGathering = "request"; // the server sends gathering(request) right away for a lookup
 
     await fireSileroUtterance(page);
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
@@ -968,7 +974,8 @@ test("talk engine: every slow turn asks for filler v=0 first and v=1 second, nev
     await press(page);
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
 
-    // Two turns slow enough for both phrases.
+    // Two lookup turns slow enough for both phrases.
+    state.chatGathering = "request";
     state.chatDoneDelayMs = 1600;
     await fireSileroUtterance(page);
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
@@ -982,6 +989,58 @@ test("talk engine: every slow turn asks for filler v=0 first and v=1 second, nev
     await fireSileroUtterance(page);
     await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
     assert.deepEqual(state.fillerCalls.map((c) => c.v), ["0", "1", "0", "1", "0"], "a moderately slow turn hears only v=0");
+    await page.close();
+  } finally {
+    await browser.close();
+    await closeServer(state);
+  }
+});
+
+test("talk engine: fillers only follow a gathering event (none for small talk, fillerMs after request, toolFillerMs after tool)", { timeout: 60000 }, async () => {
+  const html = await loadHtml();
+  const state = await createServer(html);
+  const browser = await chromium.launch({ headless: true, args: LAUNCH_ARGS });
+  try {
+    const page = await openTalkPage(browser, state.base);
+    const toolFillerMs = await page.evaluate(() => (window as any).KellyTalk.testing.toolFillerMs);
+    assert.equal(toolFillerMs, 300, "sanity check: the page's default toolFillerMs is 300");
+    await page.evaluate(() => { const t = (window as any).KellyTalk.testing; t.fillerMs = 400; t.secondFillerMs = 5000; });
+    await press(page);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+
+    // Slow small-talk turn: no gathering event, so no filler at all (the orb just shows Thinking).
+    state.chatGathering = null;
+    state.chatDoneDelayMs = 1500;
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Thinking", { timeout: 15000 });
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    assert.equal(state.fillerCalls.length, 0, "a slow turn without gathering never requests a filler");
+    assert.equal(state.speakCalls.length, 1, "the reply itself is still spoken");
+
+    // gathering(request) at t=100ms: filler v=0 fillerMs (400ms) after the event.
+    state.chatScenario = [
+      { delayMs: 100, event: "gathering", data: { reason: "request" } },
+      { delayMs: 1400, event: "spoken", data: { text: "Two suits cost one thousand rupees." } },
+      { delayMs: 1450, event: "done", data: { response: "Two suits cost one thousand rupees." } },
+    ];
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    assert.deepEqual(state.fillerCalls.map((c) => c.v), ["0"], "gathering(request) earns filler v=0");
+    const requestGap = state.fillerCalls[0].at - state.chatRequestTimes[1];
+    assert.ok(requestGap >= 450 && requestGap <= 1200, `filler requested ${requestGap}ms after chat/send (event at 100ms + fillerMs 400ms)`);
+
+    // gathering(tool) at t=100ms: filler v=0 after toolFillerMs (300ms), well before fillerMs would allow.
+    await page.evaluate(() => { (window as any).KellyTalk.testing.fillerMs = 3000; (window as any).KellyTalk.testing.secondFillerMs = 9000; });
+    state.chatScenario = [
+      { delayMs: 100, event: "gathering", data: { reason: "tool" } },
+      { delayMs: 1400, event: "spoken", data: { text: "I checked the rate card." } },
+      { delayMs: 1450, event: "done", data: { response: "I checked the rate card." } },
+    ];
+    await fireSileroUtterance(page);
+    await page.waitForFunction(() => document.querySelector("#state")?.textContent === "Listening", { timeout: 15000 });
+    assert.deepEqual(state.fillerCalls.map((c) => c.v), ["0", "0"], "gathering(tool) earns filler v=0 in its own turn");
+    const toolGap = state.fillerCalls[1].at - state.chatRequestTimes[2];
+    assert.ok(toolGap >= 350 && toolGap <= 1200, `tool filler requested ${toolGap}ms after chat/send (event at 100ms + toolFillerMs 300ms)`);
     await page.close();
   } finally {
     await browser.close();
