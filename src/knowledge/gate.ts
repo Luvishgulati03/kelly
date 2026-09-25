@@ -69,7 +69,7 @@ function settingsStamp(settingsPath: string): string {
 
 /**
  * Domains switched OFF in settings. This is what every retrieval surface — including
- * Luvish's own brain path — passes as `excludeDomains`, so a toggle is a real kill switch
+ * Taylor's own brain path — passes as `excludeDomains`, so a toggle is a real kill switch
  * rather than a UI preference.
  */
 export function disabledDomains(settingsPath: string): string[] {

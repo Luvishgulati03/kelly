@@ -33,11 +33,11 @@ export class ResumeEditorService {
     return text;
   }
 
-  /** Rewrites the resume per instructions. Never overwrites resume.md — returns a new draft for Luvish to review. */
+  /** Rewrites the resume per instructions. Never overwrites resume.md — returns a new draft for Taylor to review. */
   async edit(instructions: string): Promise<{ markdownPath: string; pdfPath: string }> {
     const resume = await this.resume();
     const prompt = [
-      "Rewrite Luvish's resume markdown per the instructions below. STRICT rules: never invent employers, roles, dates, degrees, metrics, or skills not present in the current resume or the instructions; reordering, rewording, emphasis changes, and cutting are allowed; additions come ONLY from the instructions. Keep it one page dense. Luvish's target: Product Manager roles. Return ONLY the full updated resume as markdown.",
+      "Rewrite Taylor's resume markdown per the instructions below. STRICT rules: never invent employers, roles, dates, degrees, metrics, or skills not present in the current resume or the instructions; reordering, rewording, emphasis changes, and cutting are allowed; additions come ONLY from the instructions. Keep it one page dense. Taylor's target: Product Manager roles. Return ONLY the full updated resume as markdown.",
       `\n--- current resume ---\n${resume}`,
       `\n--- instructions ---\n${instructions}`,
     ].join("\n");
@@ -59,7 +59,7 @@ export class ResumeEditorService {
     return { markdownPath, pdfPath };
   }
 
-  /** Luvish's acceptance step: copies an edited draft over the canonical resume source. */
+  /** Taylor's acceptance step: copies an edited draft over the canonical resume source. */
   async promote(markdownPath: string): Promise<string> {
     const text = await fs.readFile(markdownPath, "utf8").catch(() => "");
     if (!text.trim()) throw new Error(`Edited resume not found at ${markdownPath}`);

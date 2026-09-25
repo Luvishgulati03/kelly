@@ -233,19 +233,41 @@ test("/api/health reports remote.active:true when a stubbed tunnel reports activ
   }, { tunnel: { active: true, mode: "tailscale", url: "https://kelly-mac.tail1234.ts.net" } });
 });
 
-test("/api/health is readable cross-site by the owner's portfolio origins only", async () => {
-  await withDashboard(async (base) => {
-    for (const origin of ["https://luvishgulati.com", "https://www.luvishgulati.com"]) {
-      const response = await fetch(`${base}/api/health`, { headers: { origin } });
-      assert.equal(response.status, 200);
-      assert.equal(response.headers.get("access-control-allow-origin"), origin);
-      assert.equal(((await response.json()) as { ok: boolean }).ok, true);
-    }
-    for (const origin of ["https://evil.example", "https://luvishgulati.com.evil.example", "http://luvishgulati.com"]) {
-      const response = await fetch(`${base}/api/health`, { headers: { origin } });
-      assert.equal(response.headers.get("access-control-allow-origin"), null, origin);
-    }
-    const status = await fetch(`${base}/api/status`, { headers: { origin: "https://luvishgulati.com" } });
-    assert.equal(status.headers.get("access-control-allow-origin"), null, "no other route opens up");
-  });
+test("/api/health has no cross-site readers by default (KELLY_HEALTH_CORS_ORIGINS unset)", async () => {
+  const previous = process.env.KELLY_HEALTH_CORS_ORIGINS;
+  delete process.env.KELLY_HEALTH_CORS_ORIGINS;
+  try {
+    await withDashboard(async (base) => {
+      for (const origin of ["https://portfolio.example.com", "https://www.portfolio.example.com", "https://evil.example"]) {
+        const response = await fetch(`${base}/api/health`, { headers: { origin } });
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("access-control-allow-origin"), null, origin);
+      }
+    });
+  } finally {
+    if (previous === undefined) delete process.env.KELLY_HEALTH_CORS_ORIGINS; else process.env.KELLY_HEALTH_CORS_ORIGINS = previous;
+  }
+});
+
+test("/api/health is readable cross-site by exactly the origins listed in KELLY_HEALTH_CORS_ORIGINS", async () => {
+  const previous = process.env.KELLY_HEALTH_CORS_ORIGINS;
+  process.env.KELLY_HEALTH_CORS_ORIGINS = "https://portfolio.example.com,https://www.portfolio.example.com";
+  try {
+    await withDashboard(async (base) => {
+      for (const origin of ["https://portfolio.example.com", "https://www.portfolio.example.com"]) {
+        const response = await fetch(`${base}/api/health`, { headers: { origin } });
+        assert.equal(response.status, 200);
+        assert.equal(response.headers.get("access-control-allow-origin"), origin);
+        assert.equal(((await response.json()) as { ok: boolean }).ok, true);
+      }
+      for (const origin of ["https://evil.example", "https://portfolio.example.com.evil.example", "http://portfolio.example.com"]) {
+        const response = await fetch(`${base}/api/health`, { headers: { origin } });
+        assert.equal(response.headers.get("access-control-allow-origin"), null, origin);
+      }
+      const status = await fetch(`${base}/api/status`, { headers: { origin: "https://portfolio.example.com" } });
+      assert.equal(status.headers.get("access-control-allow-origin"), null, "no other route opens up");
+    });
+  } finally {
+    if (previous === undefined) delete process.env.KELLY_HEALTH_CORS_ORIGINS; else process.env.KELLY_HEALTH_CORS_ORIGINS = previous;
+  }
 });

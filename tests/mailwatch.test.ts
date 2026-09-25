@@ -350,7 +350,7 @@ test("state file persists across service instances and caps seenIds at 500", asy
   assert.equal(raw.seenIds.length, 500);
 });
 
-// --- Randomized 5-checks/day plan (Luvish's request: cut codex calls ~6x vs. a check on every tick) ---
+// --- Randomized 5-checks/day plan (Taylor's request: cut codex calls ~6x vs. a check on every tick) ---
 
 test("plan() generates 5 sorted times within the 08:00-23:00 local window", async () => {
   const { config, activity } = await setup();

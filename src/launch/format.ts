@@ -103,7 +103,7 @@ export function renderIntakeMarkdown(record: LaunchIntakeRecord): string {
     "",
     citationsBlock,
     "",
-    "## Questions for Luvish",
+    "## Questions for Taylor",
     "",
     `Fill in each ANSWER: line below (write the answer on the same line, after the colon). Save this file, then run: henry launch run ${record.slug}`,
     `At least ${MIN_ANSWERED_QUESTIONS} questions must be answered before the crew will run.`,
@@ -114,7 +114,7 @@ export function renderIntakeMarkdown(record: LaunchIntakeRecord): string {
 }
 
 /**
- * Parses Luvish's hand-edited intake.md back into Q/A pairs. Tolerant of formatting drift:
+ * Parses Taylor's hand-edited intake.md back into Q/A pairs. Tolerant of formatting drift:
  * any "N. <text>" line opens a question, the next "ANSWER: <text>" line (case-insensitive)
  * closes it — everything else on the file is ignored.
  */

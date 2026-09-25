@@ -116,9 +116,9 @@ test("STT passes a vocabulary --prompt when supplied, capped at 400 chars with n
   };
   const service = new LocalVoiceService({ tempRoot, stt: { whisperCppPath: "/local/whisper", whisperModelPath: "/models/ggml-small.bin" } }, runner);
 
-  await service.transcribe(wav(), { prompt: "She Fashion House: lehenga, saree, kurti" });
+  await service.transcribe(wav(), { prompt: "Sample Boutique: lehenga, saree, kurti" });
   assert.ok(argsSeen.includes("--prompt"));
-  assert.equal(argsSeen[argsSeen.indexOf("--prompt") + 1], "She Fashion House: lehenga, saree, kurti");
+  assert.equal(argsSeen[argsSeen.indexOf("--prompt") + 1], "Sample Boutique: lehenga, saree, kurti");
 
   await service.transcribe(wav(), { prompt: `line one\nline two "quoted" and 'quoted'` });
   assert.equal(argsSeen[argsSeen.indexOf("--prompt") + 1], "line one line two quoted and quoted");

@@ -66,7 +66,7 @@ function overlaps(a: FakeCall, b: FakeCall): boolean {
   return a.startedAt < b.finishedAt && b.startedAt < a.finishedAt;
 }
 
-/** Fills in the first `n` blank "ANSWER:" lines, mimicking Luvish hand-editing intake.md. */
+/** Fills in the first `n` blank "ANSWER:" lines, mimicking Taylor hand-editing intake.md. */
 function fillAnswers(markdown: string, n: number): string {
   let count = 0;
   return markdown.replace(/ANSWER:\s*$/gm, (match) => {
@@ -119,7 +119,7 @@ test("intake() writes intake.md + intake.json with numbered questions, ANSWER bl
 
   assert.equal(result.record.questions.length, 4);
   assert.equal(result.record.sourceKind, "brief");
-  assert.match(result.markdown, /## Questions for Luvish/);
+  assert.match(result.markdown, /## Questions for Taylor/);
   // Use the real parser, not a naive substring count -- the instructions line itself
   // says the word "ANSWER:" in prose, so only line-anchored blanks should count.
   assert.equal(parseAnsweredQuestions(result.markdown).length, 4);

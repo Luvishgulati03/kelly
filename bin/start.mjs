@@ -226,12 +226,12 @@ export async function startKelly(args) {
       KELLY_PORT: process.env.KELLY_PORT || "7338",
       KELLY_TRADE: isBoutique ? "boutique" : "electrical",
     });
-    if (isBoutique) process.env.KELLY_SHOP_NAME = "She Fashion House";
+    if (isBoutique) process.env.KELLY_SHOP_NAME = process.env.KELLY_SHOP_NAME || "Demo Boutique";
     // Demo mode never connects to the real owner's Telegram account.
     process.env.KELLY_TELEGRAM_BOT_TOKEN = "";
     process.env.HENRY_TELEGRAM_BOT_TOKEN = "";
     console.log(isBoutique
-      ? `DEMO MODE: She Fashion House boutique, separate data and memory, port ${process.env.KELLY_PORT}.`
+      ? `DEMO MODE: ${process.env.KELLY_SHOP_NAME} boutique, separate data and memory, port ${process.env.KELLY_PORT}.`
       : `DEMO MODE: fictional catalogue, separate data and memory, port ${process.env.KELLY_PORT}.`);
   }
   const { loadConfig } = await import("../src/config.ts");

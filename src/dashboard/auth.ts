@@ -7,9 +7,9 @@ import { getActiveProfile } from "../profile.ts";
 
 /**
  * Dashboard identity — multi-user auth so the same server can be reached over a
- * token-protected remote binding without changing Luvish's localhost UX (the
+ * token-protected remote binding without changing Taylor's localhost UX (the
  * localAdminBypass branch lives in server.ts; this module only supplies the
- * primitives). Two roles: `admin` (Luvish, full mission control) and `counter`
+ * primitives). Two roles: `admin` (Taylor, full mission control) and `counter`
  * (the shop tablet — chat and counter voice only; server.ts owns exactly what a
  * counter session can reach).
  *

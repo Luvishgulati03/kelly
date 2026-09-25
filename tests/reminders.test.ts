@@ -250,24 +250,24 @@ test("fireDue() runs prompt reminders through the injected PromptRunner and deli
   const service = new ReminderService(config, activity);
   const now = new Date("2026-08-06T12:00:00Z");
   const reminder = await service.create(
-    "wish Luvish good morning with one useful thing from memory",
+    "wish Taylor good morning with one useful thing from memory",
     new Date(now.getTime() - 1000),
     "prompt",
   );
 
   const { notify, messages } = fakeNotifier();
-  const { run, prompts } = fakePromptRunner("Morning, Luvish! Quick tip: batch your standups.");
+  const { run, prompts } = fakePromptRunner("Morning, Taylor! Quick tip: batch your standups.");
   const fired = await service.fireDue(notify, now, run);
 
   assert.equal(fired.length, 1);
   assert.equal(fired[0].status, "fired"); // one-shot prompt job still fires once
-  assert.deepEqual(prompts, ["wish Luvish good morning with one useful thing from memory"]);
-  assert.deepEqual(messages, ["Morning, Luvish! Quick tip: batch your standups."]);
+  assert.deepEqual(prompts, ["wish Taylor good morning with one useful thing from memory"]);
+  assert.deepEqual(messages, ["Morning, Taylor! Quick tip: batch your standups."]);
 
   const events = await activity.list(10);
   const event = events.find((item) => item.metadata?.id === reminder.id);
   assert.equal(event?.metadata?.kind, "prompt");
-  assert.equal(event?.metadata?.message, "Morning, Luvish! Quick tip: batch your standups.");
+  assert.equal(event?.metadata?.message, "Morning, Taylor! Quick tip: batch your standups.");
 });
 
 test("fireDue() supports recurring prompt jobs: re-arms and re-runs the prompt on each occurrence", async () => {
@@ -275,7 +275,7 @@ test("fireDue() supports recurring prompt jobs: re-arms and re-runs the prompt o
   const service = new ReminderService(config, activity);
   const now = new Date(2026, 7, 6, 7, 28, 0);
   const reminder = await service.createRecurring(
-    "wish Luvish good morning with one useful thing from memory",
+    "wish Taylor good morning with one useful thing from memory",
     "30 7 * * *",
     "prompt",
     now,
@@ -288,7 +288,7 @@ test("fireDue() supports recurring prompt jobs: re-arms and re-runs the prompt o
   assert.equal(fired.length, 1);
   assert.equal(fired[0].status, "pending");
   assert.equal(fired[0].kind, "prompt");
-  assert.deepEqual(prompts, ["wish Luvish good morning with one useful thing from memory"]);
+  assert.deepEqual(prompts, ["wish Taylor good morning with one useful thing from memory"]);
   assert.deepEqual(messages, ["Good morning! Here's a tip."]);
 });
 
@@ -400,7 +400,7 @@ test("fireDue() skips (never retries) an approval.execute reminder whose approva
   const reminder = await service.createApprovalExecute("appr-pending", new Date(now.getTime() - 1000), "recruiter follow-up email");
 
   const executeApproval: ExecuteApprovalFn = async () => {
-    throw new Error("Approval appr-pending is pending; Luvish's explicit approval is required before execution");
+    throw new Error("Approval appr-pending is pending; Taylor's explicit approval is required before execution");
   };
   const { notify, messages } = fakeNotifier();
   const fired = await service.fireDue(notify, now, undefined, executeApproval);

@@ -4,7 +4,7 @@ import type { ActivityLog } from "../activity.ts";
 import type { ProviderRunner } from "../providers/runner.ts";
 
 /**
- * Learns what jobs Luvish is actually hunting from the job ALERTS he already
+ * Learns what jobs Taylor is actually hunting from the job ALERTS he already
  * curated — without needing a LinkedIn login. LinkedIn/Naukri/Indeed alert emails
  * land in Gmail, and each one names its saved search ("your job alert: Associate
  * Product Manager in Bengaluru"). One read-only Gmail scan distills those into

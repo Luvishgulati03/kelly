@@ -47,10 +47,10 @@ test("extractCatalogueRows: a sheet without a brand column succeeds when brandRe
     ["Garment", "Item", "Rate"],
     [["Suit", "Plain stitching", 600]],
   );
-  const result = await extractCatalogueRows(noBrandPath, { brandRequired: false, shopName: "She Fashion House" });
+  const result = await extractCatalogueRows(noBrandPath, { brandRequired: false, shopName: "Sample Boutique" });
   assert.equal(result.rows.length, 1);
-  for (const row of result.rows) assert.equal(row.brand, "She Fashion House");
-  assert.deepEqual(result.notes, ["brand column absent; rows branded as She Fashion House"]);
+  for (const row of result.rows) assert.equal(row.brand, "Sample Boutique");
+  assert.deepEqual(result.notes, ["brand column absent; rows branded as Sample Boutique"]);
 });
 
 test("extractCatalogueRows: a sheet with an explicit brand column keeps its brands even when brandRequired is false (boutique)", async () => {
@@ -61,7 +61,7 @@ test("extractCatalogueRows: a sheet with an explicit brand column keeps its bran
     ["Garment", "Brand", "Item", "Rate"],
     [["Suit", "Guest Designer", "Plain stitching", 600]],
   );
-  const result = await extractCatalogueRows(withBrandPath, { brandRequired: false, shopName: "She Fashion House" });
+  const result = await extractCatalogueRows(withBrandPath, { brandRequired: false, shopName: "Sample Boutique" });
   assert.equal(result.rows.length, 1);
   assert.equal(result.rows[0].brand, "Guest Designer");
   assert.deepEqual(result.notes, []);

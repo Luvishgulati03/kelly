@@ -27,7 +27,7 @@ export interface ReminderTickerOptions {
 /**
  * Cross-process firing ownership. Multiple Henry processes (repl, dashboard, daemon)
  * all poll; without ownership, whichever polls first fires the reminder into ITS
- * surface — a background dashboard silently swallowing messages meant for Luvish's
+ * surface — a background dashboard silently swallowing messages meant for Taylor's
  * terminal (observed 2026-08-06). Rule: one live owner fires; a repl always takes
  * over from background owners; background processes only claim a dead/absent lock.
  */
@@ -44,7 +44,7 @@ function claimOwnership(lockPath: string, role: ReminderTickerRole, staleMs: num
     : false;
   if (ownerAlive && owner!.pid !== process.pid) {
     if (role === "repl" && owner!.role !== "repl") {
-      // Interactive takeover: the terminal Luvish is watching wins.
+      // Interactive takeover: the terminal Taylor is watching wins.
     } else {
       return false;
     }

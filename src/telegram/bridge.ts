@@ -10,14 +10,14 @@ import type { ConsumeOutcome, PumpConsumer, PumpMetaStore, TelegramAudioMeta, Te
 export { reflexKind, renderReflex, type ReflexKind, type ReflexSnapshot } from "../reflex.ts";
 
 /**
- * THE DM BRIDGE — Luvish texts the bot, Henry thinks, Henry replies in the chat.
+ * THE DM BRIDGE — Taylor texts the bot, Henry thinks, Henry replies in the chat.
  *
  * Rails, in the order they bite:
  *
- * 1. LUVISH-ONLY. The only chat this consumer ever reads or answers is
- *    `telegramChatId` — Luvish's own DM, read from config, never caller-supplied.
+ * 1. TAYLOR-ONLY. The only chat this consumer ever reads or answers is
+ *    `telegramChatId` — Taylor's own DM, read from config, never caller-supplied.
  *    Any other DM gets NO reply, ever; the pump counts it and the text is never read,
- *    logged, or stored. Replying to Luvish is not an outbound third-party send (soul.md
+ *    logged, or stored. Replying to Taylor is not an outbound third-party send (soul.md
  *    "hard outbound boundary" governs messages to ANYONE ELSE, and still does: everything
  *    Henry decides to do from this conversation runs the normal rails).
  * 2. CONVERSATION BY DEFAULT. Optional operator mode allows local engineering and research
@@ -29,7 +29,7 @@ export { reflexKind, renderReflex, type ReflexKind, type ReflexSnapshot } from "
  *    HENRY_TELEGRAM_BOT_TOKEN + HENRY_TELEGRAM_CHAT_ID are both present.
  *
  * Doctrine rule 7: this file imports no module. The sender (`notify/telegram.ts`, already
- * pinned to Luvish's DM) and the brain entry (`HenryAgent.run`) are injected by runtime.ts,
+ * pinned to Taylor's DM) and the brain entry (`HenryAgent.run`) are injected by runtime.ts,
  * so the bridge adds ZERO new outbound surfaces and ZERO new brains.
  */
 
@@ -239,7 +239,7 @@ export interface BridgeDeps {
   think: (prompt: string, report: (text: string) => Promise<boolean>) => Promise<string>;
   /** Optional: absent means voice notes are refused with one plain sentence. */
   voice?: BridgeVoice;
-  /** The existing DM sender, already pinned to Luvish's chat id. Injected: the bridge owns no send surface. */
+  /** The existing DM sender, already pinned to Taylor's chat id. Injected: the bridge owns no send surface. */
   send: (config: HenryConfig, text: string) => Promise<boolean>;
   /**
    * Local state for the reflex lane. Optional: without it every message simply takes the
@@ -304,7 +304,7 @@ export class TelegramBridge implements PumpConsumer {
     private readonly deps: BridgeDeps,
   ) {}
 
-  /** Both env vars present — without them there is no bot and no known Luvish. */
+  /** Both env vars present — without them there is no bot and no known Taylor. */
   get configured(): boolean {
     return Boolean(this.config.telegramBotToken && this.config.telegramChatId);
   }
@@ -329,7 +329,7 @@ export class TelegramBridge implements PumpConsumer {
   }
 
   /**
-   * Pump entry. Enqueues Luvish's new messages and returns IMMEDIATELY — a brain call takes
+   * Pump entry. Enqueues Taylor's new messages and returns IMMEDIATELY — a brain call takes
    * tens of seconds and must never hold the shared poll (standup would starve behind it).
    * Never holds the batch: a bridge failure is a lost reply, not a lost standup.
    */
@@ -343,8 +343,8 @@ export class TelegramBridge implements PumpConsumer {
     for (const update of updates) {
       const message = update.message ?? update.edited_message;
       const chatId = message?.chat?.id;
-      if (chatId === undefined || String(chatId) !== mine) continue; // LUVISH-ONLY rail
-      // Everything below is already known to be Luvish's own chat.
+      if (chatId === undefined || String(chatId) !== mine) continue; // TAYLOR-ONLY rail
+      // Everything below is already known to be Taylor's own chat.
       maxSeen = Math.max(maxSeen, update.update_id);
       if (Number.isFinite(lastHandled) && update.update_id <= lastHandled) continue; // replayed batch
       if (!message || message.from?.is_bot) continue; // our own echoes
@@ -392,7 +392,7 @@ export class TelegramBridge implements PumpConsumer {
       // must not wait behind a brain call that may run for a minute. This is what keeps
       // Henry answerable while he is busy.
       // RESUME FIRST. A turn parked by a quota wall goes back at the FRONT of the queue
-      // before this new message is queued behind it, so the work Luvish already asked for
+      // before this new message is queued behind it, so the work Taylor already asked for
       // finishes before the thing he just said — which is the order he asked them in.
       this.resumeDeferred();
       const reflex = this.deps.snapshot ? reflexKind(text) : undefined;
@@ -456,7 +456,7 @@ export class TelegramBridge implements PumpConsumer {
 
   /**
    * Puts every quota-parked turn back at the FRONT of the queue, oldest first, ahead of the
-   * message that is about to be queued behind it — the work Luvish already asked for finishes
+   * message that is about to be queued behind it — the work Taylor already asked for finishes
    * before the thing he just said. Cleared as it is taken, so a parked turn can never be
    * replayed twice; each is marked `resumed` so an overflow never sacrifices resumed work
    * (see `enqueue`).
@@ -616,7 +616,7 @@ export class TelegramBridge implements PumpConsumer {
   /**
    * Overflow never drops resumed work: `resumeDeferred()` just put it back at the FRONT of
    * the queue on purpose, so dropping from the front (the old behaviour) threw away exactly
-   * the turns quota had already made Luvish wait for once. Instead this drops the OLDEST
+   * the turns quota had already made Taylor wait for once. Instead this drops the OLDEST
    * item that is not marked `resumed`. If every item in flight is resumed (no such item
    * exists), the newest arrival — the one that caused the overflow — is dropped instead.
    */
@@ -695,7 +695,7 @@ export class TelegramBridge implements PumpConsumer {
       answer = (await this.deps.think(itemText, (text) => this.reply(text))).trim();
     } catch (error) {
       // Out of quota is not a failed answer — it is an unanswered question. Park it and say
-      // so, rather than burning the turn with "say it again": the message Luvish already
+      // so, rather than burning the turn with "say it again": the message Taylor already
       // sent is exactly the thing he wants finished when capacity comes back.
       if (error && typeof error === "object" && (error as { deferrable?: boolean }).deferrable === true) {
         this.thinking = false;
@@ -728,7 +728,7 @@ export class TelegramBridge implements PumpConsumer {
       this.settleVoice(item.voiceId, "answered", answer);
       void this.activity.record("voice.answered", "Kelly answered a confirmed voice note", { telegram: true, voice: true, chars: answer.length }).catch(() => undefined);
     }
-    await this.activity.record(sent ? "run.completed" : "run.failed", `Telegram bridge ${sent ? "replied to" : "failed to reach"} Luvish`, {
+    await this.activity.record(sent ? "run.completed" : "run.failed", `Telegram bridge ${sent ? "replied to" : "failed to reach"} Taylor`, {
       telegram: true, chars: answer.length,
     });
   }
@@ -746,7 +746,7 @@ export class TelegramBridge implements PumpConsumer {
 
   /**
    * "Henry is typing…" while the brain runs. Best-effort and fire-and-forget: a failed
-   * chat action must never affect the reply. Pinned to Luvish's own chat like everything here.
+   * chat action must never affect the reply. Pinned to Taylor's own chat like everything here.
    */
   private startTyping(): () => void {
     const fetchImpl = this.deps.fetchImpl ?? fetch;

@@ -49,7 +49,7 @@ test("connector send receives exact content only after an explicit claim", async
     to: "jane@example.com", subject: "Contract review", body: "Thanks",
     threadId: "thread-id", inReplyTo: "parent@example.com", references: "<root@example.com>",
   });
-  await assert.rejects(() => service.sendApproved(item), /requires Luvish's explicit approval/);
+  await assert.rejects(() => service.sendApproved(item), /requires Taylor's explicit approval/);
   assert.equal(calls.length, 0);
   await approvals.setStatus(item.id, "approved");
   const executing = await approvals.claimForExecution(item.id);

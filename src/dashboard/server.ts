@@ -677,8 +677,38 @@ function trustedPublicOrigins(runtime: HenryRuntime): string[] {
  * string-equal to the trusted origin. A missing Origin header stays allowed, same as before
  * (a non-browser client presenting a valid session cookie never sent one).
  */
-/** Origins allowed to read GET /api/health cross-site (the owner's portfolio status pill). */
-const HEALTH_CORS_ORIGINS = new Set(["https://luvishgulati.com", "https://www.luvishgulati.com"]);
+/**
+ * Origins allowed to read GET /api/health cross-site (e.g. the operator's own portfolio
+ * status pill). Configured via `KELLY_HEALTH_CORS_ORIGINS`, a comma-separated list of exact
+ * https origins (no path). Default is empty — no cross-site reads — until the operator opts
+ * in. Each entry is validated as a bare https origin; anything else (wrong scheme, a path,
+ * malformed URL) is dropped rather than silently normalized.
+ */
+function parseHealthCorsOrigins(value: string | undefined): Set<string> {
+  const origins = new Set<string>();
+  if (!value) return origins;
+  for (const raw of value.split(",")) {
+    const candidate = raw.trim();
+    if (!candidate) continue;
+    let parsed: URL;
+    try {
+      parsed = new URL(candidate);
+    } catch {
+      continue;
+    }
+    if (parsed.protocol !== "https:") continue;
+    if (parsed.pathname !== "/" && parsed.pathname !== "") continue;
+    if (parsed.search || parsed.hash) continue;
+    origins.add(`${parsed.protocol}//${parsed.host}`);
+  }
+  return origins;
+}
+
+// Read fresh per call (not cached at module load) so a test or a settings/env change
+// takes effect immediately, mirroring trustedPublicOrigins() above.
+function healthCorsOrigins(): Set<string> {
+  return parseHealthCorsOrigins(process.env.KELLY_HEALTH_CORS_ORIGINS);
+}
 
 function localOrigin(request: http.IncomingMessage, runtime: HenryRuntime): boolean {
   const origin = request.headers.origin;
@@ -751,7 +781,7 @@ function tokenAdmin(request: http.IncomingMessage, runtime: HenryRuntime): boole
     || (typeof headerToken === "string" && secretEquals(headerToken, token));
 }
 
-const SYNTHETIC_ADMIN: SessionUser = { userId: "local", username: "luvish", role: "admin" };
+const SYNTHETIC_ADMIN: SessionUser = { userId: "local", username: "owner", role: "admin" };
 
 /**
  * settings `dashboard.auth.localAdminBypass` (default TRUE) — read straight off
@@ -776,15 +806,15 @@ export function localAdminBypassEnabled(runtime: HenryRuntime): boolean {
 
 /**
  * Who is calling, in priority order: a valid `henry_sess` cookie, else the remote
- * token header (admin), else the local-admin bypass (Luvish on this machine),
- * else nobody. A stale cookie never costs Luvish his access — it just falls
+ * token header (admin), else the local-admin bypass (the owner on this machine),
+ * else nobody. A stale cookie never costs the owner their access — it just falls
  * through to the bypass.
  */
 async function sessionUserFor(request: http.IncomingMessage, runtime: HenryRuntime): Promise<SessionUser | undefined> {
   const session = readSession(request.headers.cookie);
   if (session) return session;
   if (tokenAdmin(request, runtime)) return SYNTHETIC_ADMIN;
-  // The bypass exists for Luvish's own terminal on his own Mac. A tunnel forwards a
+  // The bypass exists for the owner's own terminal on their own Mac. A tunnel forwards a
   // remote visitor's traffic into this same loopback socket, so once one is up the
   // bypass would hand every tablet/tunnel visitor admin for free — it only applies
   // while no tunnel is active. A getter that throws is treated as "a tunnel might be
@@ -906,8 +936,8 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
       const url = new URL(request.url || "/", `http://${runtime.config.host}:${runtime.config.port}`);
       // Auth gate. /login and /api/health are reachable logged-out, and /logout only
       // ever destroys the caller's own session. Everything else below — every personal
-      // route Luvish had — is admin-only; the local-admin bypass inside sessionUserFor
-      // is what keeps his localhost experience exactly as it was.
+      // route the owner had — is admin-only; the local-admin bypass inside sessionUserFor
+      // is what keeps their localhost experience exactly as it was.
       const route = url.pathname.replace(/\/$/, "") || "/";
       const publicPath = route === "/login" || route === "/logout" || route === "/api/health";
       const user = await sessionUserFor(request, runtime);
@@ -1131,7 +1161,7 @@ export function startDashboard(runtime: HenryRuntime): http.Server {
         // the browser. Only those exact origins may read it cross-site; nothing else here is
         // readable across origins, and this payload carries nothing beyond "Kelly is up".
         const origin = request.headers.origin;
-        if (typeof origin === "string" && HEALTH_CORS_ORIGINS.has(origin)) {
+        if (typeof origin === "string" && healthCorsOrigins().has(origin)) {
           response.setHeader("access-control-allow-origin", origin);
           response.setHeader("vary", "Origin");
         }

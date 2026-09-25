@@ -129,7 +129,7 @@ export function finalCodexAgentMessage(events: ProviderEvent[]): string | undefi
  *
  * The sandbox follows `readOnly` and nothing else: Henry is agentic by design —
  * its brain (repl, telegram, dashboard chat, jobs, standup, the scheduler)
- * legitimately runs CLI commands and edits files on Luvish's machine, and that
+ * legitimately runs CLI commands and edits files on Taylor's machine, and that
  * IS the product.
  */
 export function codexArgs(
@@ -188,7 +188,7 @@ export const CLAUDE_T2_MODEL = "opus";
  * defaults reproduce the previous hardcoded haiku/opus behaviour exactly.
  *
  * The shape is the prompt followed by `--dangerously-skip-permissions`, which is
- * how the agent edits files on Luvish's machine.
+ * how the agent edits files on Taylor's machine.
  */
 export function claudeArgs(
   prompt: string,

@@ -13,12 +13,12 @@ import type { RunResult } from "../src/types.ts";
 const VALID_NOTES_JSON = JSON.stringify({
   title: "Q3 Planning Sync",
   date: "2026-08-06",
-  attendees: ["Luvish", "Priya"],
+  attendees: ["Taylor", "Priya"],
   decisions: ["Ship the meeting-shadow module by end of phase 6"],
-  actionItems: [{ owner: "Luvish", task: "Review the whisper.cpp setup", due: "2026-08-08" }],
+  actionItems: [{ owner: "Taylor", task: "Review the whisper.cpp setup", due: "2026-08-08" }],
   openQuestions: ["Do we need speaker diarization for v1?"],
   personalizedForDad: {
-    commitments: ["Luvish will send the roadmap doc to Priya by Friday"],
+    commitments: ["Taylor will send the roadmap doc to Priya by Friday"],
     affectsProjects: ["Henry meeting-shadow module"],
     suggestedFollowUps: ["Draft a follow-up email summarizing decisions"],
   },
@@ -26,7 +26,7 @@ const VALID_NOTES_JSON = JSON.stringify({
 
 function fakeMemory(remembered: Array<{ content: string; importance?: number }>): HenryMemory {
   return {
-    context: async () => "Luvish's projects: Henry agent build-out.",
+    context: async () => "Taylor's projects: Henry agent build-out.",
     remember: async (content: string, input?: { importance?: number }) => {
       remembered.push({ content, importance: input?.importance });
       return `mem-${remembered.length}`;
@@ -43,7 +43,7 @@ function fakeRunner(response = VALID_NOTES_JSON): ProviderRunner {
 }
 
 async function fakeTranscribe(_audioPath: string): Promise<string> {
-  return "Luvish: Let's ship the meeting-shadow module by end of phase 6. Priya: sounds good, send me the roadmap by Friday.";
+  return "Taylor: Let's ship the meeting-shadow module by end of phase 6. Priya: sounds good, send me the roadmap by Friday.";
 }
 
 async function setup(): Promise<{ config: ReturnType<typeof loadConfig>; activity: ActivityLog }> {
@@ -63,15 +63,15 @@ test("process() transcribes, summarizes, writes files, remembers commitments, an
 
   assert.equal(result.notes.title, "Q3 Planning Sync");
   assert.equal(result.notes.date, "2026-08-06");
-  assert.deepEqual(result.notes.attendees, ["Luvish", "Priya"]);
+  assert.deepEqual(result.notes.attendees, ["Taylor", "Priya"]);
   assert.equal(result.notes.personalizedForDad.commitments.length, 1);
 
   await fs.access(result.markdownPath);
   await fs.access(result.outputPath);
   const markdown = await fs.readFile(result.markdownPath, "utf8");
   assert.match(markdown, /Q3 Planning Sync/);
-  assert.match(markdown, /## For Luvish/);
-  assert.match(markdown, /Luvish will send the roadmap doc to Priya by Friday/);
+  assert.match(markdown, /## For Taylor/);
+  assert.match(markdown, /Taylor will send the roadmap doc to Priya by Friday/);
 
   // Overview memory + one commitment memory.
   assert.equal(remembered.length, 2);

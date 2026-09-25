@@ -20,7 +20,7 @@ async function withTrade<T>(trade: "boutique" | "electrical", run: (config: Retu
   const root = await fs.mkdtemp(path.join(os.tmpdir(), `kelly-${trade}-`));
   setActiveProfile("kelly");
   process.env.KELLY_TRADE = trade;
-  if (trade === "boutique") process.env.KELLY_SHOP_NAME = "She Fashion House";
+  if (trade === "boutique") process.env.KELLY_SHOP_NAME = "Sample Boutique";
   try {
     const config = loadConfig(root);
     return await run(config, root);
@@ -74,7 +74,7 @@ test("importing the boutique template with no brand column succeeds and derives 
       await service.publish(imported.documentId);
       const found = (await service.search("SUIT-LINING", undefined, false)) as { products: Array<{ brand: string; sku: string }> };
       assert.equal(found.products.length, 1);
-      assert.equal(found.products[0].brand, "She Fashion House");
+      assert.equal(found.products[0].brand, "Sample Boutique");
     } finally { service.close(); }
   });
 });
@@ -92,7 +92,7 @@ test("a rate-card sheet with no code column derives stable, deduplicated codes f
       const rows = (await service.search("", undefined, false)) as { products: Array<{ sku: string; brand: string }> };
       const skus = rows.products.map((item) => item.sku).sort();
       assert.deepEqual(skus, ["SUIT-PLAIN-STITCHING", "SUIT-PLAIN-STITCHING-2"]);
-      for (const item of rows.products) assert.equal(item.brand, "She Fashion House");
+      for (const item of rows.products) assert.equal(item.brand, "Sample Boutique");
     } finally { service.close(); }
   });
 });
@@ -113,7 +113,7 @@ test("createQuote without a brand prices a boutique stitching job correctly in p
         ],
       });
       assert.equal(quote.complete, true);
-      assert.equal(quote.brand, "She Fashion House");
+      assert.equal(quote.brand, "Sample Boutique");
       // 2*850 + 1*450 + 2*200 = 2550 rupees subtotal; +5% GST = 2677.50 -> 267750 paise.
       assert.equal(quote.subtotalPaise, 255_000);
       assert.equal(quote.taxPaise, 12_750);
@@ -146,7 +146,7 @@ test("inline --lines create for boutique with no brand produces the same total a
       const inlineRequest: QuoteRequest = { lines: parseLinesOption("SUIT-LINING x2, SUIT-EMB-NECK x1, URGENT-48H x2") };
       const inlineQuote = service.createQuote(inlineRequest);
       assert.equal(inlineQuote.complete, true);
-      assert.equal(inlineQuote.brand, "She Fashion House");
+      assert.equal(inlineQuote.brand, "Sample Boutique");
       assert.equal(inlineQuote.subtotalPaise, fromQuote.subtotalPaise);
       assert.equal(inlineQuote.taxPaise, fromQuote.taxPaise);
       assert.equal(inlineQuote.totalPaise, fromQuote.totalPaise);

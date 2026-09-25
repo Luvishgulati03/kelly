@@ -5,7 +5,7 @@ import type { ApprovalItem } from "./types.ts";
  * boundary for outbound actions.
  */
 export const OUTBOUND_EMAIL_APPROVAL_GUARDRAIL =
-  "Never send or reply to an email without Luvish's explicit approval. Drafting and saving are allowed; sending requires a separate approval action first.";
+  "Never send or reply to an email without Taylor's explicit approval. Drafting and saving are allowed; sending requires a separate approval action first.";
 
 /**
  * Outbound integrations may only run after Henry atomically claims an action
@@ -17,6 +17,6 @@ export function assertOutboundExecutionClaim(
 ): void {
   if (item.status === "executing") return;
   throw new Error(
-    `Blocked outbound action: ${item.kind} requires Luvish's explicit approval before execution (status: ${item.status})`,
+    `Blocked outbound action: ${item.kind} requires Taylor's explicit approval before execution (status: ${item.status})`,
   );
 }

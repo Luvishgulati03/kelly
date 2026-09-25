@@ -34,7 +34,7 @@ export interface TunnelConfig {
   tailscalePath: string;
   cloudflaredPath: string;
   cloudflareTunnel?: string;
-  /** KELLY_PUBLIC_HOST, e.g. "kelly-test.luvishgulati.com". Cloudflare mode reports this exact
+  /** KELLY_PUBLIC_HOST, e.g. "kelly-test.example.com". Cloudflare mode reports this exact
    *  hostname as status().url once cloudflared confirms a registered connection, instead of
    *  scraping the CLI's own log line for a hostname. */
   publicHost?: string;
@@ -594,7 +594,7 @@ export class TunnelManager extends EventEmitter {
     this.cfBackoff = BACKOFF_INITIAL_MS;
     this.cfClassifiedError = undefined;
     // Prefer the operator-declared public hostname (KELLY_PUBLIC_HOST) so the dashboard and the
-    // trusted-origin check agree on the exact domain, e.g. https://kelly-test.luvishgulati.com,
+    // trusted-origin check agree on the exact domain, e.g. https://kelly-test.example.com,
     // instead of whatever hostname happens to be in the log line (a *.trycloudflare.com quick
     // tunnel has none of its own). Falls back to scraping the log line when publicHost is unset.
     if (this.config.publicHost) {

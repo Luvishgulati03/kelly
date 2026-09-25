@@ -322,7 +322,7 @@ test("kill switch OFF: the cron job is a pure no-op — no provider call, no pos
   assert.equal(result.posted, false);
   assert.equal(result.skipped, true);
   assert.match(result.reason!, /social\.tweets\.enabled is off/);
-  assert.equal(runner.calls(), 0, "a disabled feature must not spend Luvish's provider quota");
+  assert.equal(runner.calls(), 0, "a disabled feature must not spend Taylor's provider quota");
   assert.equal(poster.sent.length, 0, "the poster must never be reached while the switch is off");
 });
 
@@ -345,11 +345,11 @@ test("kill switch OFF: a hand-run `henry tweet` stages the draft and never posts
   const staged = await fsp.readFile(result.stagedPath!, "utf8");
   assert.match(staged, /Not posted because: social\.tweets\.enabled is off/);
   assert.match(staged, /Rust compiler got 30% faster/);
-  assert.equal(notes.length, 1, "Luvish is told on Telegram why it did not go out");
+  assert.equal(notes.length, 1, "Taylor is told on Telegram why it did not go out");
   assert.match(notes[0], /staged, NOT posted/);
 });
 
-test("enabled + keys: posts once, logs it, mirrors it to Luvish, and the day is then spent", async () => {
+test("enabled + keys: posts once, logs it, mirrors it to Taylor, and the day is then spent", async () => {
   const config = tempConfig();
   enable(config, true);
   const activity = await activityFor(config);
@@ -454,7 +454,7 @@ test("two off-policy drafts in a row stage instead of posting — the retry is n
   assert.equal(poster.sent.length, 0, "an off-policy draft never reaches X");
   assert.equal(runner.calls(), 2);
   assert.match(result.reason!, /draft failed policy check: off-policy term "idiot"/);
-  assert.ok(result.stagedPath, "Luvish still sees what it wanted to say");
+  assert.ok(result.stagedPath, "Taylor still sees what it wanted to say");
 });
 
 test("topic selection skips charged and non-tech stories and anything used in the window", async () => {
@@ -530,7 +530,7 @@ test("flipping the switch OFF mid-draft still stops the post — OFF wins instan
   const config = tempConfig();
   enable(config, true);
   const poster = new FakePoster();
-  // The "provider turn" is where Luvish reaches for the kill switch.
+  // The "provider turn" is where Taylor reaches for the kill switch.
   const runner = {
     run: async () => {
       enable(config, false);
@@ -546,7 +546,7 @@ test("flipping the switch OFF mid-draft still stops the post — OFF wins instan
   assert.match(result.reason!, /social\.tweets\.enabled is off/);
 });
 
-test("a failed post leaves the day retryable and tells Luvish what happened", async () => {
+test("a failed post leaves the day retryable and tells Taylor what happened", async () => {
   const config = tempConfig();
   enable(config, true);
   const notes: string[] = [];

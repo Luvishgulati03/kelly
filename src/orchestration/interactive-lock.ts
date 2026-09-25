@@ -3,7 +3,7 @@ import path from "node:path";
 import type { HenryConfig } from "../config.ts";
 
 /**
- * Cross-process courtesy lock: while Luvish is mid-conversation on an interactive
+ * Cross-process courtesy lock: while Taylor is mid-conversation on an interactive
  * surface (repl / web-chat / dashboard ask), background provider runs (standup scans,
  * mailwatch checks) YIELD instead of spawning a second CLI that starves the live turn —
  * the 2026-08-08 "hi took 100s" lesson on this 8GB machine. Purely advisory and

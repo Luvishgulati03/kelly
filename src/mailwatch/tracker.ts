@@ -10,7 +10,7 @@ export const PENDING_ACTIONS = ["questionnaire", "screening_questions", "additio
 export type PendingAction = (typeof PENDING_ACTIONS)[number];
 
 /**
- * Statuses worth buzzing Luvish's phone about (his rule, 2026-08-15): "don't remind me for
+ * Statuses worth buzzing Taylor's phone about (his rule, 2026-08-15): "don't remind me for
  * applied applications, only if the application has had a response other than rejected —
  * keep updating the job index and send me that, not reminders".
  *
@@ -159,7 +159,7 @@ async function writeTrackerState(config: HenryConfig, state: TrackerState): Prom
   await fs.writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   await fs.rename(tmp, config.jobTrackerPath);
   await fs.chmod(config.jobTrackerPath, 0o600).catch(() => undefined);
-  // The .md is the artifact Luvish actually reads — no restrictive mode, same as cover letters / linkedin drafts.
+  // The .md is the artifact Taylor actually reads — no restrictive mode, same as cover letters / linkedin drafts.
   await fs.writeFile(config.jobTrackerMarkdownPath, renderMarkdown(state), "utf8");
 }
 
@@ -369,7 +369,7 @@ export async function recordTrackerEvents(config: HenryConfig, input: Structured
     if (!advances) {
       // Progression guard (audit M16): a lower status is a late/re-scanned email —
       // keep it for the audit trail, but never walk "interview" back to "viewed"
-      // and never ping Luvish about old news.
+      // and never ping Taylor about old news.
       entry.history.push(stamp(app));
       if (app.pendingAction) entry.pendingAction = app.pendingAction;
       if (app.status === "applied" && !entry.appliedAt) entry.appliedAt = app.dateText; // first applied seen

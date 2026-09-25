@@ -1,10 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import http from "node:http";
 import { chromium } from "playwright";
 
-const SCREEN_DIR = "/private/tmp/claude-501/-Users-luvishgulati-Downloads-henry/097420ed-722e-42f7-9330-d4ccb33257ef/scratchpad/dash";
+const SCREEN_DIR = path.join(os.tmpdir(), "kelly-dash-screenshots");
 
 function tone(samples: number): Buffer {
   const wav = Buffer.alloc(44 + samples * 2);

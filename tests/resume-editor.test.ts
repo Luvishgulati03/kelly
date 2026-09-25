@@ -10,7 +10,7 @@ import type { HenryMemory } from "../src/memory/engram.ts";
 import type { ProviderRunner } from "../src/providers/runner.ts";
 import type { RunResult } from "../src/types.ts";
 
-const EDITED_RESPONSE = "# Luvish's Resume\n\nPM at Acme, 2019-2024. Rewritten for emphasis.\n";
+const EDITED_RESPONSE = "# Jordan's Resume\n\nPM at Acme, 2019-2024. Rewritten for emphasis.\n";
 
 function fakeMemory(): HenryMemory {
   return {
@@ -52,7 +52,7 @@ test("edit() throws with import guidance when resume.md is missing", async () =>
 
 test("edit() writes markdown + PDF drafts without touching resume.md", async () => {
   const { config, activity } = await setup();
-  const originalResume = "# Luvish's Resume\n\nPM at Acme, 2019-2024.\n";
+  const originalResume = "# Jordan's Resume\n\nPM at Acme, 2019-2024.\n";
   await fs.writeFile(config.resumeSourcePath, originalResume, "utf8");
   const service = new ResumeEditorService(config, activity, fakeMemory(), fakeRunner(), fakeRenderResume);
 
@@ -71,9 +71,9 @@ test("edit() writes markdown + PDF drafts without touching resume.md", async () 
 });
 
 // A draft that satisfies parseResume (the gate promote() enforces): name + at least one experience entry.
-const PARSEABLE_DRAFT = `# LUVISH GULATI
+const PARSEABLE_DRAFT = `# JORDAN TAYLOR
 
-+00-1 | Bengaluru | luvish@example.com | LinkedIn
++00-1 | Bengaluru | jordan@example.com | LinkedIn
 
 ## PROFILE
 
@@ -96,7 +96,7 @@ B.Tech — Example University (2021 - 2025)
 
 test("promote() copies a PARSEABLE edited draft over the canonical resume source", async () => {
   const { config, activity } = await setup();
-  await fs.writeFile(config.resumeSourcePath, "# Luvish's Resume\n\nOld version.\n", "utf8");
+  await fs.writeFile(config.resumeSourcePath, "# Jordan's Resume\n\nOld version.\n", "utf8");
   const service = new ResumeEditorService(config, activity, fakeMemory(), fakeRunner(), fakeRenderResume);
 
   const draftPath = path.join(config.dataDir, "resumes", "edited-draft.md");
@@ -112,7 +112,7 @@ test("promote() copies a PARSEABLE edited draft over the canonical resume source
 
 test("promote() refuses an unparseable draft: resume.md untouched, draft copied to .rejected", async () => {
   const { config, activity } = await setup();
-  const original = "# Luvish's Resume\n\nOld version.\n";
+  const original = "# Jordan's Resume\n\nOld version.\n";
   await fs.writeFile(config.resumeSourcePath, original, "utf8");
   const service = new ResumeEditorService(config, activity, fakeMemory(), fakeRunner(), fakeRenderResume);
 

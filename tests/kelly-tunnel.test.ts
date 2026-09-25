@@ -372,7 +372,7 @@ test("cloudflare: reports status.url as https://<KELLY_PUBLIC_HOST> once registe
   const { activity, events } = fakeActivityLog();
   const spawned: FakeChild[] = [];
   const manager = new TunnelManager(
-    baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }),
+    baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.example.com" }),
     activity,
     cloudflareDeps(activity, spawned),
   );
@@ -383,7 +383,7 @@ test("cloudflare: reports status.url as https://<KELLY_PUBLIC_HOST> once registe
   spawned[0].stdout.emit("data", Buffer.from("2026-09-21 INF Registered tunnel connection to https://xyz.cfargotunnel.com\n"));
   assert.equal(manager.active, true);
   const status = manager.status();
-  assert.equal(status.url, "https://kelly-test.luvishgulati.com");
+  assert.equal(status.url, "https://kelly-test.example.com");
   assert.equal(status.kind, "cloudflare");
   assert.equal(status.public, true);
   assert.ok(events.some((e) => e.kind === "remote.started"));
@@ -394,7 +394,7 @@ test("cloudflare: 'Cannot determine default origin certificate' maps to a `kelly
   const { activity, events } = fakeActivityLog();
   const spawned: FakeChild[] = [];
   const manager = new TunnelManager(
-    baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }),
+    baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.example.com" }),
     activity,
     cloudflareDeps(activity, spawned),
   );
@@ -402,7 +402,7 @@ test("cloudflare: 'Cannot determine default origin certificate' maps to a `kelly
   spawned[0].stderr.emit("data", Buffer.from("failed to get origin cert: Cannot determine default origin certificate path\n"));
   spawned[0].emit("close", 1);
   await waitFor(() => manager.status().lastError !== undefined);
-  assert.match(manager.status().lastError ?? "", /kelly tunnel setup kelly-test\.luvishgulati\.com/);
+  assert.match(manager.status().lastError ?? "", /kelly tunnel setup kelly-test\.example\.com/);
   assert.ok(events.some((e) => e.kind === "remote.failed" && /kelly tunnel setup/.test(e.message)));
   await manager.stop();
 });
@@ -411,7 +411,7 @@ test("cloudflare: 'tunnel not found' maps to the same `kelly tunnel setup` fix",
   const { activity, events } = fakeActivityLog();
   const spawned: FakeChild[] = [];
   const manager = new TunnelManager(
-    baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }),
+    baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.example.com" }),
     activity,
     cloudflareDeps(activity, spawned),
   );
@@ -419,7 +419,7 @@ test("cloudflare: 'tunnel not found' maps to the same `kelly tunnel setup` fix",
   spawned[0].stderr.emit("data", Buffer.from("failed to find tunnel: tunnel not found\n"));
   spawned[0].emit("close", 1);
   await waitFor(() => manager.status().lastError !== undefined);
-  assert.match(manager.status().lastError ?? "", /kelly tunnel setup kelly-test\.luvishgulati\.com/);
+  assert.match(manager.status().lastError ?? "", /kelly tunnel setup kelly-test\.example\.com/);
   assert.ok(events.some((e) => e.kind === "remote.failed" && /kelly tunnel setup/.test(e.message)));
   await manager.stop();
 });
@@ -786,7 +786,7 @@ function fakeTimers(): { deps: { setTimeout: (cb: () => void, ms: number) => unk
 test("announce: connecting then connected resolves with the started transition and prints the URL once", async () => {
   const { activity, events } = fakeActivityLog();
   const spawned: FakeChild[] = [];
-  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }), activity, cloudflareDeps(activity, spawned));
+  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.example.com" }), activity, cloudflareDeps(activity, spawned));
   const status = await manager.start();
   assert.equal(status.active, false);
   assert.equal(status.lastError, undefined); // "still connecting", not a failure
@@ -799,13 +799,13 @@ test("announce: connecting then connected resolves with the started transition a
   if (result === "timeout") throw new Error("unreachable");
   assert.equal(result.kind, "remote.started");
   assert.equal(result.status.active, true);
-  assert.equal(result.status.url, "https://kelly-test.luvishgulati.com");
+  assert.equal(result.status.url, "https://kelly-test.example.com");
   assert.equal(timers.cleared.length, 1); // the listener detaches itself; the timeout never re-fires
 
   const printed: TunnelAnnounceLine[] = [];
   for (const line of connectedLines(result.status, false)) printed.push(line);
   assert.equal(printed.length, 2);
-  assert.equal(printed[0].text, "Remote access: https://kelly-test.luvishgulati.com");
+  assert.equal(printed[0].text, "Remote access: https://kelly-test.example.com");
   assert.match(printed[1].text, /Public link/);
   assert.ok(events.some((e) => e.kind === "remote.started"));
   await manager.stop();
@@ -814,7 +814,7 @@ test("announce: connecting then connected resolves with the started transition a
 test("announce: connecting then a real error resolves with the classified failure", async () => {
   const { activity } = fakeActivityLog();
   const spawned: FakeChild[] = [];
-  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.luvishgulati.com" }), activity, cloudflareDeps(activity, spawned));
+  const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "kelly-test", publicHost: "kelly-test.example.com" }), activity, cloudflareDeps(activity, spawned));
   await manager.start();
 
   const timers = fakeTimers();
@@ -826,7 +826,7 @@ test("announce: connecting then a real error resolves with the classified failur
   if (result === "timeout") throw new Error("unreachable");
   assert.equal(result.kind, "remote.failed");
   assert.equal(result.status.active, false);
-  assert.match(result.status.lastError ?? "", /kelly tunnel setup kelly-test\.luvishgulati\.com/);
+  assert.match(result.status.lastError ?? "", /kelly tunnel setup kelly-test\.example\.com/);
 
   const line = failedLine(result.status.lastError ?? "", false);
   assert.equal(line.text, `Remote access did not start: ${result.status.lastError}`);

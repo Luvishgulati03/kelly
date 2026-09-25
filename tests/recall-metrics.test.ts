@@ -45,9 +45,9 @@ async function waitForFile(filePath: string, timeoutMs = 1000): Promise<string> 
 }
 
 test("hashQuery hashes to a 12-char hex digest and never leaks the raw query", () => {
-  const hash = hashQuery("Luvish's private query about the acquisition");
+  const hash = hashQuery("Taylor's private query about the acquisition");
   assert.match(hash, /^[0-9a-f]{12}$/);
-  assert.notEqual(hash, "Luvish's private query about the acquisition");
+  assert.notEqual(hash, "Taylor's private query about the acquisition");
   assert.equal(hashQuery("same query"), hashQuery("same query"));
   assert.notEqual(hashQuery("query a"), hashQuery("query b"));
 });

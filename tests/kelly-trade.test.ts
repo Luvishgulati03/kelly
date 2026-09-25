@@ -76,7 +76,7 @@ test("config reads KELLY_TRADE and KELLY_SHOP_NAME, and defaults per pack", asyn
     const root2 = await fs.promises.mkdtemp(path.join(os.tmpdir(), "kelly-trade-config-"));
     const boutiqueConfig = loadConfig(root2);
     assert.equal(boutiqueConfig.trade, "boutique");
-    assert.equal(boutiqueConfig.shopName, "She Fashion House");
+    assert.equal(boutiqueConfig.shopName, "Boutique");
 
     process.env.KELLY_SHOP_NAME = "Custom Boutique";
     const root3 = await fs.promises.mkdtemp(path.join(os.tmpdir(), "kelly-trade-config-"));
@@ -94,7 +94,7 @@ test("fresh system prompt for a boutique-configured Kelly contains the boutique 
   const config = loadConfig(root);
   config.dataDir = path.join(root, "data");
   config.trade = "boutique";
-  config.shopName = "She Fashion House";
+  config.shopName = "Sample Boutique";
   await fs.promises.writeFile(path.join(root, "soul.md"), "test soul");
   await fs.promises.writeFile(path.join(root, "personality.md"), "test personality");
   const activity = new ActivityLog(config.activityPath);
@@ -102,7 +102,7 @@ test("fresh system prompt for a boutique-configured Kelly contains the boutique 
   const memory = { context: async () => "" } as unknown as HenryMemory;
   const agent = new HenryAgent(config, activity, memory, undefined, undefined);
   const prompt = await agent.buildPrompt("What garments do you stitch?", "run-boutique", true, "codex");
-  assert.match(prompt, /TRADE: Ladies' boutique\. SHOP: She Fashion House\./);
+  assert.match(prompt, /TRADE: Ladies' boutique\. SHOP: Sample Boutique\./);
   assert.match(prompt, /rate card/);
   assert.match(prompt, /garment/);
   assert.doesNotMatch(prompt, /multi-brand quotations/);
@@ -141,13 +141,13 @@ test("/voice is served with the boutique shop name and /api/status carries trade
     const page = await fetch(`${base}/voice`, { headers: auth });
     assert.equal(page.status, 200);
     const html = await page.text();
-    assert.match(html, /<title>She Fashion House · counter<\/title>/);
-    assert.match(html, /She Fashion House <span class="muted">\/ counter<\/span>/);
+    assert.match(html, /<title>Boutique · counter<\/title>/);
+    assert.match(html, /Boutique <span class="muted">\/ counter<\/span>/);
     assert.doesNotMatch(html, /<!--KELLY_SHOP-->|<!--KELLY_MARK-->|<!--KELLY_ACCENT-->/);
 
     const status = await fetch(`${base}/api/status`, { headers: auth }).then(response => response.json()) as { trade: { id: string; displayName: string; shopName: string; accent: Record<string, string> } };
     assert.equal(status.trade.id, "boutique");
-    assert.equal(status.trade.shopName, "She Fashion House");
+    assert.equal(status.trade.shopName, "Boutique");
     assert.equal(status.trade.displayName, "Ladies' boutique");
     assert.ok(status.trade.accent.copper);
   });

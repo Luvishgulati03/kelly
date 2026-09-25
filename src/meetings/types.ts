@@ -5,11 +5,11 @@ export interface MeetingActionItem {
 }
 
 export interface MeetingPersonalNotes {
-  /** Things Luvish committed to during the meeting. */
+  /** Things Taylor committed to during the meeting. */
   commitments: string[];
-  /** Luvish's existing projects this meeting affects. */
+  /** Taylor's existing projects this meeting affects. */
   affectsProjects: string[];
-  /** Draft-worthy next steps for Luvish; drafting itself stays approval-gated. */
+  /** Draft-worthy next steps for Taylor; drafting itself stays approval-gated. */
   suggestedFollowUps: string[];
 }
 

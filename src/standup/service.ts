@@ -223,7 +223,7 @@ export class StandupService {
 
   /**
    * Composes one session's team summary from the PARSED rows (structure came from scan),
-   * saves it (SQLite + data/standups/<date>[-evening].md), remembers it, and DMs Luvish.
+   * saves it (SQLite + data/standups/<date>[-evening].md), remembers it, and DMs Taylor.
    * The EVENING summary is a progress report: the morning summary is included as context
    * so it reports delivered-vs-planned per person, not just a second list. The Missing
    * list is computed in code against the roster, never model-invented. A provider failure
@@ -277,13 +277,18 @@ export class StandupService {
     await fs.writeFile(filePath, `${markdown}\n`, "utf8");
 
     const blockersText = rows.flatMap((row) => row.parsed?.blockers ?? []).join(" ");
-    const mentionsLuvish = /luvish/i.test(blockersText);
+    // Owner's name, configured via KELLY_OWNER_NAME/HENRY_OWNER_NAME — unset means this
+    // escalation never fires rather than matching a hardcoded default.
+    const ownerName = (process.env.KELLY_OWNER_NAME || process.env.HENRY_OWNER_NAME || "").trim();
+    const mentionsOwner = ownerName
+      ? new RegExp(ownerName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(blockersText)
+      : false;
     await this.memory?.remember(`${label} summary ${date}:\n${markdown.slice(0, 2000)}`, {
-      tier: "semantic", importance: mentionsLuvish ? 8 : 6, metadata: { domain: "standup", kind: session === "evening" ? "evening-summary" : "daily-summary", date, session },
+      tier: "semantic", importance: mentionsOwner ? 8 : 6, metadata: { domain: "standup", kind: session === "evening" ? "evening-summary" : "daily-summary", date, session },
     }).catch(() => "");
 
     if (this.notify) {
-      const headline = mentionsLuvish ? `⚠️ a blocker names you — ${label} ${date}\n\n${markdown}` : markdown;
+      const headline = mentionsOwner ? `⚠️ a blocker names you — ${label} ${date}\n\n${markdown}` : markdown;
       await this.notify(headline, "Henry — standup").catch(() => undefined);
     }
     if (options.post) await this.send(this.config, markdown);

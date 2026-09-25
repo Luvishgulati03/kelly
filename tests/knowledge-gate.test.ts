@@ -39,7 +39,7 @@ async function seedKb(t: { after(fn: () => void): void }): Promise<{ kb: Knowled
     // Corpus noise: a row tagged with a lane that is not a known domain, and a row with no
     // domain tag at all. Neither appears in any exclude list, so they exercise the paths that
     // have to cope with metadata the ingest side never promised.
-    { moduleId: "rogue-1", metadata: { domain: "internal-secrets" }, text: "Launch planning steps and timeline for Luvish's confidential internal playbook." },
+    { moduleId: "rogue-1", metadata: { domain: "internal-secrets" }, text: "Launch planning steps and timeline for Taylor's confidential internal playbook." },
     { moduleId: "untagged-1", metadata: {}, text: "Launch planning steps and timeline written down without any domain tag at all." },
   ];
   for (const seed of seeds) {

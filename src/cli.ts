@@ -119,7 +119,7 @@ async function runGmailCommand(runtime: HenryRuntime, sub: string): Promise<void
       inReplyTo: option("--in-reply-to") || option("--message-id"),
       references: option("--references"),
     });
-    print({ message: "Saved locally and queued for Luvish's approval", approvalId: item.id, dashboard: `http://${runtime.config.host}:${runtime.config.port}` });
+    print({ message: "Saved locally and queued for Taylor's approval", approvalId: item.id, dashboard: `http://${runtime.config.host}:${runtime.config.port}` });
   } else if (sub === "draftreplies") {
     if (!runtime.draftReplies) throw new Error("draftreplies command is not available in this profile");
     const limit = Number(option("--limit")) || 5;
@@ -197,7 +197,7 @@ function telegramStatus(state: { armed: boolean; bridge: boolean; standup: boole
 }
 
 /**
- * Luvish's rule: the dashboard comes up with every interactive Henry, not just `henry dashboard`.
+ * Taylor's rule: the dashboard comes up with every interactive Henry, not just `henry dashboard`.
  * It must never take the REPL down with it. `startDashboard` throws synchronously on a bad
  * remote-host config, and `server.listen` emits EADDRINUSE asynchronously when a second Henry
  * (or the scheduler daemon) already holds the port — with no handler that's an uncaught
@@ -444,7 +444,7 @@ async function repl(
         if (value.startsWith(":memory ")) { print(await runtime.memory.recall(value.slice(8))); safePrompt(); return; }
         if (value === ":provider") { console.log(note("info", `Primary provider: ${runtime.config.provider}`)); safePrompt(); return; }
         if (value.startsWith(":provider ")) { console.log(note("ok", `Primary provider set to ${await runtime.setProvider(value.slice(10).trim() as "codex" | "claude")}`)); safePrompt(); return; }
-        // PM MODE toggles — ":pm on|off" plus Luvish's literal phrasing "/project manager mode".
+        // PM MODE toggles — ":pm on|off" plus Taylor's literal phrasing "/project manager mode".
         if (value === ":pm" || value === ":pm status") { console.log(note("info", `PM mode: ${runtime.config.pmMode ? "ON" : "off"}`)); safePrompt(); return; }
         if (value === ":pm on" || /^\/?project manager mode$/i.test(value)) { await runtime.setPmMode(true); console.log(note("ok", "PM mode ON — Henry is now your project manager (PMBOK-grounded, every decision with rationale). \":pm off\" to exit.")); safePrompt(); return; }
         if (value === ":pm off") { await runtime.setPmMode(false); console.log(note("ok", "PM mode OFF — back to regular Henry.")); safePrompt(); return; }
@@ -504,7 +504,7 @@ async function main(): Promise<void> {
       for (const change of out.changes) console.log(`  · ${change}`);
       console.log(`\nresume: ${out.resumePdf}\ncover:  ${out.coverPdf}`);
       // Only pop Finder for a human at a terminal — automated/test invocations
-      // repeatedly reopening the folder read as a runaway loop to Luvish.
+      // repeatedly reopening the folder read as a runaway loop to Taylor.
       if (process.stdout.isTTY) {
         const { spawn } = await import("node:child_process");
         spawn("open", [out.dir], { stdio: "ignore" }).once("error", () => {});
@@ -680,7 +680,7 @@ async function main(): Promise<void> {
         print(await runtime.jobs.fill(args[2]));
       } else if (sub === "login") {
         // One-time session grant for the morning scout: Naukri + X tabs in a headed
-        // window on the persistent profile. Luvish logs in, closes the window, done.
+        // window on the persistent profile. Taylor logs in, closes the window, done.
         // TTY guard (2026-08-10): typed into Henry's CHAT, this command runs inside a
         // short-lived agent turn whose exit kills the browser mid-login — the
         // "window closes after 5 seconds" mystery. A human login needs a human terminal.
@@ -937,7 +937,7 @@ async function main(): Promise<void> {
       const { filePath, raw } = await runtime.goals.intake(description);
       console.log(raw);
       console.log(`\nSaved plan: ${filePath}`);
-      console.log("Luvish reviews this plan, then uses `henry code`/`henry dispatch` (or asks Henry to proceed) — nothing here was auto-executed.");
+      console.log("Taylor reviews this plan, then uses `henry code`/`henry dispatch` (or asks Henry to proceed) — nothing here was auto-executed.");
     } else if (command === "remind") {
       const sub = args[1];
       if (sub === "list") {
@@ -1102,7 +1102,7 @@ async function main(): Promise<void> {
         const result = await runtime.launch.intake(input);
         console.log(result.markdown);
         console.log(`\nSaved: ${result.filePath}`);
-        console.log(`Luvish: fill in each ANSWER: line above, save the file, then run: henry launch run ${result.slug}`);
+        console.log(`Taylor: fill in each ANSWER: line above, save the file, then run: henry launch run ${result.slug}`);
       } else if (sub === "run") {
         if (!args[2]) throw new Error("Usage: henry launch run <slug>");
         const result = await runtime.launch.run(args[2]);

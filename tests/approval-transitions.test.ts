@@ -45,12 +45,12 @@ test("approval store cannot claim a pending action for outbound execution", asyn
 
     await assert.rejects(
       () => store.claimForExecution(item.id),
-      /Luvish's explicit approval is required before execution/,
+      /Taylor's explicit approval is required before execution/,
     );
     await store.setStatus(item.id, "approved");
     const claimed = await store.claimForExecution(item.id);
     assert.equal(claimed.status, "executing");
-    await assert.rejects(() => store.claimForExecution(item.id), /Luvish's explicit approval/);
+    await assert.rejects(() => store.claimForExecution(item.id), /Taylor's explicit approval/);
   } finally {
     await fs.rm(rootDir, { recursive: true, force: true });
   }

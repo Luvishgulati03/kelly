@@ -7,7 +7,7 @@ import type { ActivityLog } from "../activity.ts";
  * Telegram serves `getUpdates` to exactly ONE consumer per bot token: a second consumer
  * gets 409s and, worse, silently steals updates the first one never sees. Henry now has
  * two things that want inbound messages on the same bot — the standup group intake and
- * Luvish's DM bridge — so the fetch itself moved here and the modules became CONSUMERS.
+ * Taylor's DM bridge — so the fetch itself moved here and the modules became CONSUMERS.
  * One socket, one offset, one lock; routing by chat id.
  *
  * Routing contract:
@@ -81,7 +81,7 @@ const LOCK_KEY = "poller:lock";
 export const PUMP_LOCK_STALE_MS = 120_000;
 /**
  * LONG POLL. Telegram holds `getUpdates` open until a message arrives (or this many
- * seconds pass), so a reply starts the moment Luvish hits send instead of waiting for the
+ * seconds pass), so a reply starts the moment Taylor hits send instead of waiting for the
  * next tick. It used to poll with `timeout=0` on a 60s interval, which meant ~30s of dead
  * air on average before Henry had even READ a message — far more than the thinking it was
  * blamed on.

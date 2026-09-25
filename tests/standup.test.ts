@@ -148,14 +148,14 @@ test("scan: classifies, remembers content, nudges vague authors in-thread — on
   const sender = async (_config: HenryConfig, text: string, replyTo?: number) => { pings.push({ text, replyTo }); return true; };
 
   store.upsertUpdate({ chatId: "-100777", messageId: 1, userId: "u1", userName: "Rohan", date: TODAY, text: "did stuff" });
-  store.upsertUpdate({ chatId: "-100777", messageId: 2, userId: "u2", userName: "Priya", date: TODAY, text: "yday: shipped payments retry; today: metrics dashboard; blocker: waiting on Luvish approval" });
+  store.upsertUpdate({ chatId: "-100777", messageId: 2, userId: "u2", userName: "Priya", date: TODAY, text: "yday: shipped payments retry; today: metrics dashboard; blocker: waiting on manager approval" });
   store.upsertUpdate({ chatId: "-100777", messageId: 3, userId: "u3", userName: "Amit", date: TODAY, text: "good morning ☀️" });
   const ids = store.unscanned(TODAY).map((row) => row.id);
 
   const runner = fakeRunner(JSON.stringify({
     updates: [
       { id: ids[0], quality: "vague", yesterday: [], today: [], blockers: [], clarify: "Rohan bhai, kya stuff? one line more detail?" },
-      { id: ids[1], quality: "ok", yesterday: ["shipped payments retry"], today: ["metrics dashboard"], blockers: ["waiting on Luvish approval"] },
+      { id: ids[1], quality: "ok", yesterday: ["shipped payments retry"], today: ["metrics dashboard"], blockers: ["waiting on manager approval"] },
       { id: ids[2], quality: "offtopic", yesterday: [], today: [], blockers: [] },
     ],
     styles: [
@@ -192,7 +192,9 @@ test("scan: classifies, remembers content, nudges vague authors in-thread — on
   store.close();
 });
 
-test("summarize: provider failure falls back, Missing is code-computed, Luvish-blocker escalates", async () => {
+test("summarize: provider failure falls back, Missing is code-computed, owner-name blocker escalates", async () => {
+  const previousOwnerName = process.env.KELLY_OWNER_NAME;
+  process.env.KELLY_OWNER_NAME = "Taylor";
   const config = tempConfig();
   const store = new StandupStore(config);
   const activity = await activityFor(config);
@@ -203,7 +205,7 @@ test("summarize: provider failure falls back, Missing is code-computed, Luvish-b
 
   store.upsertUpdate({ chatId: "-100777", messageId: 1, userId: "u2", userName: "Priya", date: TODAY, text: "raw text" });
   const [row] = store.unscanned(TODAY);
-  store.markQuality(row.id, "ok", { yesterday: ["shipped retry"], today: ["metrics"], blockers: ["waiting on Luvish approval"] });
+  store.markQuality(row.id, "ok", { yesterday: ["shipped retry"], today: ["metrics"], blockers: ["waiting on Taylor approval"] });
   // Roster knows Rohan too — he didn't post today, so he must land in Missing.
   store.upsertStyle("u1", "Rohan", "short, casual", 1);
   store.upsertStyle("u2", "Priya", "formal", 1);
@@ -219,10 +221,11 @@ test("summarize: provider failure falls back, Missing is code-computed, Luvish-b
   assert.ok(store.getSummary(TODAY), "summary must persist in sqlite");
 
   const summaryMemory = memories.find((entry) => (entry.options.metadata as Record<string, unknown>)?.kind === "daily-summary");
-  assert.equal(summaryMemory?.options.importance, 8, "a blocker naming Luvish escalates the memory");
+  assert.equal(summaryMemory?.options.importance, 8, "a blocker naming the configured owner escalates the memory");
   assert.equal(notifications.length, 1);
   assert.match(notifications[0].message, /blocker names you/);
   store.close();
+  if (previousOwnerName === undefined) delete process.env.KELLY_OWNER_NAME; else process.env.KELLY_OWNER_NAME = previousOwnerName;
 });
 
 test("summarize with zero content: no provider spend, roster silence still notifies", async () => {

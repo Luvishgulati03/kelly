@@ -19,7 +19,7 @@ import type { RunResult } from "../src/types.ts";
 import { HenryRuntime } from "../src/runtime.ts";
 import { setActiveProfile, getActiveProfile } from "../src/profile.ts";
 
-const LUVISH_CHAT = "12345";
+const OWNER_CHAT = "12345";
 const STANDUP_CHAT = "-100777";
 const FOREIGN_CHAT = "999888";
 const FOREIGN_TEXT = "hello henry, i am a stranger with a secret";
@@ -29,7 +29,7 @@ function tempConfig(overrides: Partial<HenryConfig> = {}): HenryConfig {
   const config = loadConfig(root);
   // Test doubles ONLY — never the real .env values, so no test can touch the live bot.
   config.telegramBotToken = "test-token";
-  config.telegramChatId = LUVISH_CHAT;
+  config.telegramChatId = OWNER_CHAT;
   config.telegramStandupChatId = undefined;
   return Object.assign(config, overrides);
 }
@@ -51,26 +51,26 @@ function memoryStore(): PumpMetaStore & { map: Map<string, string> } {
   };
 }
 
-function dm(updateId: number, text: string, chatId = LUVISH_CHAT, extra: Record<string, unknown> = {}): TelegramUpdate {
+function dm(updateId: number, text: string, chatId = OWNER_CHAT, extra: Record<string, unknown> = {}): TelegramUpdate {
   return {
     update_id: updateId,
     message: {
       message_id: updateId, date: Math.floor(Date.now() / 1000), text,
       chat: { id: Number(chatId), type: "private" },
-      from: { id: 7, first_name: "Luvish" },
+      from: { id: 7, first_name: "Taylor" },
       ...extra,
     },
   };
 }
 
-function voiceDm(updateId: number, chatId = LUVISH_CHAT): TelegramUpdate {
+function voiceDm(updateId: number, chatId = OWNER_CHAT): TelegramUpdate {
   return {
     update_id: updateId,
     message: {
       message_id: updateId, date: Math.floor(Date.now() / 1000),
       voice: { file_id: "voice-file", duration: 3 },
       chat: { id: Number(chatId), type: "private" },
-      from: { id: 7, first_name: "Luvish" },
+      from: { id: 7, first_name: "Taylor" },
     },
   };
 }
@@ -107,7 +107,7 @@ async function bridgeHarness(options: {
   return harness;
 }
 
-test("bridge: Luvish's DM runs the brain and the answer comes back in his chat", async () => {
+test("bridge: Taylor's DM runs the brain and the answer comes back in his chat", async () => {
   const h = await bridgeHarness({ answer: (prompt) => `heard: ${prompt}` });
   await h.bridge.consume([dm(1, "how's the memory module doing?")]);
   await h.bridge.settled();
@@ -138,7 +138,7 @@ test("bridge: delegated work acknowledges first and can report later without blo
   assert.equal(h.sent.slice(1).join(""), longReport);
 });
 
-test("bridge: any chat that is not Luvish's gets no reply, no brain call, and is never stored", async () => {
+test("bridge: any chat that is not Taylor's gets no reply, no brain call, and is never stored", async () => {
   const h = await bridgeHarness();
   await h.bridge.consume([dm(1, FOREIGN_TEXT, FOREIGN_CHAT), dm(2, "group thing", STANDUP_CHAT)]);
   await h.bridge.settled();
@@ -149,12 +149,12 @@ test("bridge: any chat that is not Luvish's gets no reply, no brain call, and is
   assert.ok(!activityText.includes(FOREIGN_TEXT), "a stranger's message text must never be persisted anywhere");
 });
 
-test("bridge: bot echoes and blank messages in Luvish's own chat are skipped", async () => {
+test("bridge: bot echoes and blank messages in Taylor's own chat are skipped", async () => {
   const h = await bridgeHarness();
   await h.bridge.consume([
-    dm(1, "the summary I just sent", LUVISH_CHAT, { from: { id: 99, is_bot: true, first_name: "Henry" } }),
+    dm(1, "the summary I just sent", OWNER_CHAT, { from: { id: 99, is_bot: true, first_name: "Henry" } }),
     dm(2, "   "),
-    { update_id: 3, message: { message_id: 3, date: Math.floor(Date.now() / 1000), chat: { id: Number(LUVISH_CHAT), type: "private" }, from: { id: 7 } } },
+    { update_id: 3, message: { message_id: 3, date: Math.floor(Date.now() / 1000), chat: { id: Number(OWNER_CHAT), type: "private" }, from: { id: 7 } } },
   ]);
   await h.bridge.settled();
   assert.deepEqual(h.sent, []);
@@ -332,7 +332,7 @@ async function pumpHarness(batches: TelegramUpdate[][]): Promise<PumpHarness> {
   return { config, store, pump, bridge, poller, sent, urls, batches };
 }
 
-test("pump: routes Luvish's DM to the bridge, the group to standup's unchanged intake, ignores the rest", async () => {
+test("pump: routes Taylor's DM to the bridge, the group to standup's unchanged intake, ignores the rest", async () => {
   const groupDate = 1754640000;
   const h = await pumpHarness([[
     dm(10, "what's on my plate today?"),
@@ -349,7 +349,7 @@ test("pump: routes Luvish's DM to the bridge, the group to standup's unchanged i
   assert.deepEqual(result.routed, { bridge: 1, standup: 2 });
   assert.equal(result.ignored, 1, "the stranger's DM is counted and dropped");
 
-  assert.deepEqual(h.sent, ["re: what's on my plate today?"], "only Luvish gets an answer");
+  assert.deepEqual(h.sent, ["re: what's on my plate today?"], "only Taylor gets an answer");
 
   const rows = h.store.unscanned(istDateKey(groupDate));
   assert.equal(rows.length, 1, "the addressed group message still reaches standup intake");
@@ -500,11 +500,11 @@ test("bridge: anything needing judgement still goes to the brain", async () => {
 });
 
 /**
- * THE QUOTA WALL (Luvish, live 2026-09-09: Codex ran out mid-conversation).
+ * THE QUOTA WALL (Taylor, live 2026-09-09: Codex ran out mid-conversation).
  *
  * Running out of quota is not a failed answer, it is an UNANSWERED QUESTION. It used to
  * surface as an ordinary empty response, so the bridge replied "say it again" and dropped
- * the turn — the one thing Luvish had actually asked for was the thing that got lost.
+ * the turn — the one thing Taylor had actually asked for was the thing that got lost.
  */
 test("bridge: a turn killed by a quota wall is kept, and resumes BEFORE the next message", async () => {
   const store = memoryStore();

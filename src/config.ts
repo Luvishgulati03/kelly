@@ -99,7 +99,7 @@ export interface HenryConfig {
   /** Operator-notification channel only (never a general send-to-anyone surface). */
   telegramBotToken?: string;
   telegramChatId?: string;
-  /** Explicit opt-in for local code edits and research initiated from Luvish's Telegram DM. */
+  /** Explicit opt-in for local code edits and research initiated from Taylor's Telegram DM. */
   telegramOperatorMode: boolean;
   /** The team standup group — the ONLY chat the standup poller reads and the group sender writes. */
   telegramStandupChatId?: string;
@@ -119,14 +119,14 @@ export interface HenryConfig {
   /** PM MODE: Henry operates as a project manager (PMBOK-grounded decisions with rationale). Persisted in settings.json. */
   pmMode: boolean;
   standupDbPath: string;
-  /** Rendered per-day standup summaries Luvish actually reads (`data/standups/<date>.md`). */
+  /** Rendered per-day standup summaries Taylor actually reads (`data/standups/<date>.md`). */
   standupsDir: string;
   mailwatchPath: string;
   /** Today's randomized check-times plan (§ mailwatch tick planner) — separate file so a corrupt/racy write never touches the dedupe state in `mailwatchPath`. */
   mailwatchPlanPath: string;
   /** Canonical job-application ledger (keyed company+role, status history) — the source of truth `job-tracker.md` is regenerated from. */
   jobTrackerPath: string;
-  /** Human-readable ledger Luvish actually reads — regenerated from `jobTrackerPath` after every update. */
+  /** Human-readable ledger Taylor actually reads — regenerated from `jobTrackerPath` after every update. */
   jobTrackerMarkdownPath: string;
   draftRepliesDir: string;
   /** Morning job-scout role titles (HENRY_JOB_SCOUT_TITLES, comma-separated; empty until configured). */
@@ -137,7 +137,7 @@ export interface HenryConfig {
   scoutDbPath: string;
   /** Learned job-alert profile (jobs alerts-sync) — overrides jobScoutTitles when present. */
   scoutProfilePath: string;
-  /** Per-day ranked shortlists Luvish actually reads (`data/scout/<date>.md`). */
+  /** Per-day ranked shortlists Taylor actually reads (`data/scout/<date>.md`). */
   scoutDir: string;
   /** Fixed-per-install trade pack (KELLY_TRADE), chosen at setup; defaults to "electrical". */
   trade: TradeId;
@@ -239,7 +239,7 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
     allowRemoteDashboard: bool(env("ALLOW_REMOTE_DASHBOARD"), false),
     provider: profile.id === "kelly" ? "codex" : env("PROVIDER") === "claude" ? "claude" : "codex",
     // Keep the model policy inside Henry instead of inheriting an operator's global
-    // Codex setting. Luvish's orchestration contract: Sol coordinates ordinary
+    // Codex setting. Taylor's orchestration contract: Sol coordinates ordinary
     // work, a cheaper 5.5 worker handles t0 tasks, and Luna gets the hard t2 work.
     codexModel: env("CODEX_MODEL") || "gpt-5.6-sol",
     codexT0Model: env("CODEX_T0_MODEL") || "gpt-5.5",

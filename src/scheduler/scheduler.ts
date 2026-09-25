@@ -237,7 +237,7 @@ export class WorkflowScheduler {
       if (kind === "standup.prompt") return await service.promptDay(undefined, session);
       const poller = new StandupPoller(this.config, this.activity, store);
       await poller.pollOnce();
-      // Courtesy yield: if Luvish is mid-conversation in another process, let his turn
+      // Courtesy yield: if Taylor is mid-conversation in another process, let his turn
       // finish before spawning a provider CLI next to it (bounded — proceeds regardless).
       await waitForInteractiveIdle(this.config);
       if (kind === "standup.scan") return await service.scan();
@@ -249,12 +249,12 @@ export class WorkflowScheduler {
   }
 
   /**
-   * Daily portfolio stats refresh + deploy (Luvish's standing authorization,
+   * Daily portfolio stats refresh + deploy (Taylor's standing authorization,
    * 2026-08-09: "keeps on updating and pushing this on regular basis"). Refreshes
    * Henry's real numbers into the page and pushes — with two hard rails:
    * (1) a dirty working tree before the refresh means human/agent work is mid-flight
    * → skip; (2) local main already ahead of origin means UNSHIPPED page changes are
-   * awaiting Luvish's go → skip, because this workflow must never be what first
+   * awaiting Taylor's go → skip, because this workflow must never be what first
    * publishes a redesign. Only when the sole diff is its own stats commit does it push.
    *
    * Nothing about the owner is baked in: both the repo (HENRY_PORTFOLIO_DIR) and the GitHub
@@ -312,10 +312,10 @@ export class WorkflowScheduler {
     // one failed push made this skip forever with a misleading reason.
     await git("fetch", "origin").catch(() => undefined);
     const ahead = Number((await git("rev-list", "--count", "origin/main..main")).stdout.trim());
-    if (ahead > 0) return { skipped: true, reason: `local main is ${ahead} commit(s) ahead of origin — unshipped changes await Luvish's go` };
+    if (ahead > 0) return { skipped: true, reason: `local main is ${ahead} commit(s) ahead of origin — unshipped changes await Taylor's go` };
 
     // GitHub contribution graph: refetch real data (best-effort — offline keeps
-    // yesterday's bake) and re-bake the static markup, so Luvish's commits appear
+    // yesterday's bake) and re-bake the static markup, so Taylor's commits appear
     // on the site within a day without the page ever making a runtime request.
     try {
       // JSON.stringify supplies the GraphQL string literal's quoting/escaping, so a login
@@ -353,7 +353,7 @@ export class WorkflowScheduler {
    * once-per-day meta guard makes a re-fired cron a no-op; the pid lock only stops two
    * processes racing one browser profile. Not-logged-in and already-scouted both return
    * {skipped, reason} gracefully — `henry jobs login` is the one-time human fix. The
-   * cron path never passes a prepare count: staging drafts is a Luvish-invoked CLI act.
+   * cron path never passes a prepare count: staging drafts is a Taylor-invoked CLI act.
    */
   private async runJobScout(): Promise<unknown> {
     const lockPath = path.join(this.config.dataDir, "scout.lock");

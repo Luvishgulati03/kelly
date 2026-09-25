@@ -25,10 +25,10 @@ function fromResult(result: RunResult): CrewFinding {
 
 /**
  * LaunchCrewService — MASTER_PLAN.md §6.3, the digital-twin launch workflow.
- * Two Luvish-in-the-loop phases:
+ * Two Taylor-in-the-loop phases:
  *   intake(slugFromInput) — ONE t1 dispatch reads the product and derives the question
  *     list from what the recalled playbooks actually require.
- *   run(slug) — after Luvish fills in ANSWER: blanks, fans out gtm-strategist (t2),
+ *   run(slug) — after Taylor fills in ANSWER: blanks, fans out gtm-strategist (t2),
  *     product-auditor (t1, skipped gracefully when brief-only) and competition-researcher
  *     (t1) in parallel through the shared admission-controlled runner, then one t2
  *     synthesizer merges everything into a dossier. No auto-fixing, no outbound anything.
@@ -61,7 +61,7 @@ export class LaunchCrewService {
 
     const prompt = [
       "You are Henry's launch-intake specialist (MASTER_PLAN.md section 6.3, phase 1 of the launch crew).",
-      "Derive the exact list of datapoints Luvish must answer before a GTM strategist can build a launch roadmap.",
+      "Derive the exact list of datapoints Taylor must answer before a GTM strategist can build a launch roadmap.",
       "Base the question list on what the recalled playbooks below actually require (things like ICP, pricing, channels, timeline, community size) -- do not pad with generic questions the playbooks don't call for, and never invent facts about the product.",
       "If the product itself is unclear from what you can inspect, that uncertainty becomes a question too.",
       "Return ONLY JSON, no markdown fences, no prose, matching exactly:",
@@ -134,7 +134,7 @@ export class LaunchCrewService {
         "Produce a launch roadmap and GTM strategy grounded in the recalled playbooks below. Explicitly cite which playbook module informed each major recommendation.",
         "Never invent facts about the product beyond what's given.",
         "", "--- product ---", record.productSummary,
-        "", "--- Luvish's answers ---", qaBlock,
+        "", "--- Taylor's answers ---", qaBlock,
         "", "--- recalled playbooks ---", knowledgeContext || "No relevant playbooks recalled.",
       ].join("\n");
       const result = await this.runner.run(prompt, { role: "gtm-strategist", tier: "t2", readOnly: true, cwd: this.config.rootDir });
@@ -161,7 +161,7 @@ export class LaunchCrewService {
         "Produce a competitor landscape and feature/positioning gap analysis for the product below.",
         "IMPORTANT: this dispatch has no live web-search flag wired up (Codex --search is not currently passed by Henry's ProviderRunner). Reason from your trained knowledge, and explicitly and honestly flag in your output that this is not live-web-verified research.",
         "", "--- product ---", record.productSummary,
-        "", "--- Luvish's answers ---", qaBlock,
+        "", "--- Taylor's answers ---", qaBlock,
       ].join("\n");
       const result = await this.runner.run(prompt, { role: "competition-researcher", tier: "t1", readOnly: true, cwd: this.config.rootDir });
       await this.recordDispatch(result, "competition-researcher");

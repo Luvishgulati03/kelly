@@ -57,7 +57,7 @@ function voiceUpdate(updateId: number, chatId = OWNER_CHAT, meta: TelegramAudioM
       message_id: updateId, date: Math.floor(Date.now() / 1000),
       voice: meta,
       chat: { id: Number(chatId), type: "private" },
-      from: { id: 7, first_name: "Luvish" },
+      from: { id: 7, first_name: "Taylor" },
       ...extra,
     },
   };
@@ -69,7 +69,7 @@ function textUpdate(updateId: number, text: string, chatId = OWNER_CHAT): Telegr
     message: {
       message_id: updateId, date: Math.floor(Date.now() / 1000), text,
       chat: { id: Number(chatId), type: "private" },
-      from: { id: 7, first_name: "Luvish" },
+      from: { id: 7, first_name: "Taylor" },
     },
   };
 }
@@ -511,9 +511,9 @@ test("intake returns the trimmed transcript with the bytes it actually read", as
 });
 
 test("intake passes a configured vocabulary prompt through to the transcriber, and omits it when none is set", async () => {
-  const withPrompt = fakeIntake({ limits: { prompt: "She Fashion House: lehenga, saree, kurti" } });
+  const withPrompt = fakeIntake({ limits: { prompt: "Sample Boutique: lehenga, saree, kurti" } });
   await withPrompt.intake.transcribe({ file_id: "a" });
-  assert.equal(withPrompt.transcribeOptions[0].prompt, "She Fashion House: lehenga, saree, kurti");
+  assert.equal(withPrompt.transcribeOptions[0].prompt, "Sample Boutique: lehenga, saree, kurti");
 
   const withoutPrompt = fakeIntake();
   await withoutPrompt.intake.transcribe({ file_id: "a" });

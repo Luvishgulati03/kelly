@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import http from "node:http";
 import zlib from "node:zlib";
 import { chromium, type Browser, type Page } from "playwright";
@@ -793,7 +795,7 @@ const plainTurn: ScenarioStep[] = [
   { delayMs: 0, event: "spoken", data: { text: "Two suits cost 2,205 rupees." } },
   { delayMs: 40, event: "done", data: { response: "", spoken: "" } },
 ];
-const SHOT_DIR = "/private/tmp/claude-501/-Users-luvishgulati-Downloads-henry/097420ed-722e-42f7-9330-d4ccb33257ef/scratchpad/dash";
+const SHOT_DIR = path.join(os.tmpdir(), "kelly-dash-screenshots");
 const LAUNCH_ARGS = ["--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream", "--autoplay-policy=no-user-gesture-required"];
 const showcaseOpen = (page: Page) => page.evaluate(() => (window as any).KellyTalk.testing.showcaseOpen as boolean);
 const slideIndex = (page: Page) => page.evaluate(() => (window as any).KellyTalk.testing.slideIndex as number);

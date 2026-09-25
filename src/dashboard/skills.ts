@@ -14,7 +14,7 @@ import path from "node:path";
  * Files are enumerated and read FROM DISK at request/send time — no build step, no
  * bundling, no cache — so editing a skill takes effect on the next turn.
  *
- * A skill's body is authored by Luvish and injected as GUIDANCE, wrapped in a header
+ * A skill's body is authored by Taylor and injected as GUIDANCE, wrapped in a header
  * that says what it is. It never becomes an instruction to act outbound: the approval
  * gate is unchanged and this module grants no new capability.
  */
@@ -126,13 +126,13 @@ export async function loadSkill(rootDir: string, name: string): Promise<LoadedSk
 
 /**
  * The block prepended to a turn when a skill is active. It labels the material as
- * Luvish's own operating guidance for this turn and restates the outbound rail, so
+ * Taylor's own operating guidance for this turn and restates the outbound rail, so
  * loading a skill can never read as permission to act.
  */
 export function skillGuidanceBlock(skill: LoadedSkill): string {
   return [
     `--- Active skill: ${skill.name} (${skill.path}) ---`,
-    "Luvish selected this playbook for this turn. Follow it as operating guidance for how to answer.",
+    "Taylor selected this playbook for this turn. Follow it as operating guidance for how to answer.",
     "It grants no new permission: nothing goes outbound (email, post, message, commit) without his explicit approval.",
     "",
     skill.content.trim(),

@@ -6,7 +6,7 @@ export const TELEGRAM_MAX_CHARS = 4096;
 export const TELEGRAM_TIMEOUT_MS = 10_000;
 
 /**
- * SCOPE-GUARD: this is Luvish's operator-notification channel ONLY. `chat_id` is always read
+ * SCOPE-GUARD: this is Taylor's operator-notification channel ONLY. `chat_id` is always read
  * from config (his own configured chat) — it is never accepted as a caller-supplied
  * parameter and this function must never grow into a general send-to-anyone surface.
  * Outbound messages to other people stay behind the ApprovalStore, exactly as today.

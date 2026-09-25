@@ -70,7 +70,7 @@ function renderGoalFile(description: string, plan: GoalPlan, createdAt: string):
     "",
     tasks,
     "",
-    "## Open questions for Luvish",
+    "## Open questions for Taylor",
     "",
     questions,
     "",
@@ -86,7 +86,7 @@ export interface GoalIntakeResult {
 /**
  * Goal intake (MASTER_PLAN §11 doctrine): one t1 dispatch restates a goal, decomposes it
  * into 3-8 tier-tagged tasks, and surfaces open questions. Henry never auto-executes the
- * plan — Luvish reviews it, then runs `henry code`/`henry dispatch` or asks Henry to proceed.
+ * plan — Taylor reviews it, then runs `henry code`/`henry dispatch` or asks Henry to proceed.
  */
 export class GoalService {
   constructor(
@@ -101,12 +101,12 @@ export class GoalService {
     if (!trimmed) throw new Error("Usage: henry goal <description...>");
 
     const task = [
-      "Luvish gave you a goal. Respond in this exact markdown format and nothing else — no preamble, no closing remarks.",
+      "Taylor gave you a goal. Respond in this exact markdown format and nothing else — no preamble, no closing remarks.",
       "1. Restate the goal crisply on one line starting with 'GOAL:'.",
       "2. Under a '## Tasks' heading, decompose it into 3-8 concrete tasks. Each task is a markdown checkbox line: '- [ ] <task> (tier: t0|t1|t2)', tagged with the suggested executor tier per MASTER_PLAN.md §11 doctrine — t0 for triage/formatting/summaries, t1 for routine implementation, t2 for architecture or hard judgment calls.",
-      "3. Under a '## Open questions' heading, list open questions for Luvish, each as '- <question>'. If there are none, write '- none'.",
-      "Do not execute any task yourself. Do not invent facts about Luvish's situation — if you need information to decompose well, surface it as an open question instead of guessing.",
-      `\nGoal from Luvish: ${trimmed}`,
+      "3. Under a '## Open questions' heading, list open questions for Taylor, each as '- <question>'. If there are none, write '- none'.",
+      "Do not execute any task yourself. Do not invent facts about Taylor's situation — if you need information to decompose well, surface it as an open question instead of guessing.",
+      `\nGoal from Taylor: ${trimmed}`,
     ].join("\n");
 
     const result = await this.luna.dispatch("architect", task, { tier: "t1" });

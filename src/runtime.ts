@@ -366,10 +366,10 @@ export class HenryRuntime {
   }
 
   /**
-   * Luvish's two-way DM. The composition root is the ONLY place the bridge meets the two
+   * Taylor's two-way DM. The composition root is the ONLY place the bridge meets the two
    * things it deliberately does not own: the brain (`agent.run`, same entry as the dashboard
    * chat — its own tiers, memory, and sessions apply) and the sender (`sendTelegram`, already
-   * pinned to Luvish's chat, so no new outbound surface exists). readOnly is the rail: the
+   * pinned to Taylor's chat, so no new outbound surface exists). readOnly is the rail: the
    * bridge is a conversation, and repo mutations stay in the terminal session.
    */
   get telegramBridge(): TelegramBridge {
@@ -392,7 +392,7 @@ export class HenryRuntime {
           }
           // The bridge sends this acknowledgement through its normal reply path.
           // The finished report is a second DM, so the inbound queue is free for
-          // Luvish's next message while the research worker is still running.
+          // Taylor's next message while the research worker is still running.
           void turn.completion.then(async (result) => {
             // Out of quota is not a failed research turn — it is unanswered work, so the
             // owner is told to ask again later instead of being told "Research failed".
@@ -610,7 +610,7 @@ export class HenryRuntime {
   }
 
   /**
-   * ONE getUpdates consumer for the whole bot token. Both inbound modules ride it: Luvish's
+   * ONE getUpdates consumer for the whole bot token. Both inbound modules ride it: Taylor's
    * DM → the bridge, the standup group → standup's unchanged intake, anything else → counted
    * and dropped. Consumers with no chat id configured are never called.
    */
@@ -752,7 +752,7 @@ export class HenryRuntime {
     return provider;
   }
 
-  /** Full-access engineering task inside any local repository Luvish points Henry at. */
+  /** Full-access engineering task inside any local repository Taylor points Henry at. */
   async task(instruction: string, cwd?: string): Promise<RunResult> {
     const dir = path.resolve(cwd || this.config.rootDir);
     await fs.access(dir).catch(() => { throw new Error(`Task directory does not exist: ${dir}`); });
@@ -802,7 +802,7 @@ export class HenryRuntime {
     const profile = getActiveProfile();
     const status: Record<string, unknown> = {
       name: profile.name,
-      user: "Luvish",
+      user: "Taylor",
       provider: this.config.provider,
       rootDir: this.config.rootDir,
       dashboard: `http://${this.config.host}:${this.config.port}`,

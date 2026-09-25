@@ -525,7 +525,7 @@ test("recognisedGarmentWord mirrors resolveTerm", () => {
 });
 
 test("voicePrompt builds a shop-prefixed vocabulary hint, or undefined for an empty vocabulary", () => {
-  assert.equal(voicePrompt("She Fashion House", boutiqueTradePack.vocabulary), `She Fashion House: ${boutiqueTradePack.vocabulary.join(", ")}`);
+  assert.equal(voicePrompt("Sample Boutique", boutiqueTradePack.vocabulary), `Sample Boutique: ${boutiqueTradePack.vocabulary.join(", ")}`);
   assert.equal(voicePrompt("Kelly's counter", []), undefined);
 });
 

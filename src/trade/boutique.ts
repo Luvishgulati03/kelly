@@ -3,7 +3,8 @@ import type { TradePack } from "./index.ts";
 export const boutiqueTradePack: TradePack = {
   id: "boutique",
   displayName: "Ladies' boutique",
-  defaultShopName: "She Fashion House",
+  // Neutral default; operators set their own shop name via KELLY_SHOP_NAME.
+  defaultShopName: "Boutique",
   lineNoun: "service",
   catalogueNoun: "rate card",
   brandRequired: false,

@@ -67,7 +67,7 @@ test("generate() throws with import guidance when resume.md is missing", async (
 
 test("generate() writes markdown + PDF containing the model's response when resume.md exists", async () => {
   const { config, activity } = await setup();
-  await fs.writeFile(config.resumeSourcePath, "# Luvish's Resume\n\nPM at Acme, 2019-2024.\n", "utf8");
+  await fs.writeFile(config.resumeSourcePath, "# Jordan's Resume\n\nPM at Acme, 2019-2024.\n", "utf8");
   const service = new CoverLetterService(config, activity, fakeMemory(), fakeRunner(), fakeJobs([]), fakeRenderResume);
 
   const result = await service.generate("We need a product manager to lead growth initiatives.");
@@ -87,8 +87,8 @@ test("importResume() accepts a parseable resume and refuses unparseable text int
   const service = new CoverLetterService(config, activity, fakeMemory(), fakeRunner(), fakeJobs([]), fakeRenderResume);
 
   const parseable = [
-    "# LUVISH GULATI", "",
-    "+00-1 | Bengaluru | luvish@example.com | LinkedIn", "",
+    "# JORDAN TAYLOR", "",
+    "+00-1 | Bengaluru | jordan@example.com | LinkedIn", "",
     "## PROFILE", "", "Ships product.", "",
     "## EXPERIENCE", "", "### Acme | Bengaluru — PM (2025 - Present)", "", "- Shipped the thing.", "",
     "## EDUCATION", "", "B.Tech — Example University (2021 - 2025)", "",
@@ -103,7 +103,7 @@ test("importResume() accepts a parseable resume and refuses unparseable text int
 
   // Unparseable text must never overwrite the good canonical resume (audit M9 — it bricks every later `jd`).
   const badSource = path.join(config.dataDir, "raw-docx-dump.txt");
-  await fs.writeFile(badSource, "Luvish Gulati\nProduct Manager\nlots of unstructured docx text\n", "utf8");
+  await fs.writeFile(badSource, "Jordan Taylor\nProduct Manager\nlots of unstructured docx text\n", "utf8");
   await assert.rejects(() => service.importResume(badSource), /does not match the resume\.md structure/);
   assert.equal(await fs.readFile(config.resumeSourcePath, "utf8"), imported, "the previously imported resume must be untouched");
   const rejected = await fs.readFile(`${config.resumeSourcePath}.rejected`, "utf8");
@@ -112,7 +112,7 @@ test("importResume() accepts a parseable resume and refuses unparseable text int
 
 test("generate() calls jobs.inspect when given a URL", async () => {
   const { config, activity } = await setup();
-  await fs.writeFile(config.resumeSourcePath, "# Luvish's Resume\n\nPM at Acme, 2019-2024.\n", "utf8");
+  await fs.writeFile(config.resumeSourcePath, "# Jordan's Resume\n\nPM at Acme, 2019-2024.\n", "utf8");
   const inspectCalls: string[] = [];
   const service = new CoverLetterService(config, activity, fakeMemory(), fakeRunner(), fakeJobs(inspectCalls), fakeRenderResume);
 

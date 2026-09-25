@@ -14,7 +14,7 @@ const DRAFT_RESPONSE = "Shipped a notification platform nobody asked for the eas
 
 function fakeMemory(remembered: Array<{ content: string }> = []): HenryMemory {
   return {
-    context: async () => "Luvish recently shipped the Henry notification platform.",
+    context: async () => "Taylor recently shipped the Henry notification platform.",
     remember: async (content: string) => { remembered.push({ content }); return "mem-id"; },
   } as unknown as HenryMemory;
 }
@@ -33,7 +33,7 @@ async function setup(): Promise<{ config: ReturnType<typeof loadConfig>; activit
   const config = loadConfig(rootDir);
   const activity = new ActivityLog(config.activityPath);
   await activity.init();
-  await fs.writeFile(config.resumeSourcePath, "# Luvish's Resume\n\nShipped the notification platform.\n", "utf8");
+  await fs.writeFile(config.resumeSourcePath, "# Taylor's Resume\n\nShipped the notification platform.\n", "utf8");
   await fs.writeFile(path.join(rootDir, "personality.md"), "# Voice\n\nDirect, builder-minded, results-first.\n", "utf8");
   return { config, activity };
 }
