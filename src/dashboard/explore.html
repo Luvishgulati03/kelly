@@ -1,0 +1,1006 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#141516">
+<meta name="description" content="Explore Kelly: a local-first voice AI business agent for small shops. Talk to her, see how she works, and try her three modes.">
+<title>Explore Kelly · voice AI for small shops</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;700;800&family=Atkinson+Hyperlegible:wght@400;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Sans+Devanagari:wght@400;600&display=swap">
+<style>
+  /*
+   * Explore Kelly: the public landing page of Kelly's link.
+   *
+   * Same visual system as the switchboard (page.ts), Talk and Counter: enamel ground,
+   * trade accent (--copper / --copper2, electrical copper by default), phosphor ink,
+   * Big Shoulders display, Atkinson Hyperlegible body, Plex Mono readouts.
+   *
+   * Only two endpoints are read: /api/public/config and /api/public/heartbeat. The
+   * heartbeat is the only live data on the page; every other panel is badged sample data.
+   */
+  :root {
+    --bg:#141516; --bg2:#0f1011; --surface:#1b1e20; --surface2:#22262a; --surface3:#2a2f33;
+    --line:#2f3539; --line2:#3c4348;
+    --text:#f3efe6; --dim:#c0bab0; --faint:#9a948a; --ghost:#5a564f;
+    --copper:#d08a4b; --copper2:#f0b072; --copperDim:rgba(208,138,75,.16);
+    --good:#3cc9b0; --warn:#f0b429; --crit:#f0616d;
+    --goodDim:rgba(60,201,176,.14); --warnDim:rgba(240,180,41,.14); --critDim:rgba(240,97,109,.16);
+    --sans:"Atkinson Hyperlegible","Helvetica Neue",Arial,sans-serif;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+    --hindi:"Noto Sans Devanagari","Atkinson Hyperlegible",sans-serif;
+    --r:8px; --rl:14px;
+    --glass:rgba(27,30,32,.62);
+  }
+  * { box-sizing:border-box; }
+  html { background:var(--bg); scroll-behavior:smooth; -webkit-text-size-adjust:100%; }
+  html, body { overflow-x:hidden; }
+  body { margin:0; color:var(--text); font:16px/1.55 var(--sans);
+    background:var(--bg);
+    background-image:
+      radial-gradient(900px 480px at 85% -8%, color-mix(in srgb, var(--copper) 11%, transparent), transparent 70%),
+      radial-gradient(700px 420px at 0% 30%, rgba(60,201,176,.05), transparent 70%); }
+  h1, h2, h3, p, ol, ul { margin:0; }
+  h1, h2, h3 { font-family:var(--display); letter-spacing:.005em; text-wrap:balance; }
+  a { color:var(--copper2); }
+  .hi { font-family:var(--hindi); }
+  .mono { font-family:var(--mono); font-variant-numeric:tabular-nums; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+  .skip { position:absolute; left:12px; top:-60px; z-index:50; background:var(--copper); color:#1a1108; padding:10px 14px; border-radius:var(--r); font-weight:700; text-decoration:none; }
+  .skip:focus { top:12px; }
+  :focus-visible { outline:2px solid var(--copper2); outline-offset:3px; }
+  .wrap { width:100%; max-width:1180px; margin:0 auto; padding:0 16px; }
+  @media (min-width:700px) { .wrap { padding:0 28px; } }
+  .eyebrow { font:500 11.5px/1.3 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--faint); }
+
+  /* ---------- top bar ---------- */
+  .top { position:sticky; top:0; z-index:20; border-bottom:1px solid var(--line);
+    background:rgba(20,21,22,.78); -webkit-backdrop-filter:blur(14px) saturate(120%); backdrop-filter:blur(14px) saturate(120%); }
+  .top .wrap { display:flex; align-items:center; justify-content:space-between; gap:12px; min-height:60px; padding-top:max(0px, env(safe-area-inset-top)); }
+  .brand { display:flex; align-items:center; gap:10px; text-decoration:none; color:var(--text); min-width:0; }
+  .brand .k { flex:none; width:32px; height:32px; border-radius:8px; background:linear-gradient(160deg, var(--copper2), var(--copper) 70%); display:grid; place-items:center; font:800 19px var(--display); color:#1a1108; }
+  .brand strong { font:800 21px/1 var(--display); text-transform:uppercase; letter-spacing:.03em; }
+  .brand small { display:block; font:11px var(--mono); color:var(--faint); margin-top:2px; }
+  .topnav { display:flex; align-items:center; gap:4px; }
+  .topnav a { color:var(--dim); text-decoration:none; font-size:14px; padding:10px 10px; border-radius:var(--r); min-height:44px; display:inline-flex; align-items:center; }
+  .topnav a:hover { color:var(--text); background:var(--surface); }
+  @media (max-width:760px) { .topnav a.opt { display:none; } }
+
+  /* ---------- status pill ---------- */
+  .pill { display:inline-flex; align-items:center; gap:8px; font:500 12.5px/1.2 var(--mono); padding:6px 11px; border-radius:999px;
+    border:1px solid var(--line2); color:var(--dim); background:var(--surface); white-space:nowrap; }
+  .pill i { width:8px; height:8px; border-radius:50%; background:var(--faint); flex:none; }
+  .pill[data-state="online"] { color:var(--good); border-color:rgba(60,201,176,.38); background:var(--goodDim); }
+  .pill[data-state="online"] i { background:var(--good); box-shadow:0 0 0 0 rgba(60,201,176,.6); animation:ping 2s ease-out infinite; }
+  .pill[data-state="offline"] { color:var(--crit); border-color:rgba(240,97,109,.4); background:var(--critDim); }
+  .pill[data-state="offline"] i { background:var(--crit); }
+  .pill[data-state="stale"] { color:var(--warn); border-color:rgba(240,180,41,.38); background:var(--warnDim); }
+  .pill[data-state="stale"] i { background:var(--warn); }
+  @keyframes ping { 0% { box-shadow:0 0 0 0 rgba(60,201,176,.55); } 80%,100% { box-shadow:0 0 0 8px rgba(60,201,176,0); } }
+  .top .pill .long { display:none; }
+  @media (min-width:560px) { .top .pill .long { display:inline; } .top .pill .short { display:none; } }
+
+  /* ---------- buttons ---------- */
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:48px; padding:11px 18px; border-radius:10px;
+    border:1px solid var(--line2); background:var(--surface2); color:var(--text); font:700 15px/1.2 var(--sans); text-decoration:none; cursor:pointer;
+    transition:border-color .15s ease, background .15s ease, transform .15s ease; }
+  .btn:hover { border-color:var(--copper); }
+  .btn:active { transform:translateY(1px); }
+  .btn.primary { background:var(--copper); border-color:var(--copper); color:#1a1108; }
+  .btn.primary:hover { background:var(--copper2); border-color:var(--copper2); }
+  .btn.ghost { background:transparent; }
+  .btn svg { width:18px; height:18px; flex:none; }
+
+  /* ---------- hero ---------- */
+  .hero { padding:44px 0 36px; }
+  .hero .grid { display:grid; grid-template-columns:minmax(0,1fr); gap:28px; align-items:center; }
+  @media (min-width:900px) { .hero { padding:72px 0 56px; } .hero .grid { grid-template-columns:minmax(0,1.25fr) minmax(0,1fr); gap:40px; } }
+  .hero h1 { font-size:clamp(52px, 13vw, 104px); line-height:.9; font-weight:800; text-transform:uppercase; letter-spacing:.01em; margin:12px 0 16px; }
+  .hero h1 span { color:var(--copper2); }
+  .pitch { font-size:clamp(17px, 2.2vw, 20px); color:var(--dim); max-width:36em; }
+  .pitch b { color:var(--text); font-weight:700; }
+  .shopline { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:22px 0 0; }
+  .shopcard { display:inline-flex; align-items:center; gap:10px; padding:8px 12px 8px 8px; border-radius:12px; border:1px solid var(--line); background:var(--surface); min-width:0; max-width:100%; }
+  .shopcard .mark { flex:none; width:30px; height:30px; border-radius:7px; background:var(--copperDim); color:var(--copper2); display:grid; place-items:center; font:800 17px var(--display); }
+  .shopcard .txt { min-width:0; font-size:14px; line-height:1.3; }
+  .shopcard .txt small { display:block; font:11px var(--mono); color:var(--faint); letter-spacing:.06em; text-transform:uppercase; }
+  .shopcard .txt b { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ctas { display:flex; flex-wrap:wrap; gap:10px; margin-top:26px; }
+  .ctas .btn.primary { flex:1 1 100%; }
+  @media (min-width:520px) { .ctas .btn.primary { flex:0 0 auto; } }
+  .ctas .btn:not(.primary) { flex:1 1 0; }
+  @media (min-width:520px) { .ctas .btn:not(.primary) { flex:0 0 auto; } }
+  .asleep { display:none; margin-top:18px; padding:12px 14px; border-radius:var(--r); border-left:3px solid var(--crit); background:var(--critDim); color:var(--dim); font-size:14.5px; }
+  .asleep b { color:var(--text); }
+  body.is-offline .asleep { display:block; }
+
+  /* The hero orb: layered translucent blobs, the same palette as Talk's orb, drawn in CSS. */
+  .orbwrap { position:relative; display:grid; place-items:center; min-height:260px; }
+  .orb { position:relative; width:min(72vw, 340px); aspect-ratio:1; }
+  .orb i { position:absolute; inset:0; border-radius:47% 53% 50% 50% / 52% 46% 54% 48%; mix-blend-mode:screen; filter:blur(.5px); }
+  .orb i:nth-child(1) { background:radial-gradient(circle at 40% 38%, color-mix(in srgb, var(--copper) 85%, transparent), transparent 66%); animation:spin 19s linear infinite; }
+  .orb i:nth-child(2) { inset:6%; background:radial-gradient(circle at 60% 42%, color-mix(in srgb, var(--copper2) 70%, transparent), transparent 64%); animation:spin 23s linear infinite reverse; }
+  .orb i:nth-child(3) { inset:12%; background:radial-gradient(circle at 48% 64%, rgba(60,201,176,.55), transparent 62%); animation:spin 29s linear infinite; }
+  .orb i:nth-child(4) { inset:28%; background:radial-gradient(circle, rgba(243,239,230,.18), transparent 70%); border-radius:50%; }
+  .orb .glyph { position:absolute; inset:0; display:grid; place-items:center; color:var(--text); }
+  .orb .glyph svg { width:17%; height:17%; filter:drop-shadow(0 2px 8px rgba(0,0,0,.6)); }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .bubble { position:absolute; max-width:min(250px, 70%); padding:10px 13px; border-radius:14px; font-size:14px; line-height:1.4;
+    background:var(--glass); border:1px solid color-mix(in srgb, var(--copper) 28%, transparent);
+    -webkit-backdrop-filter:blur(12px); backdrop-filter:blur(12px); box-shadow:0 18px 40px rgba(0,0,0,.35); }
+  .bubble small { display:block; font:500 10.5px var(--mono); letter-spacing:.12em; text-transform:uppercase; color:var(--copper2); margin-bottom:2px; }
+  .bubble.b1 { top:4%; left:0; }
+  .bubble.b2 { bottom:4%; right:0; border-color:rgba(60,201,176,.3); }
+  .bubble.b2 small { color:var(--good); }
+  @media (max-width:420px) { .bubble { font-size:13px; } .orbwrap { min-height:240px; } }
+
+  /* ---------- sections ---------- */
+  section.block { padding:44px 0; border-top:1px solid var(--line); scroll-margin-top:64px; }
+  @media (min-width:900px) { section.block { padding:64px 0; } }
+  .sechead { display:flex; flex-wrap:wrap; align-items:flex-end; justify-content:space-between; gap:12px 24px; margin-bottom:22px; }
+  .sechead h2 { font-size:clamp(32px, 6vw, 48px); line-height:1; font-weight:800; text-transform:uppercase; margin-top:6px; }
+  .sechead p { color:var(--dim); max-width:40em; font-size:15.5px; }
+
+  /* ---------- mission control preview ---------- */
+  .shell { border:1px solid var(--line); border-radius:var(--rl); overflow:hidden; background:var(--bg2); box-shadow:0 30px 60px -40px rgba(0,0,0,.9); }
+  .shellbar { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; padding:10px 14px; border-bottom:1px solid var(--line); background:var(--surface); }
+  .shellbar .dots { display:flex; gap:6px; } .shellbar .dots i { width:10px; height:10px; border-radius:50%; background:var(--line2); }
+  .shellbar .ttl { font:500 12px var(--mono); color:var(--faint); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-width:0; flex:1; }
+  .shellmain { padding:14px; display:grid; gap:12px; }
+  @media (min-width:700px) { .shellmain { padding:18px; } }
+
+  .tag { display:inline-flex; align-items:center; gap:6px; font:500 10.5px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; padding:5px 8px; border-radius:999px; white-space:nowrap; }
+  .tag.live { color:var(--good); background:var(--goodDim); border:1px solid rgba(60,201,176,.35); }
+  .tag.live::before { content:""; width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .tag.sample { color:var(--warn); background:var(--warnDim); border:1px dashed rgba(240,180,41,.5); }
+
+  .beat { display:grid; grid-template-columns:minmax(0,1fr); border:1px solid var(--line); border-radius:var(--r); background:var(--surface); overflow:hidden; }
+  @media (min-width:760px) { .beat { grid-template-columns:190px minmax(0,1fr); } }
+  .beat .bpm { padding:14px 16px; display:flex; flex-direction:column; justify-content:space-between; gap:8px; border-bottom:1px solid var(--line); }
+  @media (min-width:760px) { .beat .bpm { border-bottom:0; border-right:1px solid var(--line); } }
+  .beat .bpm .num { font:800 40px/.95 var(--display); text-transform:uppercase; color:var(--faint); }
+  .beat[data-state="online"] .bpm .num { color:var(--good); }
+  .beat[data-state="stale"] .bpm .num { color:var(--warn); }
+  .beat[data-state="offline"] .bpm .num { color:var(--crit); }
+  .beat .bpm .note { font:12px/1.4 var(--mono); color:var(--faint); }
+  .beat .trace { position:relative; background:var(--bg2); min-height:120px; }
+  .beat .trace .grid { position:absolute; inset:0; pointer-events:none;
+    background-image:linear-gradient(to right, rgba(255,255,255,.035) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,.035) 1px, transparent 1px); background-size:22px 22px; }
+  .beat canvas { display:block; width:100%; height:120px; }
+  .beat .sig { position:absolute; top:8px; left:10px; right:10px; font:11px/1.4 var(--mono); color:var(--faint); pointer-events:none; }
+  .beat .sig b { font-weight:500; color:var(--dim); }
+  .beat[data-state="online"] .sig b { color:var(--good); }
+  .beat[data-state="stale"] .sig b { color:var(--warn); }
+  .beat[data-state="offline"] .sig b { color:var(--crit); }
+
+  .vitals { display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:10px; }
+  @media (min-width:760px) { .vitals { grid-template-columns:repeat(3, minmax(0,1fr)); } }
+  @media (min-width:1080px) { .vitals { grid-template-columns:repeat(6, minmax(0,1fr)); } }
+  .vital { border:1px solid var(--line); border-radius:var(--r); background:var(--surface); padding:12px 14px; display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .vital .v { font:800 28px/1 var(--display); color:var(--text); font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+  .vital .v small { font:400 12.5px var(--sans); color:var(--faint); margin-left:4px; }
+  .vital .s { font-size:12.5px; color:var(--faint); line-height:1.35; }
+  .vital .v.good { color:var(--good); } .vital .v.warn { color:var(--warn); } .vital .v.crit { color:var(--crit); }
+  .engines { display:flex; gap:6px; flex-wrap:wrap; }
+  .engines span { font:500 11px var(--mono); padding:3px 7px; border-radius:5px; background:var(--surface3); color:var(--faint); }
+  .engines span.on { background:var(--goodDim); color:var(--good); }
+
+  .cols { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; align-items:start; }
+  @media (min-width:900px) { .cols { grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); } }
+  .stackcol { display:grid; gap:12px; min-width:0; }
+  .card { border:1px solid var(--line); border-radius:var(--r); background:var(--surface); padding:14px 16px; min-width:0; }
+  .card.sampled { background-image:repeating-linear-gradient(135deg, transparent 0 14px, rgba(240,180,41,.018) 14px 28px); }
+  .card h3 { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; font-size:19px; text-transform:uppercase; letter-spacing:.03em; margin-bottom:12px; }
+  .card .fine { margin-top:10px; font-size:12.5px; color:var(--faint); }
+
+  .turns { display:grid; gap:10px; }
+  .turn { display:grid; grid-template-columns:62px minmax(0,1fr); gap:10px; align-items:start; }
+  .turn .who { font:500 10.5px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--faint); padding-top:9px; }
+  .turn.k .who { color:var(--copper2); }
+  .turn p { padding:9px 12px; border-radius:var(--r); background:var(--surface2); font-size:14.5px; line-height:1.5; overflow-wrap:anywhere; }
+  .turn.k p { background:transparent; border:1px solid var(--line); }
+  .turn .meta { display:flex; gap:6px; flex-wrap:wrap; margin-top:5px; }
+  .lang { font:500 10.5px var(--mono); padding:1px 6px; border-radius:4px; border:1px solid var(--line2); color:var(--dim); }
+  .ms { font:11px var(--mono); color:var(--ghost); }
+
+  .quote { width:100%; border-collapse:collapse; font-size:13.5px; }
+  .quote th, .quote td { padding:7px 0; border-top:1px solid var(--line); text-align:right; vertical-align:top; }
+  .quote th:first-child, .quote td:first-child { text-align:left; padding-right:10px; }
+  .quote thead th { border-top:0; font:500 10.5px var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--faint); }
+  .quote td { font-variant-numeric:tabular-nums; }
+  .quote td.n { font-family:var(--mono); font-size:12.5px; white-space:nowrap; }
+  .quote td small { display:block; font:11px var(--mono); color:var(--faint); }
+  .quote tr.sub td { color:var(--dim); }
+  .quote tr.disc td { color:var(--good); }
+  .quote tr.total td { font-weight:700; font-size:15px; color:var(--text); border-top:1px solid var(--line2); }
+  .quote tr.total td.n { font-size:14px; color:var(--copper2); }
+  .qhead { display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; font:12px var(--mono); color:var(--faint); margin-bottom:6px; }
+  .state { font:500 10.5px var(--mono); padding:2px 7px; border-radius:4px; white-space:nowrap; background:var(--warnDim); color:var(--warn); }
+
+  .feed { display:grid; }
+  .frow { display:grid; grid-template-columns:8px minmax(0,1fr) auto; gap:10px; align-items:baseline; padding:8px 0; border-top:1px solid var(--line); font-size:13.5px; }
+  .frow:first-child { border-top:0; }
+  .frow .st { align-self:stretch; border-radius:2px; background:var(--good); }
+  .frow.warn .st { background:var(--warn); } .frow.idle .st { background:var(--ghost); }
+  .frow .kd { font:500 11px var(--mono); color:var(--copper2); margin-right:6px; }
+  .frow .ti { font:11.5px var(--mono); color:var(--faint); white-space:nowrap; }
+
+  /* ---------- modes ---------- */
+  .modes { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; }
+  @media (min-width:960px) { .modes { grid-template-columns:repeat(3, minmax(0,1fr)); } }
+  .mode { position:relative; display:flex; flex-direction:column; gap:14px; border:1px solid var(--line); border-radius:var(--rl); background:var(--surface); padding:20px 18px; min-width:0; }
+  .mode.featured { border-color:color-mix(in srgb, var(--copper) 45%, transparent); background:linear-gradient(180deg, color-mix(in srgb, var(--copper) 9%, var(--surface)), var(--surface) 60%); }
+  .mode .ico { width:44px; height:44px; border-radius:11px; display:grid; place-items:center; background:var(--copperDim); color:var(--copper2); }
+  .mode .ico svg { width:22px; height:22px; }
+  .mode .hd { display:flex; align-items:center; gap:12px; }
+  .mode h3 { font-size:28px; line-height:1; text-transform:uppercase; font-weight:800; }
+  .mode .hd small { display:block; font:500 11px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--faint); margin-top:3px; }
+  .mode .rec { position:absolute; top:16px; right:16px; }
+  .mode p { color:var(--dim); font-size:15px; }
+  .mode h4 { margin:0; font:500 11px var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--faint); }
+  .steps { list-style:none; padding:0; display:grid; gap:8px; counter-reset:s; }
+  .steps li { counter-increment:s; position:relative; padding:1px 0 0 36px; min-height:24px; font-size:14.5px; color:var(--text); line-height:1.45; }
+  .steps li::before { content:counter(s); position:absolute; left:0; top:0; width:24px; height:24px; border-radius:50%; display:grid; place-items:center; font:500 11.5px var(--mono); color:var(--copper2); border:1px solid color-mix(in srgb, var(--copper) 45%, transparent); }
+  .steps q { color:var(--copper2); }
+  .phrases { list-style:none; padding:0; display:flex; flex-wrap:wrap; gap:6px; }
+  .phrases li { font-size:13.5px; line-height:1.35; padding:6px 10px; border-radius:999px; background:var(--surface2); border:1px solid var(--line); color:var(--dim); max-width:100%; overflow-wrap:anywhere; }
+  .mode .btn { margin-top:auto; width:100%; }
+  .mode .off { display:none; font-size:13px; color:var(--warn); }
+  .mode.voice-off .off { display:block; }
+
+  /* ---------- how it works ---------- */
+  .pipe { list-style:none; padding:0; display:grid; grid-template-columns:minmax(0,1fr); gap:0; counter-reset:p; }
+  @media (min-width:900px) { .pipe { grid-template-columns:repeat(6, minmax(0,1fr)); gap:0; } }
+  .pipe li { position:relative; display:grid; grid-template-columns:44px minmax(0,1fr); gap:12px; align-items:center; padding:12px 14px; border:1px solid var(--line); background:var(--surface); }
+  .pipe li + li { border-top:0; }
+  .pipe li:first-child { border-radius:var(--rl) var(--rl) 0 0; }
+  .pipe li:last-child { border-radius:0 0 var(--rl) var(--rl); }
+  @media (min-width:900px) {
+    .pipe li { grid-template-columns:minmax(0,1fr); text-align:center; justify-items:center; padding:18px 12px; align-content:start; }
+    .pipe li + li { border-top:1px solid var(--line); border-left:0; }
+    .pipe li:first-child { border-radius:var(--rl) 0 0 var(--rl); }
+    .pipe li:last-child { border-radius:0 var(--rl) var(--rl) 0; }
+    .pipe li:not(:last-child)::after { content:"→"; position:absolute; right:-9px; top:32px; z-index:1; width:18px; height:18px; border-radius:50%; display:grid; place-items:center; font-size:11px; background:var(--bg2); border:1px solid var(--line2); color:var(--copper2); }
+  }
+  .pipe .pi { width:44px; height:44px; border-radius:12px; display:grid; place-items:center; background:var(--surface2); color:var(--dim); }
+  .pipe li.core .pi { background:var(--copper); color:#1a1108; }
+  .pipe li.core { background:linear-gradient(180deg, color-mix(in srgb, var(--copper) 12%, var(--surface)), var(--surface)); }
+  .pipe .pi svg { width:22px; height:22px; }
+  .pipe b { display:block; font-size:15px; }
+  .pipe span { display:block; font-size:12.5px; color:var(--faint); line-height:1.35; }
+  .pipe .where { font:500 10px var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--copper2); margin-top:4px; }
+  .privacy { display:grid; grid-template-columns:minmax(0,1fr); gap:12px; margin-top:18px; }
+  @media (min-width:760px) { .privacy { grid-template-columns:repeat(3, minmax(0,1fr)); } }
+  .privacy div { padding:14px 16px; border-radius:var(--r); background:var(--surface); border:1px solid var(--line); border-left:3px solid var(--good); font-size:14.5px; color:var(--dim); }
+  .privacy b { display:block; color:var(--text); margin-bottom:2px; }
+  .facts { display:flex; flex-wrap:wrap; gap:8px; margin-top:14px; }
+  .facts span { font:500 12px var(--mono); padding:5px 10px; border-radius:999px; border:1px solid var(--line2); color:var(--dim); }
+
+  /* ---------- footer ---------- */
+  footer { border-top:1px solid var(--line); padding:28px 0 calc(34px + env(safe-area-inset-bottom)); color:var(--faint); font-size:14px; }
+  footer .wrap { display:flex; flex-wrap:wrap; gap:14px 24px; align-items:center; justify-content:space-between; }
+  footer a { display:inline-flex; align-items:center; gap:8px; min-height:44px; text-decoration:none; }
+  footer a:hover { text-decoration:underline; }
+  footer svg { width:18px; height:18px; }
+
+  /* ---------- invitation pop-up ---------- */
+  .invite { position:fixed; inset:0; z-index:40; display:flex; align-items:flex-end; justify-content:center; padding:12px 12px calc(12px + env(safe-area-inset-bottom)); }
+  .invite[hidden] { display:none; }
+  @media (min-width:640px) { .invite { align-items:center; padding:24px; } }
+  .invite .scrim { position:absolute; inset:0; background:rgba(10,11,12,.5); -webkit-backdrop-filter:blur(3px); backdrop-filter:blur(3px); opacity:0; transition:opacity .25s ease; }
+  .invite .sheet { position:relative; width:min(100%, 440px); max-height:calc(100dvh - 24px); overflow:auto; padding:22px 20px 18px; border-radius:22px;
+    background:rgba(27,30,32,.78); -webkit-backdrop-filter:blur(18px) saturate(130%); backdrop-filter:blur(18px) saturate(130%);
+    border:1px solid color-mix(in srgb, var(--copper) 34%, transparent); box-shadow:0 30px 80px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+    opacity:0; transform:translateY(16px) scale(.98); transition:opacity .25s ease, transform .3s cubic-bezier(.2,.7,.2,1); }
+  .invite.open .scrim { opacity:1; }
+  .invite.open .sheet { opacity:1; transform:none; }
+  .invite .mini { width:56px; height:56px; margin-bottom:12px; }
+  .invite h2 { font-size:30px; line-height:1.02; text-transform:uppercase; font-weight:800; }
+  .invite h2 span { color:var(--copper2); }
+  .invite p { color:var(--dim); font-size:15px; margin-top:8px; }
+  .invite .row { display:flex; flex-wrap:wrap; gap:10px; margin-top:18px; }
+  .invite .row .btn { flex:1 1 150px; }
+  .invite .x { position:absolute; top:10px; right:10px; width:44px; height:44px; border-radius:12px; border:0; background:transparent; color:var(--faint); font-size:22px; cursor:pointer; }
+  .invite .x:hover { color:var(--text); background:var(--surface2); }
+  @media (max-width:639px) { .invite .scrim { background:rgba(10,11,12,.35); -webkit-backdrop-filter:none; backdrop-filter:none; } }
+
+  @media (prefers-reduced-motion:reduce) {
+    html { scroll-behavior:auto; }
+    .orb i, .pill i { animation:none !important; }
+    .btn, .invite .scrim, .invite .sheet { transition:none; }
+    .invite .sheet { transform:none; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="#top" aria-label="Kelly, back to top">
+      <span class="k" aria-hidden="true">K</span>
+      <span><strong>Kelly</strong><small>explore · public demo</small></span>
+    </a>
+    <nav class="topnav" aria-label="Page sections">
+      <a class="opt" href="#live">Live</a>
+      <a class="opt" href="#modes">Modes</a>
+      <a class="opt" href="#how">How it works</a>
+      <span class="pill" id="topPill" data-state="connecting" role="status" aria-live="polite"><i aria-hidden="true"></i><span class="short" data-pill-short>Checking</span><span class="long" data-pill-long>Checking on Kelly…</span></span>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <!-- 1. Hero -->
+  <section class="hero" id="top" aria-labelledby="heroTitle">
+    <div class="wrap grid">
+      <div>
+        <p class="eyebrow">Local-first voice AI for small shops</p>
+        <h1 id="heroTitle">Explore <span>Kelly</span></h1>
+        <p class="pitch">Kelly works the counter of a small shop: customers <b>talk to her in English, Hindi or Hinglish</b>, she finds products in the shop's own catalogue, shows designs, and builds quotations whose totals and GST are <b>calculated in code, never guessed by a model</b>.</p>
+        <div class="shopline">
+          <div class="shopcard" id="shopcard">
+            <span class="mark" id="shopMark" aria-hidden="true">K</span>
+            <span class="txt"><small id="shopLabel">In this demo, Kelly runs</small><b id="shopName">a demo shop</b></span>
+          </div>
+          <span class="pill" id="heroPill" data-state="connecting"><i aria-hidden="true"></i><span data-pill-long>Checking on Kelly…</span></span>
+        </div>
+        <div class="asleep" id="asleep" role="note"><b>Kelly is asleep right now: the owner's Mac is off.</b> She runs on one Mac, not in the cloud, so she naps when it does. Everything below still explains how she works; the modes open again as soon as she wakes.</div>
+        <div class="ctas">
+          <a class="btn primary" href="/explore/talk" data-mode-link="talk">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg>
+            Talk to Kelly
+          </a>
+          <a class="btn" href="/explore/counter" data-mode-link="counter">Counter mode</a>
+          <a class="btn" href="/explore/chat" data-mode-link="chat">Chat mode</a>
+        </div>
+      </div>
+      <div class="orbwrap" aria-hidden="true">
+        <div class="orb"><i></i><i></i><i></i><i></i>
+          <span class="glyph"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg></span>
+        </div>
+        <div class="bubble b1"><small>Customer</small><span class="hi" id="bubbleAsk">Bhaiya, 10 LED bulb chahiye, 9 watt wale.</span></div>
+        <div class="bubble b2"><small>Kelly</small><span id="bubbleReply">Ji, 10 LED bulb 9W. Quotation bana rahi hoon.</span></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. Mission control preview with a live heartbeat -->
+  <section class="block" id="live" aria-labelledby="liveTitle">
+    <div class="wrap">
+      <div class="sechead">
+        <div><p class="eyebrow">The owner's switchboard</p><h2 id="liveTitle">Live from the counter</h2></div>
+        <p>This is the shape of the owner's private dashboard. The heartbeat and vitals are <b>real and live</b>, polled from Kelly every 5 seconds. Everything badged <span class="tag sample">Sample data</span> is invented to show the layout; no real customer, price or conversation appears on this page.</p>
+      </div>
+
+      <div class="shell">
+        <div class="shellbar">
+          <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span class="ttl" id="shellTitle">kelly · switchboard · overview</span>
+          <span class="tag live">Live</span>
+        </div>
+        <div class="shellmain">
+          <div class="beat" id="beat" data-state="connecting">
+            <div class="bpm">
+              <div class="eyebrow">Heartbeat</div>
+              <div><div class="num" id="beatWord">…</div><div class="note" id="beatNote">listening for Kelly</div></div>
+            </div>
+            <div class="trace">
+              <div class="grid" aria-hidden="true"></div>
+              <div class="sig">signal <b id="sig">connecting</b> · one spike per heartbeat from Kelly's server</div>
+              <canvas id="ecg" width="1200" height="120" aria-hidden="true"></canvas>
+            </div>
+          </div>
+          <p class="sr-only" id="beatSr" aria-live="polite"></p>
+
+          <div class="vitals" aria-label="Live vitals">
+            <div class="vital"><span class="eyebrow">Uptime</span><span class="v" id="vUptime">–</span><span class="s" id="vClock">server time –</span></div>
+            <div class="vital"><span class="eyebrow">Speech</span><span class="v" id="vSpeech">–</span><span class="engines"><span id="eStt">whisper.cpp</span><span id="eTts">Kokoro</span></span></div>
+            <div class="vital"><span class="eyebrow">Brain</span><span class="v" id="vBrain">–</span><span class="s">reasoning ready</span></div>
+            <div class="vital"><span class="eyebrow">Last reply</span><span class="v" id="vLatency">–</span><span class="s">time to Kelly's last answer</span></div>
+            <div class="vital"><span class="eyebrow">Catalogue</span><span class="v" id="vDesigns">–</span><span class="s">designs published</span></div>
+            <div class="vital"><span class="eyebrow">Visitors now</span><span class="v" id="vVisitors">–</span><span class="s">on the public link</span></div>
+          </div>
+
+          <div class="cols">
+            <div class="card sampled" aria-labelledby="convTitle">
+              <h3><span id="convTitle">Conversation</span><span class="tag sample">Sample data</span></h3>
+              <div class="turns" id="sampleTurns"></div>
+              <p class="fine">Illustrative transcript. The owner sees each turn with its language and timing.</p>
+            </div>
+            <div class="stackcol">
+              <div class="card sampled" aria-labelledby="quoteTitle">
+                <h3><span id="quoteTitle">Quotation</span><span class="tag sample">Sample data</span></h3>
+                <div class="qhead"><span>Q-SAMPLE-0042 · Sample customer</span><span class="state">awaiting owner review</span></div>
+                <table class="quote" id="sampleQuote"><caption class="sr-only">Sample quotation with discount and GST</caption></table>
+                <p class="fine">Invented prices. Discount and GST are computed in integer paise by code; Kelly never sends a quote without the owner's approval.</p>
+              </div>
+              <div class="card sampled" aria-labelledby="feedTitle">
+                <h3><span id="feedTitle">Activity</span><span class="tag sample">Sample data</span></h3>
+                <div class="feed" id="sampleFeed"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 3. The three modes -->
+  <section class="block" id="modes" aria-labelledby="modesTitle">
+    <div class="wrap">
+      <div class="sechead">
+        <div><p class="eyebrow">Three ways in</p><h2 id="modesTitle">Talk, Counter, Chat</h2></div>
+        <p>Pick a mode and have a real conversation with Kelly. Your conversation stays in your browser session and is not saved.</p>
+      </div>
+      <div class="modes">
+        <article class="mode featured" id="modeTalk" aria-labelledby="mTalk">
+          <span class="tag live rec">Recommended</span>
+          <div class="hd"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/><line x1="12" y1="18" x2="12" y2="22"/></svg></span>
+            <div><h3 id="mTalk">Talk</h3><small>hands-free voice</small></div></div>
+          <p>A natural back-and-forth, like talking to a person at the counter. Kelly listens, notices when you pause, and answers out loud.</p>
+          <p><b>When shops use it:</b> a tablet on the counter during busy hours, so customers can ask while staff keep their hands free.</p>
+          <h4>How to converse</h4>
+          <ol class="steps">
+            <li>Tap <b>Start</b> and allow the microphone.</li>
+            <li>Just speak naturally, in English, Hindi or Hinglish.</li>
+            <li>Pause, and Kelly replies out loud.</li>
+            <li>Interrupt her anytime by speaking again.</li>
+            <li>Say <q>show me designs</q> to open the design slideshow.</li>
+          </ol>
+          <h4>Try saying</h4>
+          <ul class="phrases" data-phrases="talk"></ul>
+          <p class="off">Voice is switched off right now, so try Chat instead.</p>
+          <a class="btn primary" href="/explore/talk" data-mode-link="talk">Try Talk mode</a>
+        </article>
+
+        <article class="mode" id="modeCounter" aria-labelledby="mCounter">
+          <div class="hd"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5" fill="currentColor"/></svg></span>
+            <div><h3 id="mCounter">Counter</h3><small>tap to talk</small></div></div>
+          <p>One turn at a time. Tap the button, say what you need, and Kelly answers with voice and text on screen.</p>
+          <p><b>When shops use it:</b> a noisy shop floor, or a customer who prefers to speak only when ready.</p>
+          <h4>How to converse</h4>
+          <ol class="steps">
+            <li>Tap the big button and allow the microphone.</li>
+            <li>Say one request; recording stops when you stop speaking.</li>
+            <li>Read and hear Kelly's answer.</li>
+            <li>Tap again for your next turn, or type if it is too loud.</li>
+          </ol>
+          <h4>Try saying</h4>
+          <ul class="phrases" data-phrases="counter"></ul>
+          <p class="off">Voice is switched off right now, so try Chat instead.</p>
+          <a class="btn" href="/explore/counter" data-mode-link="counter">Try Counter mode</a>
+        </article>
+
+        <article class="mode" id="modeChat" aria-labelledby="mChat">
+          <div class="hd"><span class="ico" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+            <div><h3 id="mChat">Chat</h3><small>type to Kelly</small></div></div>
+          <p>A text conversation with the same Kelly: catalogue search, designs and quotations, with no microphone needed.</p>
+          <p><b>When shops use it:</b> quiet browsing, a phone in a noisy place, or checking a quote line by line.</p>
+          <h4>How to converse</h4>
+          <ol class="steps">
+            <li>Type your question in any language you like.</li>
+            <li>Press Enter; Kelly's reply streams in.</li>
+            <li>Ask follow-ups; she remembers this session only.</li>
+          </ol>
+          <h4>Try typing</h4>
+          <ul class="phrases" data-phrases="chat"></ul>
+          <a class="btn" href="/explore/chat" data-mode-link="chat">Try Chat mode</a>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- 4. How it works -->
+  <section class="block" id="how" aria-labelledby="howTitle">
+    <div class="wrap">
+      <div class="sechead">
+        <div><p class="eyebrow">Under the hood</p><h2 id="howTitle">How it works</h2></div>
+        <p>Speech is recognised and spoken on the owner's own Mac, with no cloud speech service. The only thing Kelly trusts for prices is the owner's reviewed catalogue.</p>
+      </div>
+      <ol class="pipe" aria-label="Voice pipeline, from your microphone to the speaker">
+        <li><span class="pi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3z"/><path d="M19 11a7 7 0 0 1-14 0"/></svg></span><div><b>Microphone</b><span>you speak</span><span class="where">your browser</span></div></li>
+        <li><span class="pi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12h3l2-5 3 10 3-7 2 2h5"/></svg></span><div><b>Silero VAD</b><span>hears when you stop talking</span><span class="where">your browser</span></div></li>
+        <li><span class="pi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3"/><path d="M9 20h6"/><path d="M12 4v16"/></svg></span><div><b>whisper.cpp</b><span>speech to text, Hindi and English</span><span class="where">owner's Mac</span></div></li>
+        <li class="core"><span class="pi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16"/><path d="M17 4l-8 8 8 8"/></svg></span><div><b>Kelly</b><span>catalogue search and deterministic pricing, discounts and GST in code</span><span class="where">owner's Mac</span></div></li>
+        <li><span class="pi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h2"/><path d="M8 8v8"/><path d="M12 5v14"/><path d="M16 8v8"/><path d="M20 12h0"/></svg></span><div><b>Kokoro</b><span>text to natural speech</span><span class="where">owner's Mac</span></div></li>
+        <li><span class="pi" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg></span><div><b>Speaker</b><span>Kelly answers out loud</span><span class="where">your browser</span></div></li>
+      </ol>
+      <div class="facts" aria-label="Key facts">
+        <span>English · हिंदी · Hinglish · Roman Hindi</span>
+        <span>prices only from the reviewed catalogue</span>
+        <span>totals in integer paise</span>
+        <span>owner approves every outbound quote</span>
+        <span>shared through a secure tunnel</span>
+      </div>
+      <div class="privacy">
+        <div><b>Runs on one local Mac</b>Kelly and her speech engines run on the shop owner's own computer, reached through a secure tunnel. When the Mac sleeps, so does Kelly.</div>
+        <div><b>Your conversation is yours</b>What you say in these demo modes stays private to your browser session and is not stored.</div>
+        <div><b>No real customer data here</b>This page shows only live health signals and clearly badged samples. The owner's real dashboard stays private.</div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 5. Footer -->
+<footer>
+  <div class="wrap">
+    <span>Kelly · built as a portfolio project</span>
+    <a href="https://github.com/Luvishgulati03/kelly" rel="noopener" target="_blank">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.52-1.33-1.28-1.69-1.28-1.69-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>
+      Source on GitHub<span class="sr-only"> (opens in a new tab)</span>
+    </a>
+  </div>
+</footer>
+
+<!-- 6. Invitation pop-up -->
+<div class="invite" id="invite" hidden>
+  <div class="scrim" data-invite-dismiss></div>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="inviteTitle" aria-describedby="inviteText">
+    <button type="button" class="x" data-invite-dismiss aria-label="Close">×</button>
+    <div class="orb mini" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+    <h2 id="inviteTitle">Have a conversation with <span>Kelly</span>, hands-free</h2>
+    <p id="inviteText">Tap start, allow the microphone, and just talk. Ask for a product, a design or a quote in English or Hindi. Nothing you say is stored.</p>
+    <div class="row">
+      <a class="btn primary" href="/explore/talk" data-mode-link="talk" id="inviteStart">Start talking</a>
+      <button type="button" class="btn ghost" data-invite-dismiss id="inviteLater">Maybe later</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ------------------------------------------------------------ constants */
+  var POLL_MS = 5000;              // heartbeat cadence
+  var FETCH_TIMEOUT_MS = 4000;
+  var STALE_MS = 13000;            // no good beat for this long -> amber
+  var POPUP_DELAY_MS = 5000;       // invitation appears 5 s after load
+  var POPUP_KEY = 'kelly.explore.invite';
+  var reduceMotion = false;
+  try { reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { reduceMotion = false; }
+
+  function $(id) { return document.getElementById(id); }
+  function text(el, value) { if (el) el.textContent = value; }
+  function num(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
+
+  /* sessionStorage can throw (Safari private mode, blocked storage): never let it break the page. */
+  var memoryFlag = {};
+  function flagGet(key) { try { return window.sessionStorage.getItem(key); } catch (e) { return memoryFlag[key] || null; } }
+  function flagSet(key, value) { memoryFlag[key] = value; try { window.sessionStorage.setItem(key, value); } catch (e) { /* in-memory fallback only */ } }
+
+  /* ------------------------------------------------------------ config */
+  var config = { trade: 'electrical', samplePrompts: {} };
+
+  var FALLBACK_PROMPTS = {
+    electrical: {
+      talk: ['Show me some designs', 'Mujhe 10 LED bulb chahiye, 9 watt', 'Ek 32 amp MCB ka price kya hai?', 'इसमें discount मिलेगा?'],
+      counter: ['What fans do you have?', '20 metre wire, 1.5 mm, kitne ka?', 'Quotation bana do', 'GST ke saath total batao'],
+      chat: ['Compare two ceiling fans', '5 LED panel lights ka quote', 'Kya aapke paas modular switch hai?', 'मुझे extension board चाहिए']
+    },
+    boutique: {
+      talk: ['Show me some designs', 'Blouse stitching ka rate kya hai?', 'Lehenga ke designs dikhao', 'शादी के लिए कुछ नया दिखाइए'],
+      counter: ['Saree fall aur pico kitne ka?', 'Kurti stitching in two days?', 'Quotation bana do', 'Lining ke saath kitna hoga?'],
+      chat: ['What is the rate for a lined blouse?', 'Anarkali designs dikhao', 'Alteration kitne din mein hoga?', 'मुझे सूट सिलवाना है']
+    }
+  };
+
+  function tradeKey() { return String(config.trade || '').toLowerCase().indexOf('boutique') !== -1 ? 'boutique' : 'electrical'; }
+
+  function applyAccent(accent) {
+    var root = document.documentElement.style;
+    var hex = /^#[0-9a-f]{3,8}$/i;
+    if (typeof accent === 'string' && hex.test(accent)) {
+      root.setProperty('--copper', accent);
+      root.setProperty('--copper2', 'color-mix(in srgb, ' + accent + ' 68%, #ffffff)');
+      root.setProperty('--copperDim', 'color-mix(in srgb, ' + accent + ' 16%, transparent)');
+    } else if (accent && typeof accent === 'object') {
+      if (hex.test(accent.copper || '')) root.setProperty('--copper', accent.copper);
+      if (hex.test(accent.copper2 || '')) root.setProperty('--copper2', accent.copper2);
+      if (/^(#[0-9a-f]{3,8}|rgba?\([0-9.,\s]+\))$/i.test(accent.dim || '')) root.setProperty('--copperDim', accent.dim);
+    }
+  }
+
+  function renderPhrases() {
+    var fallback = FALLBACK_PROMPTS[tradeKey()];
+    var given = (config.samplePrompts && typeof config.samplePrompts === 'object') ? config.samplePrompts : {};
+    ['talk', 'counter', 'chat'].forEach(function (mode) {
+      var list = Array.isArray(given[mode]) ? given[mode].filter(function (s) { return typeof s === 'string' && s.trim(); }) : [];
+      if (!list.length) list = fallback[mode];
+      var ul = document.querySelector('[data-phrases="' + mode + '"]');
+      if (!ul) return;
+      ul.textContent = '';
+      list.slice(0, 5).forEach(function (phrase) {
+        var li = document.createElement('li');
+        li.textContent = '“' + phrase.trim().slice(0, 90) + '”';
+        if (/[ऀ-ॿ]/.test(phrase)) li.className = 'hi';
+        ul.appendChild(li);
+      });
+    });
+  }
+
+  function applyConfig(data) {
+    if (data && typeof data === 'object') config = Object.assign(config, data);
+    var shop = typeof config.shopName === 'string' ? config.shopName.trim() : '';
+    var trade = typeof config.trade === 'string' ? config.trade.trim() : '';
+    if (shop) {
+      text($('shopName'), shop);
+      text($('shopMark'), shop.charAt(0).toUpperCase());
+      text($('shellTitle'), shop.toLowerCase() + ' · switchboard · overview');
+      text($('shopLabel'), trade ? 'In this demo, Kelly runs · ' + trade + ' shop' : 'In this demo, Kelly runs');
+      document.title = 'Explore Kelly · ' + shop;
+    } else if (trade) {
+      text($('shopName'), 'a demo ' + trade + ' shop');
+    }
+    applyAccent(config.accent);
+    if (config.voice && config.voice.stt === false) {
+      $('modeTalk').classList.add('voice-off');
+      $('modeCounter').classList.add('voice-off');
+    }
+    renderPhrases();
+    renderSamples();
+  }
+
+  /* ------------------------------------------------------------ sample data (fictional) */
+  // Money is integer paise, like Kelly's own quotation engine. Every name and price here is invented.
+  function rupees(paise) {
+    var neg = paise < 0; paise = Math.abs(paise);
+    var r = Math.floor(paise / 100), p = String(paise % 100).padStart(2, '0');
+    var s = String(r), last3 = s.slice(-3), rest = s.slice(0, -3);
+    if (rest) last3 = ',' + last3;
+    rest = rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',');
+    return (neg ? '−' : '') + '₹' + rest + last3 + '.' + p;
+  }
+  function pct(paise, basisPoints) { return Math.round(paise * basisPoints / 10000); }
+
+  var SAMPLES = {
+    electrical: {
+      lines: [
+        { name: 'LED bulb 9W, cool day', unit: 9500, qty: 10 },
+        { name: 'MCB 32A single pole', unit: 24000, qty: 2 },
+        { name: 'Copper wire 1.5 mm, 90 m', unit: 139000, qty: 1 }
+      ],
+      discountBp: 500, gstBp: 1800,
+      ask: 'Bhaiya, 10 LED bulb chahiye, 9 watt wale.',
+      reply: 'Ji, 10 LED bulb 9W. Quotation bana rahi hoon.',
+      turns: [
+        ['c', 'Bhaiya, 10 LED bulb chahiye, 9 watt wale.', 'hi-Latn', '1.4s'],
+        ['k', 'Ji, 9 watt LED bulb, 10 piece. Cool day light chahiye ya warm?', 'hi-Latn', '1.9s'],
+        ['c', 'Cool day. Aur do 32 amp MCB, ek wire ka bundle bhi.', 'hi-Latn', '1.2s'],
+        ['k', '{total}, GST ke saath, 5% discount laga ke. Quotation owner ko review ke liye bhej diya.', 'hi-Latn', '2.3s']
+      ],
+      feed: [
+        ['', 'voice.heard', 'counter tablet · Hinglish', '2m'],
+        ['', 'catalogue.search', '"LED 9W" · 3 matches', '2m'],
+        ['', 'quote.built', 'Q-SAMPLE-0042 · 3 lines', '1m'],
+        ['warn', 'approval.pending', 'quote waiting for owner', '1m'],
+        ['idle', 'voice.spoken', 'Kokoro · 2.1 s audio', 'now']
+      ]
+    },
+    boutique: {
+      lines: [
+        { name: 'Blouse stitching, lined', unit: 85000, qty: 1 },
+        { name: 'Saree fall and pico', unit: 15000, qty: 2 },
+        { name: 'Kurti alteration', unit: 25000, qty: 1 }
+      ],
+      discountBp: 1000, gstBp: 500,
+      ask: 'Blouse stitching ka rate kya hai?',
+      reply: 'Lined blouse, simple neck. Quotation bana rahi hoon.',
+      turns: [
+        ['c', 'Blouse stitching ka rate kya hai? Lining ke saath.', 'hi-Latn', '1.3s'],
+        ['k', 'Lined blouse stitching ka rate card se price bata rahi hoon. Designs dekhna chahenge?', 'hi-Latn', '1.8s'],
+        ['c', 'Haan, aur do saree ka fall pico bhi, ek kurti alteration.', 'hi-Latn', '1.1s'],
+        ['k', '{total}, GST ke saath, 10% discount laga ke. Owner review ke baad confirm karenge.', 'hi-Latn', '2.2s']
+      ],
+      feed: [
+        ['', 'voice.heard', 'counter tablet · Hinglish', '3m'],
+        ['', 'designs.shown', 'slideshow · 6 designs', '3m'],
+        ['', 'quote.built', 'Q-SAMPLE-0042 · 3 lines', '2m'],
+        ['warn', 'approval.pending', 'quote waiting for owner', '2m'],
+        ['idle', 'voice.spoken', 'Kokoro · 2.4 s audio', 'now']
+      ]
+    }
+  };
+
+  function el(tag, cls, content) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (content != null) n.textContent = content;
+    return n;
+  }
+
+  function renderSamples() {
+    var s = SAMPLES[tradeKey()];
+    var subtotal = 0;
+    s.lines.forEach(function (l) { subtotal += l.unit * l.qty; });
+    var discount = pct(subtotal, s.discountBp);
+    var taxable = subtotal - discount;
+    var halfBp = s.gstBp / 2;
+    var cgst = pct(taxable, halfBp), sgst = pct(taxable, halfBp);
+    var total = taxable + cgst + sgst;
+
+    var table = $('sampleQuote');
+    var cap = table.querySelector('caption');
+    table.textContent = '';
+    if (cap) table.appendChild(cap);
+    var thead = el('thead'), hr = el('tr');
+    ['Item', 'Qty', 'Amount'].forEach(function (h) { var th = el('th', null, h); th.scope = 'col'; hr.appendChild(th); });
+    thead.appendChild(hr); table.appendChild(thead);
+    var tb = el('tbody');
+    function row(cls, label, qty, amount, note) {
+      var tr = el('tr', cls);
+      var td = el('td', null, label);
+      if (note) td.appendChild(el('small', null, note));
+      tr.appendChild(td); tr.appendChild(el('td', 'n', qty)); tr.appendChild(el('td', 'n', amount));
+      tb.appendChild(tr);
+    }
+    s.lines.forEach(function (l) { row('', l.name, String(l.qty), rupees(l.unit * l.qty), rupees(l.unit) + ' each'); });
+    row('sub', 'Subtotal', '', rupees(subtotal));
+    row('disc', 'Discount ' + (s.discountBp / 100) + '%', '', rupees(-discount));
+    row('sub', 'CGST ' + (halfBp / 100) + '%', '', rupees(cgst));
+    row('sub', 'SGST ' + (halfBp / 100) + '%', '', rupees(sgst));
+    row('total', 'Total', '', rupees(total));
+    table.appendChild(tb);
+
+    var turns = $('sampleTurns');
+    turns.textContent = '';
+    s.turns.forEach(function (t) {
+      var wrap = el('div', 'turn' + (t[0] === 'k' ? ' k' : ''));
+      wrap.appendChild(el('span', 'who', t[0] === 'k' ? 'Kelly' : 'Customer'));
+      var body = el('div');
+      body.appendChild(el('p', 'hi', t[1].replace('{total}', rupees(total))));
+      var meta = el('div', 'meta');
+      meta.appendChild(el('span', 'lang', t[2]));
+      meta.appendChild(el('span', 'ms', (t[0] === 'k' ? 'reply ' : 'heard ') + t[3]));
+      body.appendChild(meta);
+      wrap.appendChild(body);
+      turns.appendChild(wrap);
+    });
+
+    var feed = $('sampleFeed');
+    feed.textContent = '';
+    s.feed.forEach(function (f) {
+      var r = el('div', 'frow' + (f[0] ? ' ' + f[0] : ''));
+      r.appendChild(el('span', 'st'));
+      var mid = el('span');
+      mid.appendChild(el('span', 'kd', f[1]));
+      mid.appendChild(document.createTextNode(f[2]));
+      r.appendChild(mid);
+      r.appendChild(el('span', 'ti', f[3]));
+      feed.appendChild(r);
+    });
+
+    text($('bubbleAsk'), s.ask);
+    text($('bubbleReply'), s.reply);
+  }
+
+  /* ------------------------------------------------------------ fetch helper */
+  function getJson(url) {
+    var ctrl = typeof AbortController === 'function' ? new AbortController() : null;
+    var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, FETCH_TIMEOUT_MS) : null;
+    return fetch(url, { headers: { accept: 'application/json' }, cache: 'no-store', credentials: 'same-origin', signal: ctrl ? ctrl.signal : undefined })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .finally(function () { if (timer) clearTimeout(timer); });
+  }
+
+  /* ------------------------------------------------------------ heartbeat */
+  var hb = { state: 'connecting', lastOk: 0, beats: 0, spikeAt: -1, data: null };
+
+  function fmtUptime(sec) {
+    sec = num(sec); if (sec == null) return '–';
+    var d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
+    if (d) return d + 'd ' + h + 'h';
+    if (h) return h + 'h ' + m + 'm';
+    if (m) return m + 'm';
+    return Math.max(0, Math.floor(sec)) + 's';
+  }
+  function fmtClock(iso) {
+    var t = iso ? new Date(iso) : null;
+    if (!t || isNaN(t.getTime())) return 'server time –';
+    return 'server time ' + t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+
+  var PILL = {
+    connecting: ['Checking', 'Checking on Kelly…'],
+    online: ['Online', 'Kelly is online'],
+    stale: ['Slow', 'Kelly is slow to answer'],
+    offline: ['Asleep', 'Kelly is asleep: the owner’s Mac is off']
+  };
+
+  function setState(state) {
+    var changed = state !== hb.state;
+    hb.state = state;
+    ['topPill', 'heroPill'].forEach(function (id) {
+      var p = $(id); if (!p) return;
+      p.setAttribute('data-state', state);
+      var s = p.querySelector('[data-pill-short]'); if (s) s.textContent = PILL[state][0];
+      var l = p.querySelector('[data-pill-long]'); if (l) l.textContent = PILL[state][1];
+    });
+    $('beat').setAttribute('data-state', state);
+    document.body.classList.toggle('is-offline', state === 'offline');
+    text($('beatWord'), state === 'online' ? 'Online' : state === 'stale' ? 'Slow' : state === 'offline' ? 'Asleep' : '…');
+    text($('sig'), state === 'online' ? 'steady' : state === 'stale' ? 'weak' : state === 'offline' ? 'flat' : 'connecting');
+    if (changed && state !== 'connecting') text($('beatSr'), PILL[state][1]);
+  }
+
+  function renderVitals(d) {
+    var voice = d.voice || {}, brain = d.brain || {}, cat = d.catalogue || {};
+    text($('vUptime'), fmtUptime(d.uptimeSeconds));
+    text($('vClock'), fmtClock(d.serverTime));
+    var stt = voice.stt === true, tts = voice.tts === true;
+    var sp = $('vSpeech');
+    sp.textContent = stt && tts ? 'Ready' : stt || tts ? 'Partial' : 'Off';
+    sp.className = 'v ' + (stt && tts ? 'good' : stt || tts ? 'warn' : 'crit');
+    $('eStt').classList.toggle('on', stt);
+    $('eTts').classList.toggle('on', tts);
+    $('eStt').setAttribute('aria-label', 'whisper.cpp ' + (stt ? 'ready' : 'off'));
+    $('eTts').setAttribute('aria-label', 'Kokoro ' + (tts ? 'ready' : 'off'));
+    var br = $('vBrain');
+    br.textContent = brain.ready ? 'Ready' : 'Warming';
+    br.className = 'v ' + (brain.ready ? 'good' : 'warn');
+    var ms = num(brain.lastReplyMs);
+    var lat = $('vLatency');
+    lat.textContent = '';
+    if (ms == null) { lat.textContent = 'none yet'; }
+    else if (ms < 1000) { lat.textContent = Math.round(ms); lat.appendChild(el('small', null, 'ms')); }
+    else { lat.textContent = (ms / 1000).toFixed(1); lat.appendChild(el('small', null, 's')); }
+    var designs = num(cat.designs);
+    text($('vDesigns'), designs == null ? '–' : String(designs));
+    var visitors = num(d.visitorsNow);
+    text($('vVisitors'), visitors == null ? '–' : String(visitors));
+  }
+
+  function renderOfflineVitals() {
+    ['vUptime', 'vBrain', 'vLatency', 'vVisitors'].forEach(function (id) { var n = $(id); n.textContent = '–'; n.className = 'v'; });
+    var sp = $('vSpeech'); sp.textContent = 'Off'; sp.className = 'v';
+    $('eStt').classList.remove('on'); $('eTts').classList.remove('on');
+    text($('vClock'), 'server unreachable');
+  }
+
+  function updateNote() {
+    if (hb.state === 'offline') { text($('beatNote'), hb.lastOk ? 'last beat ' + ago(hb.lastOk) : 'no answer from Kelly'); return; }
+    if (!hb.lastOk) { text($('beatNote'), 'listening for Kelly'); return; }
+    text($('beatNote'), hb.beats + ' beat' + (hb.beats === 1 ? '' : 's') + ' · last ' + ago(hb.lastOk));
+  }
+  function ago(t) { var s = Math.max(0, Math.round((Date.now() - t) / 1000)); return s < 2 ? 'just now' : s + 's ago'; }
+
+  var inFlight = false;
+  function poll() {
+    if (inFlight) return;
+    inFlight = true;
+    getJson('/api/public/heartbeat').then(function (d) {
+      if (!d || d.online !== true) throw new Error('not online');
+      hb.lastOk = Date.now(); hb.beats += 1; hb.data = d;
+      hb.spikeAt = 0; // consumed by the trace
+      setState('online');
+      renderVitals(d);
+    }).catch(function () {
+      if (hb.lastOk && Date.now() - hb.lastOk < STALE_MS) setState('stale');
+      else { setState('offline'); renderOfflineVitals(); }
+    }).finally(function () {
+      inFlight = false; updateNote(); if (reduceMotion) drawStatic();
+    });
+  }
+
+  /* ---- the trace: a scrolling ECG, one spike per real heartbeat ---- */
+  var canvas = $('ecg'), ctx = canvas.getContext && canvas.getContext('2d');
+  var W = canvas.width, H = canvas.height, MID = H * 0.6;
+  var buf = new Float32Array(W), head = 0, phase = -1, lastFrame = 0;
+  for (var i = 0; i < W; i++) buf[i] = MID;
+  // PQRST-ish shape sampled over 46 px.
+  function spikeY(p) {
+    if (p < 6) return MID - Math.sin(p / 6 * Math.PI) * 6;
+    if (p < 10) return MID;
+    if (p < 13) return MID + (p - 10) * 4;
+    if (p < 18) return MID + 12 - (p - 13) * 16;
+    if (p < 23) return MID - 68 + (p - 18) * 18;
+    if (p < 28) return MID + 22 - (p - 23) * 4.4;
+    if (p < 32) return MID;
+    if (p < 44) return MID - Math.sin((p - 32) / 12 * Math.PI) * 10;
+    return MID;
+  }
+  function traceColor() {
+    return hb.state === 'online' ? '#3cc9b0' : hb.state === 'stale' ? '#f0b429' : hb.state === 'offline' ? '#f0616d' : '#847e75';
+  }
+  function sample() {
+    if (hb.spikeAt === 0) { phase = 0; hb.spikeAt = -1; }
+    if (phase >= 0) { var y = spikeY(phase); phase += 1; if (phase > 46) phase = -1; return y; }
+    if (hb.state === 'offline') return MID;
+    return MID + (Math.random() - .5) * (hb.state === 'online' ? 1.6 : 0.8);
+  }
+  function paint() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.strokeStyle = traceColor(); ctx.shadowColor = ctx.strokeStyle; ctx.shadowBlur = 6;
+    ctx.beginPath();
+    for (var k = 0; k < W; k++) { var j = (head + k) % W; if (k === 0) ctx.moveTo(k, buf[j]); else ctx.lineTo(k, buf[j]); }
+    ctx.stroke(); ctx.shadowBlur = 0;
+    if (!reduceMotion) { ctx.fillStyle = '#0f1011'; ctx.fillRect(W - 14, 0, 14, H); ctx.fillStyle = ctx.strokeStyle; ctx.beginPath(); ctx.arc(W - 16, buf[(head + W - 1) % W], 3, 0, Math.PI * 2); ctx.fill(); }
+  }
+  function frame(t) {
+    if (!document.hidden) {
+      var steps = lastFrame ? Math.min(8, Math.max(1, Math.round((t - lastFrame) / 16.7))) : 1;
+      for (var s = 0; s < steps; s++) { buf[head] = sample(); head = (head + 1) % W; }
+      paint();
+    }
+    lastFrame = t;
+    requestAnimationFrame(frame);
+  }
+  // Reduced motion: no scrolling. Redraw a still strip after each poll: one clean beat when
+  // online, a flat line when not.
+  function drawStatic() {
+    if (!ctx) return;
+    for (var k = 0; k < W; k++) buf[k] = MID;
+    if (hb.state === 'online' || hb.state === 'stale') {
+      var starts = [W * 0.2, W * 0.5, W * 0.8];
+      starts.forEach(function (s0) { for (var p = 0; p < 46; p++) buf[Math.floor(s0) + p] = spikeY(p); });
+    }
+    head = 0; paint();
+  }
+  if (ctx) { if (reduceMotion) drawStatic(); else requestAnimationFrame(frame); }
+
+  setInterval(function () {
+    if (!document.hidden) poll();
+    if (hb.state === 'online' && Date.now() - hb.lastOk > STALE_MS) setState('stale');
+    updateNote();
+  }, POLL_MS);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+
+  /* ------------------------------------------------------------ invitation pop-up */
+  var invite = $('invite'), sheet = invite.querySelector('.sheet'), lastFocus = null, popupTimer = null;
+
+  function markChosen() { flagSet(POPUP_KEY, 'chosen'); if (popupTimer) { clearTimeout(popupTimer); popupTimer = null; } }
+  Array.prototype.forEach.call(document.querySelectorAll('[data-mode-link]'), function (a) {
+    a.addEventListener('click', markChosen);
+  });
+
+  function focusables() {
+    return Array.prototype.filter.call(sheet.querySelectorAll('a[href], button:not([disabled])'), function (n) { return n.offsetParent !== null; });
+  }
+  function onKey(e) {
+    if (e.key === 'Escape') { e.preventDefault(); closeInvite(); return; }
+    if (e.key !== 'Tab') return;
+    var f = focusables(); if (!f.length) return;
+    var first = f[0], last = f[f.length - 1];
+    if (e.shiftKey && (document.activeElement === first || !sheet.contains(document.activeElement))) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && (document.activeElement === last || !sheet.contains(document.activeElement))) { e.preventDefault(); first.focus(); }
+  }
+  function openInvite() {
+    popupTimer = null;
+    if (flagGet(POPUP_KEY)) return;          // once per browser session
+    if (hb.state === 'offline') return;      // don't invite to talk to a sleeping Kelly
+    flagSet(POPUP_KEY, 'shown');
+    lastFocus = document.activeElement;
+    invite.hidden = false;
+    document.addEventListener('keydown', onKey, true);
+    // next frame so the CSS transition runs
+    requestAnimationFrame(function () { invite.classList.add('open'); $('inviteStart').focus({ preventScroll: true }); });
+  }
+  function closeInvite() {
+    if (invite.hidden) return;
+    invite.classList.remove('open');
+    document.removeEventListener('keydown', onKey, true);
+    var done = function () { invite.hidden = true; };
+    if (reduceMotion) done(); else setTimeout(done, 260);
+    if (lastFocus && typeof lastFocus.focus === 'function' && lastFocus !== document.body) lastFocus.focus({ preventScroll: true });
+  }
+  Array.prototype.forEach.call(invite.querySelectorAll('[data-invite-dismiss]'), function (n) {
+    n.addEventListener('click', closeInvite);
+  });
+  if (!flagGet(POPUP_KEY)) popupTimer = setTimeout(openInvite, POPUP_DELAY_MS);
+
+  // test hook, read-only state for the headless check
+  window.KellyExplore = { state: function () { return hb.state; }, POPUP_DELAY_MS: POPUP_DELAY_MS, POLL_MS: POLL_MS };
+
+  /* ------------------------------------------------------------ boot */
+  renderPhrases();
+  renderSamples();
+  getJson('/api/public/config').then(applyConfig).catch(function () { /* keep the generic copy */ });
+  poll();
+}());
+</script>
+</body>
+</html>
