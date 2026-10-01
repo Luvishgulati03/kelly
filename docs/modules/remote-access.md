@@ -196,6 +196,34 @@ example, reusing a tunnel already managed outside Kelly).
 If `cloudflared` exits, Kelly restarts it with a backoff (5 seconds, doubling to a
 60 second cap) and keeps counting the restarts in `kelly tunnel status`.
 
+### Readiness check and auto-recovery (Cloudflare)
+
+A running `cloudflared` is not the same as a working link: after the Mac sleeps,
+cloudflared can stay alive with zero connections to Cloudflare (visitors see error
+1033). So Kelly runs it as
+
+```text
+cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:<free port> run --url http://127.0.0.1:<dashboard port> <tunnel name>
+```
+
+with a loopback metrics port Kelly picks itself (never cloudflared's shared defaults
+20241-20245), and polls `GET http://127.0.0.1:<free port>/ready` every 10 seconds.
+
+- `remote.active` in `/api/health` (and so the portfolio "online" pill and
+  `kelly start --public`'s wait) is true only while `/ready` reports at least one
+  connection. A fresh cloudflared gets 45 seconds to make its first connection.
+- If the link is not ready (no connections, or the metrics endpoint not answering) for
+  30 seconds in a row, Kelly kills cloudflared and starts a new one.
+- If a poll fires more than 30 seconds later than scheduled, the Mac slept; Kelly
+  restarts cloudflared right away instead of trusting the stale process.
+- Every restart waits out the same backoff as an exit, which resets once the link is ready.
+- The owner-only `/api/remote` (the dashboard's remote pill) carries `readyConnections`
+  and `lastReadyAt`; `/api/health` still exposes only the boolean.
+- `public.log` gets a `tunnel` line with `event` `lost` and a `reason`
+  (`no-connections`, `metrics-unreachable`, `wake-from-sleep`, `exited`), then
+  `reconnected` with the downtime (`downMs`) and connection count. The activity log's
+  `remote.failed` carries the same reason and `remote.started` the downtime.
+
 ## Users
 
 Two roles: `admin` (full mission control) and `counter` (the shop tablet).
