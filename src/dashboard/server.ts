@@ -1037,8 +1037,28 @@ export function startDashboard(runtime: HenryRuntime, options: DashboardOptions 
   options.onPublicSurface?.(publicSurface);
   // Tunnel drops and reconnects land in the content-free public log too (the activity log already
   // records remote.started / remote.failed / remote.stopped from src/remote/tunnel.ts).
-  const onTunnelStatus = (event: { kind?: string; status?: { active?: boolean } }): void => {
-    publicLog.write({ type: "tunnel", active: event?.status?.active === true, kind: String(event?.kind ?? "") });
+  // Each line names the transition (connected / lost / reconnected with downMs / failed / stopped)
+  // and, for a cloudflare drop, its reason (no-connections, metrics-unreachable, wake-from-sleep,
+  // exited). Nothing here carries a URL or error text.
+  let tunnelWasActive = false;
+  let tunnelLostAt: number | undefined;
+  try { tunnelWasActive = runtime.tunnel.active === true; } catch { /* a stub tunnel */ }
+  const onTunnelStatus = (event: { kind?: string; status?: { active?: boolean; readyConnections?: number }; reason?: string }): void => {
+    const kind = String(event?.kind ?? "");
+    const active = event?.status?.active === true;
+    const connections = typeof event?.status?.readyConnections === "number" ? { connections: event.status.readyConnections } : {};
+    if (kind === "remote.started" && active) {
+      const downMs = tunnelLostAt !== undefined ? Date.now() - tunnelLostAt : undefined;
+      publicLog.write({ type: "tunnel", active, kind, event: downMs !== undefined ? "reconnected" : "connected", ...connections, ...(downMs !== undefined ? { downMs } : {}) });
+      tunnelLostAt = undefined;
+    } else if (kind === "remote.failed") {
+      if (tunnelWasActive) tunnelLostAt = Date.now();
+      publicLog.write({ type: "tunnel", active, kind, event: tunnelWasActive ? "lost" : "failed", ...(event?.reason ? { reason: event.reason } : {}) });
+    } else {
+      if (kind === "remote.stopped") tunnelLostAt = undefined;
+      publicLog.write({ type: "tunnel", active, kind, ...(kind === "remote.stopped" ? { event: "stopped" } : {}) });
+    }
+    tunnelWasActive = active;
   };
   try { (runtime.tunnel as unknown as { on?: (name: string, fn: typeof onTunnelStatus) => void }).on?.("status", onTunnelStatus); } catch { /* a stub tunnel has no events */ }
   const server = http.createServer(async (request, response) => {

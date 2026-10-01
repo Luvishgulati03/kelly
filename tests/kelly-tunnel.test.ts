@@ -321,11 +321,18 @@ function fakeChild(): FakeChild {
   return child;
 }
 
+/** What the fake /ready answers for these unit tests (tests/tunnel-readiness.test.ts drives a real fake binary). */
+const READY = { ready: true, readyConnections: 4 };
+
 function cloudflareDeps(activity: ActivityLog, spawned: FakeChild[]): TunnelDeps {
   return {
     which: async () => true,
     hasAdminAccount: () => true,
     sleep: instantSleep(),
+    freePort: async () => 45_678,
+    probe: async () => READY,
+    // Only the registration line triggers a poll here; the periodic poller is tested elsewhere.
+    readiness: { intervalMs: 3_600_000 },
     spawn: (() => {
       const child = fakeChild();
       spawned.push(child);
@@ -334,26 +341,30 @@ function cloudflareDeps(activity: ActivityLog, spawned: FakeChild[]): TunnelDeps
   };
 }
 
-test("cloudflare: becomes active once stdout carries the registration line", async () => {
+test("cloudflare: becomes active once /ready confirms the registration line", async () => {
   const { activity, events } = fakeActivityLog();
   const spawned: FakeChild[] = [];
   const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "shop" }), activity, cloudflareDeps(activity, spawned));
   await manager.start();
   assert.equal(spawned.length, 1);
   spawned[0].stdout.emit("data", Buffer.from("2026-09-21 INF Registered tunnel connection to https://abc123.trycloudflare.com\n"));
-  assert.equal(manager.active, true);
+  await waitFor(() => manager.active);
+  assert.equal(manager.status().readyConnections, 4);
+  assert.ok(manager.status().lastReadyAt);
   assert.equal(manager.status().url, "https://abc123.trycloudflare.com");
   assert.ok(events.some((e) => e.kind === "remote.started"));
   await manager.stop();
 });
 
-test("cloudflare: runs `cloudflared tunnel --no-autoupdate run --url http://127.0.0.1:<port> <name>` with no shell", async () => {
+test("cloudflare: runs `cloudflared tunnel --no-autoupdate --metrics 127.0.0.1:<free port> run --url http://127.0.0.1:<port> <name>` with no shell", async () => {
   const { activity } = fakeActivityLog();
   const spawnCalls: Array<{ cmd: string; args: string[]; options: unknown }> = [];
   const deps: TunnelDeps = {
     which: async () => true,
     hasAdminAccount: () => true,
     sleep: instantSleep(),
+    freePort: async () => 45_678,
+    probe: async () => READY,
     spawn: ((cmd: string, args: string[], options: unknown) => {
       spawnCalls.push({ cmd, args, options });
       return fakeChild();
@@ -363,7 +374,8 @@ test("cloudflare: runs `cloudflared tunnel --no-autoupdate run --url http://127.
   await manager.start();
   assert.equal(spawnCalls.length, 1);
   assert.equal(spawnCalls[0].cmd, "cloudflared");
-  assert.deepEqual(spawnCalls[0].args, ["tunnel", "--no-autoupdate", "run", "--url", "http://127.0.0.1:7338", "shop-demo"]);
+  assert.deepEqual(spawnCalls[0].args, ["tunnel", "--no-autoupdate", "--metrics", "127.0.0.1:45678", "run", "--url", "http://127.0.0.1:7338", "shop-demo"]);
+  assert.equal(manager.metricsAddress, "127.0.0.1:45678");
   assert.deepEqual(spawnCalls[0].options, { shell: false, stdio: ["ignore", "pipe", "pipe"] });
   await manager.stop();
 });
@@ -381,7 +393,7 @@ test("cloudflare: reports status.url as https://<KELLY_PUBLIC_HOST> once registe
   assert.equal(manager.status().active, false);
 
   spawned[0].stdout.emit("data", Buffer.from("2026-09-21 INF Registered tunnel connection to https://xyz.cfargotunnel.com\n"));
-  assert.equal(manager.active, true);
+  await waitFor(() => manager.active);
   const status = manager.status();
   assert.equal(status.url, "https://shop-demo.example.com");
   assert.equal(status.kind, "cloudflare");
@@ -450,7 +462,7 @@ test("cloudflare: restarts with backoff after the process exits", async () => {
 
   await waitFor(() => spawned.length >= 2);
   spawned[1].stdout.emit("data", Buffer.from("Registered tunnel connection\n"));
-  assert.equal(manager.active, true);
+  await waitFor(() => manager.active);
   assert.ok(manager.status().restarts >= 1);
   await manager.stop();
 });
@@ -461,7 +473,7 @@ test("cloudflare: stop sends SIGTERM and kills the process", async () => {
   const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "shop" }), activity, cloudflareDeps(activity, spawned));
   await manager.start();
   spawned[0].stdout.emit("data", Buffer.from("Registered tunnel connection\n"));
-  assert.equal(manager.active, true);
+  await waitFor(() => manager.active);
 
   await manager.stop();
   assert.equal(spawned[0].killCalls[0], "SIGTERM");
@@ -849,7 +861,7 @@ test("announce: connecting past the timeout resolves 'timeout' without ever seei
   // A transition that arrives after the timeout must not resolve an already-settled promise
   // or throw; the listener detached itself on timeout.
   spawned[0].stdout.emit("data", Buffer.from("Registered tunnel connection\n"));
-  assert.equal(manager.active, true);
+  await waitFor(() => manager.active);
   await manager.stop();
 });
 
@@ -859,7 +871,7 @@ test("announce: watchTunnelTransitions prints 'lost' then 'reconnected' exactly 
   const manager = new TunnelManager(baseConfig("cloudflare", { cloudflareTunnel: "shop-demo" }), activity, cloudflareDeps(activity, spawned));
   await manager.start();
   spawned[0].stdout.emit("data", Buffer.from("Registered tunnel connection\n"));
-  assert.equal(manager.active, true);
+  await waitFor(() => manager.active);
 
   const printed: TunnelAnnounceLine[] = [];
   const unsubscribe = watchTunnelTransitions(manager, true, (line) => printed.push(line));
@@ -873,7 +885,7 @@ test("announce: watchTunnelTransitions prints 'lost' then 'reconnected' exactly 
   // Reconnect: the scheduled restart's replacement process registers.
   await waitFor(() => spawned.length >= 2);
   spawned[1].stdout.emit("data", Buffer.from("Registered tunnel connection to https://xyz.cfargotunnel.com\n"));
-  assert.equal(manager.active, true);
+  await waitFor(() => manager.active);
   assert.equal(printed.length, 2);
   assert.match(printed[1].text, /^Remote access reconnected: https:\/\//);
 

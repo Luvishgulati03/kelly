@@ -52,7 +52,7 @@ function setEnv(key: string, value: string | undefined): void {
   if (value === undefined) delete process.env[key]; else process.env[key] = value;
 }
 
-export async function publicHarness(options: { trade?: "electrical" | "boutique"; mode?: Partial<PublicModeConfig>; env?: Record<string, string | undefined>; catalogue?: boolean } = {}): Promise<PublicHarness> {
+export async function publicHarness(options: { trade?: "electrical" | "boutique"; mode?: Partial<PublicModeConfig>; env?: Record<string, string | undefined>; catalogue?: boolean; tunnel?: unknown } = {}): Promise<PublicHarness> {
   setActiveProfile("kelly");
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-public-e2e-"));
   fs.cpSync(path.join(process.cwd(), "workflows"), path.join(root, "workflows"), { recursive: true });
@@ -100,6 +100,9 @@ export async function publicHarness(options: { trade?: "electrical" | "boutique"
   };
   const mode: PublicModeConfig = { ...publicModeConfig("kelly", {}), ...options.mode };
   let sweep: () => number = () => 0;
+  // A test tunnel (e.g. a TunnelManager over a fake cloudflared) replaces the runtime's before the
+  // dashboard subscribes to its transitions.
+  if (options.tunnel) Object.defineProperty(runtime, "tunnel", { value: options.tunnel, configurable: true });
   const server = startDashboard(runtime, {
     publicSurface: { runner, mode, voice, sweepIntervalMs: 0 },
     onPublicSurface: (surface) => { sweep = () => surface.sweepIdle(); },

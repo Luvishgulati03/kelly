@@ -13,7 +13,17 @@ import path from "node:path";
 export type PublicLogEntry =
   | { type: "request"; method: string; path: string; status: number; ms: number; visitor?: string; cfRay?: string; tunnelled: boolean }
   | { type: "turn"; mode: string; outcome: "answered" | "fastpath" | "blocked" | "failed" | "busy" | "violation"; ms: number; queueMs?: number; modelMs?: number; firstSentenceMs?: number; provider?: string; chars?: number; reason?: string; visitor?: string; cfRay?: string }
-  | { type: "tunnel"; active: boolean; kind: string };
+  | {
+    type: "tunnel"; active: boolean; kind: string;
+    /** connected | lost | reconnected | failed | stopped. */
+    event?: string;
+    /** On lost/failed: no-connections | metrics-unreachable | wake-from-sleep | exited (cloudflare). */
+    reason?: string;
+    /** On reconnected: how long the link was down. */
+    downMs?: number;
+    /** Cloudflare: connections /ready reported. */
+    connections?: number;
+  };
 
 const CF_RAY = /^[0-9a-f]{8,20}(?:-[A-Z]{3})?$/i;
 

@@ -103,7 +103,10 @@ Written, and content-free:
   duration, a one-way visitor hash, the Cloudflare ray id, and turn timings and outcomes. It
   never holds message text, audio, replies, or IP addresses.
 - Activity events for failed or blocked public turns, with reasons only.
-- The tunnel's own connect and disconnect events.
+- The tunnel's own connect and disconnect events: `lost` with a reason (`no-connections`,
+  `metrics-unreachable`, `wake-from-sleep`, `exited`) and `reconnected` with the downtime.
+  The link counts as up only while cloudflared's own readiness endpoint reports
+  connections (`docs/modules/remote-access.md`).
 
 ## Limits
 

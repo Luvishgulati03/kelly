@@ -1,3 +1,4 @@
+import net from "node:net";
 import path from "node:path";
 import { EventEmitter } from "node:events";
 import type { ChildProcess, spawn as spawnType } from "node:child_process";
@@ -10,6 +11,15 @@ import type { ActivityKind } from "../types.ts";
  * and supervises an external tunnel (Tailscale Serve, or Cloudflare Tunnel as a fallback)
  * that terminates on the tablet side and forwards into the loopback dashboard. Process
  * spawning is fully injected (TunnelDeps) so tests never run a real binary.
+ *
+ * CLOUDFLARE: READINESS, NOT LIVENESS. A live cloudflared process is not a live link: after the
+ * Mac sleeps, cloudflared can stay running with zero connections to Cloudflare (visitors get error
+ * 1033). So cloudflared is started with `--metrics 127.0.0.1:<free port>` and its `GET /ready`
+ * endpoint is polled (every 10 s by default). status().active is true only while /ready reports
+ * readyConnections > 0. If the link stays not-ready for 30 s (no connections, or the metrics
+ * endpoint unreachable), or a poll fires far later than scheduled (the Mac slept and woke),
+ * cloudflared is killed and restarted through the same exponential backoff as an unexpected exit.
+ * The readiness probe, port picker, and clock/timers are injectable (TunnelDeps) for tests.
  */
 
 export type TunnelMode = "off" | "tailscale" | "cloudflare" | "funnel";
@@ -26,7 +36,44 @@ export interface TunnelStatus {
   kind?: "serve" | "funnel" | "cloudflare";
   /** true for funnel mode and cloudflare mode: the link is reachable by anyone, not just tailnet members. */
   public?: boolean;
+  /** Cloudflare: connections cloudflared's /ready reported on the last poll (undefined before the
+   *  first poll of the current process, or when its metrics endpoint did not answer). */
+  readyConnections?: number;
+  /** Cloudflare: when /ready last reported at least one connection. */
+  lastReadyAt?: string;
 }
+
+/** Why a cloudflare link went down: the `reason` on a remote.failed status event. */
+export type TunnelLossReason = "no-connections" | "metrics-unreachable" | "wake-from-sleep" | "exited";
+
+/** One /ready poll. `ready` means HTTP 200 with readyConnections > 0. */
+export interface ReadinessProbeResult {
+  ready: boolean;
+  readyConnections: number;
+  /** The metrics endpoint did not answer at all (refused, timed out, not HTTP). */
+  unreachable?: boolean;
+}
+
+export interface TunnelReadinessOptions {
+  /** How often /ready is polled. */
+  intervalMs: number;
+  /** Per-poll HTTP timeout. */
+  timeoutMs: number;
+  /** Not ready continuously this long (after this process was ready once) -> restart cloudflared. */
+  unhealthyMs: number;
+  /** Before a fresh cloudflared's first readiness, how long it may take to connect. */
+  startupGraceMs: number;
+  /** A poll firing this much later than scheduled means the Mac slept: restart cloudflared. */
+  wakeGapMs: number;
+}
+
+export const DEFAULT_READINESS: Readonly<TunnelReadinessOptions> = Object.freeze({
+  intervalMs: 10_000,
+  timeoutMs: 3_000,
+  unhealthyMs: 30_000,
+  startupGraceMs: 45_000,
+  wakeGapMs: 30_000,
+});
 
 export interface TunnelConfig {
   mode: TunnelMode;
@@ -62,6 +109,15 @@ export interface TunnelDeps {
    * every CLI call block forever with no error, and no output.
    */
   runTimeoutMs?: number;
+  /** Cloudflare: picks a free loopback port for cloudflared's --metrics listener. Default: pickLoopbackPort. */
+  freePort?: () => Promise<number>;
+  /** Cloudflare: polls cloudflared's readiness endpoint. Default: probeReady (fetch with a timeout). */
+  probe?: (url: string, timeoutMs: number) => Promise<ReadinessProbeResult>;
+  /** Timer seam for the readiness poller (with `now`, lets tests simulate a sleep/wake gap). */
+  setTimer?: (callback: () => void, ms: number) => unknown;
+  clearTimer?: (handle: unknown) => void;
+  /** Overrides for the readiness thresholds (tests use small values). */
+  readiness?: Partial<TunnelReadinessOptions>;
 }
 
 const TAILSCALE_HEALTH_INTERVAL_MS = 30_000;
@@ -94,6 +150,63 @@ function errMessage(error: unknown): string {
 function bounded(message: string): string {
   return message.length > MAX_MESSAGE_LEN ? `${message.slice(0, MAX_MESSAGE_LEN)}...` : message;
 }
+
+/** cloudflared's own default metrics ports. Never chosen here, so this never collides with another
+ *  cloudflared that auto-bound one of them. */
+const CLOUDFLARED_DEFAULT_METRICS_PORTS = new Set([20241, 20242, 20243, 20244, 20245]);
+
+/**
+ * A free 127.0.0.1 port: bind port 0, read what the OS gave, close, return it. Retries if it lands
+ * on a cloudflared default metrics port or the bind fails. The port can still be taken between the
+ * close and cloudflared's own bind; then /ready never answers, and the readiness check restarts
+ * cloudflared with a freshly picked port.
+ */
+export async function pickLoopbackPort(attempts = 5): Promise<number> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      const port = await new Promise<number>((resolve, reject) => {
+        const server = net.createServer();
+        server.unref();
+        server.once("error", reject);
+        server.listen(0, "127.0.0.1", () => {
+          const address = server.address();
+          const picked = address && typeof address === "object" ? address.port : 0;
+          server.close(() => resolve(picked));
+        });
+      });
+      if (port > 0 && !CLOUDFLARED_DEFAULT_METRICS_PORTS.has(port)) return port;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw new Error(`could not find a free loopback port for cloudflared metrics${lastError ? `: ${errMessage(lastError)}` : ""}`);
+}
+
+/** GET <metrics>/ready. Never throws: anything but a 200 with readyConnections > 0 is not ready. */
+export async function probeReady(url: string, timeoutMs: number): Promise<ReadinessProbeResult> {
+  let response: Response;
+  try {
+    response = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: "error" });
+  } catch {
+    return { ready: false, readyConnections: 0, unreachable: true };
+  }
+  let readyConnections = 0;
+  try {
+    const body = await response.json() as { readyConnections?: unknown } | null;
+    const count = Number(body?.readyConnections);
+    readyConnections = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+  } catch { /* a body that is not JSON counts as zero connections */ }
+  if (response.status !== 200) readyConnections = 0;
+  return { ready: readyConnections > 0, readyConnections };
+}
+
+const LOSS_TEXT: Record<TunnelLossReason, string> = {
+  "no-connections": "cloudflared is running but has no connections to Cloudflare",
+  "metrics-unreachable": "cloudflared's readiness endpoint is not answering",
+  "wake-from-sleep": "this Mac woke from sleep",
+  exited: "cloudflared exited",
+};
 
 /**
  * Maps common `tailscale serve`/`funnel` stderr/stdout text to a plain-English sentence with
@@ -148,6 +261,8 @@ function classifyCloudflareFailure(output: string, hostOrTunnel?: string): strin
 export interface TunnelStatusEvent {
   kind: ActivityKind;
   status: TunnelStatus;
+  /** Cloudflare, on remote.failed: why a running cloudflared was declared down or restarted. */
+  reason?: TunnelLossReason;
 }
 
 export class TunnelManager extends EventEmitter {
@@ -171,6 +286,22 @@ export class TunnelManager extends EventEmitter {
   /** Set by onCloudflareOutput when a known failure phrase appears; read by onCloudflareExit
    *  so the plain-English fix (not the generic "exited (code N)") is what the operator sees. */
   private cfClassifiedError?: string;
+  /** Bumped per spawned cloudflared; a poll result for an older process is ignored. */
+  private cfGeneration = 0;
+  private cfMetricsPort?: number;
+  /** Set while this manager is killing cloudflared to restart it (readiness or wake). */
+  private cfRecovering?: TunnelLossReason;
+  private pollTimer?: unknown;
+  private pollDueAt = 0;
+  private probing = false;
+  /** When the current process stopped being ready (its spawn time until the first readiness). */
+  private notReadySince?: number;
+  private readyOnce = false;
+  /** When a connected cloudflare link last dropped; turned into `downMs` on reconnect. */
+  private cfLostAt?: number;
+  private readonly setTimer: (callback: () => void, ms: number) => unknown;
+  private readonly clearTimer: (handle: unknown) => void;
+  private readonly readiness: TunnelReadinessOptions;
 
   constructor(
     private readonly config: TunnelConfig,
@@ -182,6 +313,14 @@ export class TunnelManager extends EventEmitter {
     this.sleep = deps.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
     this.now = deps.now ?? (() => Date.now());
     this.runTimeoutMs = deps.runTimeoutMs ?? TUNNEL_RUN_TIMEOUT_MS;
+    this.setTimer = deps.setTimer ?? ((callback, ms) => { const handle = setTimeout(callback, ms); handle.unref?.(); return handle; });
+    this.clearTimer = deps.clearTimer ?? ((handle) => clearTimeout(handle as NodeJS.Timeout));
+    this.readiness = { ...DEFAULT_READINESS, ...deps.readiness };
+  }
+
+  /** Cloudflare: the --metrics address of the running cloudflared (tests and diagnostics). */
+  get metricsAddress(): string | undefined {
+    return this.cfMetricsPort ? `127.0.0.1:${this.cfMetricsPort}` : undefined;
   }
 
   get active(): boolean {
@@ -200,6 +339,7 @@ export class TunnelManager extends EventEmitter {
       binary: this.status_.binary,
       kind: tailscaleFamily ? (this.config.mode === "funnel" ? "funnel" : "serve") : this.config.mode === "cloudflare" ? "cloudflare" : undefined,
       public: this.config.mode === "funnel" || this.config.mode === "cloudflare" ? true : undefined,
+      ...(this.config.mode === "cloudflare" ? { readyConnections: this.status_.readyConnections, lastReadyAt: this.status_.lastReadyAt } : {}),
     };
   }
 
@@ -354,10 +494,10 @@ export class TunnelManager extends EventEmitter {
     });
   }
 
-  private async record(kind: ActivityKind, message: string, metadata?: Record<string, unknown>): Promise<void> {
+  private async record(kind: ActivityKind, message: string, metadata?: Record<string, unknown>, reason?: TunnelLossReason): Promise<void> {
     // Emitted synchronously, before the (possibly slow/failing) activity write, so a listener
     // waiting on the very next transition (src/remote/announce.ts) never blocks on disk I/O.
-    this.emit("status", { kind, status: this.status() } satisfies TunnelStatusEvent);
+    this.emit("status", { kind, status: this.status(), ...(reason ? { reason } : {}) } satisfies TunnelStatusEvent);
     try {
       await this.activity.record(kind, bounded(message), metadata);
     } catch {
@@ -537,11 +677,11 @@ export class TunnelManager extends EventEmitter {
   private async startCloudflare(): Promise<TunnelStatus> {
     this.cfBackoff = BACKOFF_INITIAL_MS;
     this.status_.restarts = 0;
-    this.spawnCloudflared();
+    await this.spawnCloudflared();
     return this.status();
   }
 
-  private spawnCloudflared(): void {
+  private async spawnCloudflared(): Promise<void> {
     if (!this.deps.spawn) {
       this.status_.lastError = "no process spawner configured";
       void this.record("remote.failed", this.status_.lastError, { mode: "cloudflare", binary: this.status_.binary });
@@ -549,14 +689,30 @@ export class TunnelManager extends EventEmitter {
     }
     this.cfBuffer = "";
     this.cfClassifiedError = undefined;
+    this.cfRecovering = undefined;
+    let metricsPort: number;
+    try {
+      metricsPort = await (this.deps.freePort ?? pickLoopbackPort)();
+    } catch (error) {
+      if (this.stopped) return;
+      this.status_.lastError = `could not start cloudflared: ${errMessage(error)}`;
+      void this.record("remote.failed", this.status_.lastError, { mode: "cloudflare", binary: this.status_.binary });
+      this.scheduleCloudflareRestart();
+      return;
+    }
+    if (this.stopped) return;
     let child: ChildProcess;
     try {
-      // --no-autoupdate is a `tunnel` flag, not a `run` flag, so it sits before `run`.
+      // --no-autoupdate and --metrics are `tunnel` flags, not `run` flags, so they sit before
+      // `run`. --metrics binds cloudflared's readiness endpoint to a loopback port Kelly picked
+      // (never cloudflared's shared defaults), so the poller reads THIS cloudflared's /ready.
       // --url means cloudflared needs no ~/.cloudflared/config.yml ingress at all; the named
       // tunnel (created by `kelly tunnel setup`) already owns the DNS route to this hostname.
       child = this.deps.spawn(this.config.cloudflaredPath, [
         "tunnel",
         "--no-autoupdate",
+        "--metrics",
+        `127.0.0.1:${metricsPort}`,
         "run",
         "--url",
         `http://127.0.0.1:${this.config.port}`,
@@ -572,13 +728,26 @@ export class TunnelManager extends EventEmitter {
       return;
     }
     this.cfChild = child;
+    this.cfMetricsPort = metricsPort;
+    this.cfGeneration += 1;
+    this.readyOnce = false;
+    this.notReadySince = this.now();
+    this.status_.readyConnections = undefined;
     child.stdout?.on("data", (chunk: Buffer | string) => this.onCloudflareOutput(String(chunk)));
     child.stderr?.on("data", (chunk: Buffer | string) => this.onCloudflareOutput(String(chunk)));
+    // 'error' and 'close' can both fire for one child; only the first one counts.
+    let exited = false;
+    const exit = (code: number | null): void => {
+      if (exited) return;
+      exited = true;
+      this.onCloudflareExit(code);
+    };
     child.once("error", (error: Error) => {
       this.status_.lastError = `cloudflared error: ${errMessage(error)}`;
-      this.onCloudflareExit(null);
+      exit(null);
     });
-    child.once("close", (code: number | null) => this.onCloudflareExit(code));
+    child.once("close", (code: number | null) => exit(code));
+    this.schedulePoll(this.readiness.intervalMs);
   }
 
   private onCloudflareOutput(chunk: string): void {
@@ -587,36 +756,146 @@ export class TunnelManager extends EventEmitter {
       const known = classifyCloudflareFailure(this.cfBuffer, this.config.publicHost ?? this.config.cloudflareTunnel);
       if (known) this.cfClassifiedError = known;
     }
-    if (this._active || !this.cfBuffer.includes("Registered tunnel connection")) return;
-    this._active = true;
-    this.status_.since = new Date(this.now()).toISOString();
-    this.status_.lastError = undefined;
-    this.cfBackoff = BACKOFF_INITIAL_MS;
-    this.cfClassifiedError = undefined;
-    // Prefer the operator-declared public hostname (KELLY_PUBLIC_HOST) so the dashboard and the
-    // trusted-origin check agree on the exact domain, e.g. https://kelly.example.com,
-    // instead of whatever hostname happens to be in the log line (a *.trycloudflare.com quick
-    // tunnel has none of its own). Falls back to scraping the log line when publicHost is unset.
-    if (this.config.publicHost) {
-      this.status_.url = `https://${this.config.publicHost}`;
-    } else {
-      // Hostname only, never the surrounding line: a query string or adjacent token in the
-      // same log line must not leak into status/activity metadata.
-      const match = this.cfBuffer.match(/https:\/\/[A-Za-z0-9.-]+/);
-      this.status_.url = match ? match[0] : undefined;
+    // The log line is only a hint to check now: the link is active when /ready says so.
+    if (!this._active && chunk.includes("Registered tunnel connection")) void this.poll(this.cfGeneration);
+  }
+
+  // ---------------------------------------------------------------------
+  // cloudflare readiness
+  // ---------------------------------------------------------------------
+
+  private schedulePoll(delayMs: number): void {
+    this.stopPoller();
+    if (this.stopped || !this.cfChild) return;
+    const generation = this.cfGeneration;
+    this.pollDueAt = this.now() + delayMs;
+    this.pollTimer = this.setTimer(() => {
+      this.pollTimer = undefined;
+      void this.onPollTimer(generation);
+    }, delayMs);
+  }
+
+  private stopPoller(): void {
+    if (this.pollTimer !== undefined) this.clearTimer(this.pollTimer);
+    this.pollTimer = undefined;
+  }
+
+  private async onPollTimer(generation: number): Promise<void> {
+    if (this.stopped || generation !== this.cfGeneration || !this.cfChild) return;
+    // A timer that fires far later than it was due means the process was frozen: the Mac slept.
+    // Cloudflare has long since dropped this cloudflared's connections, so restart it rather than
+    // trust whatever it reports in the first seconds after wake.
+    const lateBy = this.now() - this.pollDueAt;
+    if (lateBy > this.readiness.wakeGapMs) {
+      this.recoverCloudflare("wake-from-sleep");
+      return;
     }
-    void this.record(
-      "remote.started",
-      this.status_.url ? "Cloudflare tunnel connected" : "Cloudflare tunnel connected (hostname comes from the Cloudflare config)",
-      { mode: "cloudflare", binary: this.status_.binary },
-    );
+    await this.poll(generation);
+    if (generation === this.cfGeneration && !this.cfRecovering) this.schedulePoll(this.readiness.intervalMs);
+  }
+
+  private async poll(generation: number): Promise<void> {
+    if (this.probing || !this.cfMetricsPort) return;
+    this.probing = true;
+    let result: ReadinessProbeResult;
+    try {
+      result = await (this.deps.probe ?? probeReady)(`http://127.0.0.1:${this.cfMetricsPort}/ready`, this.readiness.timeoutMs);
+    } catch {
+      result = { ready: false, readyConnections: 0, unreachable: true };
+    } finally {
+      this.probing = false;
+    }
+    if (this.stopped || generation !== this.cfGeneration || !this.cfChild || this.cfRecovering) return;
+    this.onReadiness(result);
+  }
+
+  private onReadiness(result: ReadinessProbeResult): void {
+    const at = this.now();
+    if (result.ready) {
+      this.status_.readyConnections = result.readyConnections;
+      this.status_.lastReadyAt = new Date(at).toISOString();
+      this.notReadySince = undefined;
+      this.readyOnce = true;
+      if (this._active) return;
+      this._active = true;
+      const downMs = this.cfLostAt !== undefined ? Math.max(0, at - this.cfLostAt) : undefined;
+      this.cfLostAt = undefined;
+      this.status_.since = new Date(at).toISOString();
+      this.status_.lastError = undefined;
+      this.cfBackoff = BACKOFF_INITIAL_MS;
+      this.cfClassifiedError = undefined;
+      // Prefer the operator-declared public hostname (KELLY_PUBLIC_HOST) so the dashboard and the
+      // trusted-origin check agree on the exact domain, e.g. https://kelly.example.com,
+      // instead of whatever hostname happens to be in the log line (a *.trycloudflare.com quick
+      // tunnel has none of its own). Falls back to scraping the log line when publicHost is unset.
+      if (this.config.publicHost) {
+        this.status_.url = `https://${this.config.publicHost}`;
+      } else {
+        // Hostname only, never the surrounding line: a query string or adjacent token in the
+        // same log line must not leak into status/activity metadata.
+        const match = this.cfBuffer.match(/https:\/\/[A-Za-z0-9.-]+/);
+        this.status_.url = match ? match[0] : undefined;
+      }
+      void this.record(
+        "remote.started",
+        downMs !== undefined
+          ? "Cloudflare tunnel reconnected"
+          : this.status_.url ? "Cloudflare tunnel connected" : "Cloudflare tunnel connected (hostname comes from the Cloudflare config)",
+        { mode: "cloudflare", binary: this.status_.binary, readyConnections: result.readyConnections, ...(downMs !== undefined ? { downMs, restarts: this.status_.restarts } : {}) },
+      );
+      return;
+    }
+    const reason: TunnelLossReason = result.unreachable ? "metrics-unreachable" : "no-connections";
+    this.status_.readyConnections = result.unreachable ? undefined : 0;
+    this.notReadySince ??= at;
+    if (this._active) {
+      this.cfLostAt = at;
+      this._active = false;
+      this.status_.lastError = `${LOSS_TEXT[reason]}; reconnecting`;
+      void this.record("remote.failed", `Cloudflare tunnel lost: ${LOSS_TEXT[reason]}`, {
+        mode: "cloudflare", binary: this.status_.binary, reason, restarts: this.status_.restarts,
+      }, reason);
+    }
+    const allowed = this.readyOnce ? this.readiness.unhealthyMs : Math.max(this.readiness.startupGraceMs, this.readiness.unhealthyMs);
+    if (at - this.notReadySince >= allowed) this.recoverCloudflare(reason);
+  }
+
+  /**
+   * Kills a running-but-useless cloudflared so onCloudflareExit restarts it through the usual
+   * backoff. The drop is recorded here (with its reason), not again on exit.
+   */
+  private recoverCloudflare(reason: TunnelLossReason): void {
+    const child = this.cfChild;
+    if (!child || this.cfRecovering || this.stopped) return;
+    this.cfRecovering = reason;
+    this.stopPoller();
+    if (this._active) this.cfLostAt = this.now();
+    this._active = false;
+    this.status_.lastError = `${LOSS_TEXT[reason]}; restarting cloudflared`;
+    void this.record("remote.failed", `Restarting cloudflared: ${LOSS_TEXT[reason]}`, {
+      mode: "cloudflare", binary: this.status_.binary, reason, restarts: this.status_.restarts,
+    }, reason);
+    child.kill("SIGTERM");
+    // The timer seam, not `sleep`: `sleep` is the restart backoff and stays exactly that.
+    this.setTimer(() => {
+      if (this.cfChild === child) child.kill("SIGKILL");
+    }, STOP_GRACE_MS);
   }
 
   private onCloudflareExit(code: number | null): void {
     this.cfChild = undefined;
+    this.cfMetricsPort = undefined;
+    this.stopPoller();
+    if (this._active && !this.cfStopping) this.cfLostAt = this.now();
     this._active = false;
+    this.status_.readyConnections = undefined;
     if (this.cfStopping) {
       this.cfStopping = false;
+      return;
+    }
+    if (this.cfRecovering) {
+      // Already recorded by recoverCloudflare(); just bring a fresh one up.
+      this.scheduleCloudflareRestart();
       return;
     }
     // A known failure phrase (missing cert, missing tunnel, network) explains itself better
@@ -624,8 +903,8 @@ export class TunnelManager extends EventEmitter {
     const classified = this.cfClassifiedError;
     this.status_.lastError = classified ?? `cloudflared exited (code ${String(code)}); reconnecting`;
     void this.record("remote.failed", classified ?? `cloudflared exited unexpectedly (code ${String(code)})`, {
-      mode: "cloudflare", binary: this.status_.binary, restarts: this.status_.restarts,
-    });
+      mode: "cloudflare", binary: this.status_.binary, restarts: this.status_.restarts, reason: "exited",
+    }, "exited");
     this.scheduleCloudflareRestart();
   }
 
@@ -636,15 +915,18 @@ export class TunnelManager extends EventEmitter {
     this.status_.restarts += 1;
     void this.sleep(wait).then(() => {
       if (this.stopped) return;
-      this.spawnCloudflared();
+      return this.spawnCloudflared();
     });
   }
 
   private async stopCloudflare(): Promise<void> {
+    this.stopPoller();
+    this.cfLostAt = undefined;
     this.cfStopping = true;
     this._active = false;
     const child = this.cfChild;
     if (!child) {
+      this.cfStopping = false;
       await this.record("remote.stopped", "Cloudflare tunnel stopped", { mode: "cloudflare", binary: this.status_.binary });
       return;
     }
