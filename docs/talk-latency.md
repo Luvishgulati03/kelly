@@ -55,7 +55,7 @@ ignored `data/.tmp-shots/` scratch directory and are safe to delete.
    `POST /api/chat/send {prompt:<transcribed text>, voice:true, transcriptId,
    conversationId}`, reading the SSE stream and timing elapsed-since-send at
    each of: first `token`, first `spoken`, `designs` (if any), and `done`
-   (plus `done.provider`, e.g. `fastpath`, `codex`, `local`).
+   (plus `done.provider`, e.g. `fastpath`, `claude`, `local`).
 4. **TTS of the reply** — if `done.spoken` (or an earlier `spoken` event) is
    present, `POST /api/voice/speak {text:spoken, language:"en", chunk:true}`,
    timing time-to-first-complete-frame (`tts 1st frame ms`, a 4-byte
@@ -76,7 +76,7 @@ ignored `data/.tmp-shots/` scratch directory and are safe to delete.
 | `1st spoken ms` | Elapsed time to the first SSE `spoken` event (only fires when the reply opens with a ` ```spoken ` fence — the gallery fast path never emits it, only `done.spoken`). |
 | `designs ms` | Elapsed time to the SSE `designs` event, when the turn returns gallery images. |
 | `done ms` | Elapsed time to the SSE `done` event (full reply committed). |
-| `provider` | `done.provider` — e.g. `fastpath` (local gallery-browse reflex, no model call), `local` (reflex/approval), or `codex` (a real model turn). |
+| `provider` | `done.provider` — e.g. `fastpath` (local gallery-browse reflex, no model call), `local` (reflex/approval), or the provider name such as `claude` (a real model turn). |
 | `tts 1st frame ms` | Time from the chunked `/api/voice/speak` request to the first complete WAV frame being readable. |
 | `tts total ms` | Total time for the chunked `/api/voice/speak` stream to finish. |
 | `greeting cold ms` / `greeting cached ms` | First vs. second `GET /api/voice/greeting` call in the same run. |
@@ -178,9 +178,10 @@ English prompts exactly.
 ## Tier A/B (2026-09-24)
 
 Following the fix above, `voice.counterTier` ("auto" | "t0" | "t1", default `"auto"`) lets an
-admin opt a voice/counter turn into Codex's cheap `t0` dispatch (`CODEX_T0_MODEL`, `gpt-5.5`)
-instead of whatever `routeIntentTier` would otherwise pick (`t1`, `gpt-5.6-sol`, low reasoning,
-for this prompt). `/api/chat/send` only reads the setting for `voice:true` turns; a non-voice
+admin opt a voice/counter turn into the provider's cheap `t0` tier (the fast model configured for
+the active provider, `KELLY_CLAUDE_T0_MODEL` on Claude) instead of whatever `routeIntentTier`
+would otherwise pick (the standard `t1` tier, low reasoning, for this prompt). The measurements
+below were taken on the earlier Codex runtime and are kept as history. `/api/chat/send` only reads the setting for `voice:true` turns; a non-voice
 turn is unaffected, and `"auto"` leaves today's routing untouched.
 
 Measured with `scripts/talk-bench.mjs --base http://127.0.0.1:7397 --runs 2 --prompts boutique`

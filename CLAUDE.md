@@ -1,5 +1,12 @@
 # Claude Code guide for Kelly
 
+@AGENTS.md
+
+The import above carries Kelly's runtime contract (quotation integrity, execution
+order, memory, knowledge base, excluded services, outbound guardrail). Claude Code
+is Kelly's primary runtime and loads this file from the repository root, so those
+rules apply to every Kelly turn as well as to development work.
+
 Kelly is a local-first voice counter assistant for small Indian shops. It runs
 on the shop's own Mac: a counter tablet opens Kelly's Talk page, a customer or
 staff member speaks, Kelly answers out loud, and prices come only from the
@@ -8,10 +15,9 @@ install: `electrical` (multi-brand product quotations) and `boutique` (stitching
 rate card, quotations, and a customer-facing design gallery).
 
 Speech stays on the Mac: whisper.cpp listens, Kokoro speaks. Kelly's reasoning
-runs through the owner's own Codex CLI subscription. Kelly is Codex-only: never
-configure Claude as Kelly's provider and never add a Claude fallback
-(`tests/kelly-codex-only.test.ts`). Claude Code may develop and set up this
-repository; it is not Kelly's runtime.
+runs through the owner's own Claude Code CLI (`claude`) subscription. Codex is an
+optional failover, off by default (`KELLY_FAILOVER=codex`). Sign in with `claude`,
+check with `claude auth status`, and verify the wiring with `kelly provider check`.
 
 ## Fresh clone: run the guided setup
 

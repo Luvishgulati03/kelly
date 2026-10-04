@@ -24,7 +24,7 @@ another one.
      Memory     Workflows  Orchestrator Approvals  Modules    Modules
     (Engram)   (scheduler)  (dispatch)  (store+gate) (gmail,   (jobs/career,
         |            |          |           |         pr-review) knowledge, ...)
-        └── ProviderRunner: subscription CLI (Codex / Claude), tier routing
+        └── ProviderRunner: subscription CLI (Claude primary, Codex optional failover), tier routing
         └── optional: Playwright browser, whisper.cpp, local embeddings
 ```
 
@@ -152,7 +152,7 @@ explicitly — there is no global default:
 | Tier | Use for | Cost profile |
 |---|---|---|
 | **T0 — nano/low-effort** | Triage, classification, extraction, formatting, summaries | Cheapest tier available |
-| **T1 — standard** | Routine implementation, research, test authoring, doc updates | Subscription CLI; Codex coordinator uses low reasoning |
+| **T1 — standard** | Routine implementation, research, test authoring, doc updates | Subscription CLI; the coordinator uses low reasoning |
 | **T2 — frontier/high-effort** | Architecture, hard debugging, review verdicts, final tailored writing | Scarce — budget it, don't default to it |
 
 The rules, compressed to their essence:
@@ -183,8 +183,8 @@ otherwise substantial research request does not occupy Henry's foreground
 brain. A deterministic gate sends it to Luna's read-only `research`
 specialist, immediately replies `Started — I'll report back.`, and delivers
 the sourced result when the worker finishes. The registry exposes both the
-running and settled states to the dashboard. This path pins Codex tier T1:
-the configured `gpt-5.6-sol` coordinator with low reasoning effort. Ordinary
+running and settled states to the dashboard. This path pins tier T1:
+the configured standard-tier coordinator model with low reasoning effort. Ordinary
 lookups stay inline, and attachment/vision turns keep their existing provider
 path.
 

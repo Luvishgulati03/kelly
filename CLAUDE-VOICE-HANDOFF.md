@@ -10,8 +10,8 @@ businesses. The first workflow is electrical-appliance quotation support, but
 the framework must stay usable for customer support, catalogue lookup, and
 other repeatable business workflows.
 
-Kelly's production brain is Codex only. Claude is helping develop and review
-the code; do not add a Claude runtime provider or fallback.
+Kelly's production brain is the Claude Code CLI, with Codex as an optional
+failover that is off by default. Keep provider changes out of voice work.
 
 The voice path is local-first:
 
@@ -138,7 +138,7 @@ do not hide errors behind normalization.
 - Read `AGENTS.md`, `soul.md` if present, and the touched modules before coding.
 - Do not run fresh-clone setup or create private identity files. This is an
   already approved framework feature, not a new user installation.
-- Preserve the Codex-only runtime.
+- Preserve the Claude-primary runtime (Codex failover stays opt-in and off by default).
 - Keep side effects behind injected interfaces and mock all Telegram API calls
   in tests. Do not contact a live bot or send any real message.
 - Do not install dependencies, download models, delete files, or modify
@@ -177,7 +177,7 @@ and every existing file you need to touch.
 Implement only the "Claude's assigned work" section: Telegram owner voice-note
 ingestion plus the Hindi/Hinglish evaluation harness. Respect every ownership,
 safety, runtime, testing, and git boundary in the handoff. Kelly's production
-runtime remains Codex only; your role is code development and review.
+runtime is Claude-primary; your role is code development and review.
 
 Before editing, inspect git status and summarize your intended file-level plan.
 Then implement autonomously. Use injected dependencies and mock Telegram in

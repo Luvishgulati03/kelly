@@ -1,8 +1,8 @@
 # Connector architecture
 
-Henry's Codex brain inherits enabled MCP servers and connectors from the normal Codex host configuration. The CLI, IDE extension, and ChatGPT desktop app share MCP configuration on the same host. Adding and authenticating a connector therefore makes its tools available to Henry's main Codex runs without copying credentials into Henry or building a sub-agent.
+Henry's and Kelly's brain (the Claude Code CLI as primary, Codex as an optional failover) inherits enabled MCP servers and connectors from the provider CLI's own host configuration. Adding and authenticating a connector therefore makes its tools available to main provider runs without copying credentials into the app or building a sub-agent.
 
-In Kelly, the same rule covers the project-local `kelly_excel` MCP server registered in `.codex/config.toml`: Kelly's Codex runs call its bounded workbook tools (inspect, read a range, search, save edits to a new copy) directly, and the source workbook is never overwritten.
+In Kelly, the same rule covers the `kelly_excel` MCP server: Kelly generates a `--mcp-config` file and passes it to each `claude` run, so its bounded workbook tools (inspect, read a range, search, save edits to a new copy) are called directly, and the source workbook is never overwritten. `kelly provider check` verifies the wiring. If the optional Codex failover is enabled, the same server is registered in the project-local `.codex/config.toml`.
 
 ## Routing rule
 
@@ -17,7 +17,7 @@ In Kelly, the same rule covers the project-local `kelly_excel` MCP server regist
 - Name the required connector in the prompt and forbid accidental shell/browser fallbacks.
 - Use read-only provider mode for retrieval and classification.
 - Require a JSON schema for machine-consumed output. Never depend on prose delimiters.
-- Parse only Codex's final agent message; tool commentary is not workflow output.
+- Parse only the provider's final agent message; tool commentary is not workflow output.
 - Validate and persist in application code. Fail closed before advancing cursors.
 - Use honest placeholders for absent source metadata when the event itself remains valid.
 - Keep a bounded provider envelope as a hung-process safety rail. It is not a polling schedule.
@@ -26,9 +26,9 @@ In Kelly, the same rule covers the project-local `kelly_excel` MCP server regist
 
 ## Adding a connector
 
-1. Add or enable it through Codex (`codex mcp add`, a plugin, or the Codex settings UI).
-2. Authenticate it when required and confirm it appears in `codex mcp list` or `/mcp`.
-3. Restart long-lived Henry processes so their next Codex child receives the updated host configuration.
+1. Add or enable it through the provider CLI (`claude mcp add`, or `codex mcp add` for the failover).
+2. Authenticate it when required and confirm it appears in `claude mcp list` or `/mcp`.
+3. Restart long-lived processes so their next provider child receives the updated host configuration.
 4. Ask Henry for a read-only smoke test.
 5. For recurring automation, add an explicit connector prompt, output schema, validation tests, and fail-closed cursor behavior.
 

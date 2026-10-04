@@ -3,7 +3,7 @@
 Kelly is a local-first voice counter assistant for small Indian shops, built on
 Henry's shared runtime as the `kelly` profile. A counter tablet opens Kelly's
 Talk page; speech is recognised and spoken on the shop's Mac (whisper.cpp and
-Kokoro); reasoning runs through the owner's Codex CLI. Two trade packs ship, one
+Kokoro); reasoning runs through the owner's Claude Code CLI (`claude`). Two trade packs ship, one
 per install: `electrical` (product quotations) and `boutique` (stitching rate
 card, quotations, design gallery). The checked-in examples are templates, not
 the current owner's identity. `README.md` is the product overview and `SETUP.md`
@@ -97,12 +97,29 @@ controls on an unauthenticated remote interface.
 
 ## Provider policy
 
-Kelly is Codex-only by design: the profile forces `provider: "codex"`, leaves the
-Claude models unset, and the runner never falls back to Claude
-(`tests/kelly-codex-only.test.ts`). Do not add an alternate-provider fallback to
-the Kelly profile. Connectors enabled in the Codex host, including the
-project-local `kelly_excel` MCP server in `.codex/config.toml`, are available to
-Kelly's Codex runs; see `docs/connector-architecture.md`.
+Kelly runs on the Claude Code CLI (`claude`) as its primary provider; `kelly status`
+shows `"provider": "claude"`. Codex is an optional failover, off by default; enable
+it only with `KELLY_FAILOVER=codex`. Sign in with `claude` (then `claude auth status`).
+
+Models are tiered, provider-neutrally: t0 is the fast/cheap tier, t1 the standard
+tier, t2 the deep-work tier. Configure them with `KELLY_CLAUDE_MODEL` (t1, default
+`sonnet`), `KELLY_CLAUDE_T0_MODEL` (`haiku`), `KELLY_CLAUDE_T2_MODEL` (`opus`), and
+effort with `KELLY_CLAUDE_EFFORT` / `KELLY_CLAUDE_T0_EFFORT` / `KELLY_CLAUDE_T2_EFFORT`
+(`low` / `low` / `high`). `KELLY_MAX_CONCURRENT_RUNS` (default 2) caps simultaneous
+model runs.
+
+Kelly's Excel tools reach Claude through a Kelly-generated `--mcp-config` that
+registers the `kelly_excel` server; `kelly provider check` verifies it. Other
+connectors come from the host CLI's own MCP configuration; see
+`docs/connector-architecture.md`.
+
+## Lead-orchestrator pattern for sub-agents
+
+The main agent plans, delegates, and reviews. Every sub-agent diff gets a six-pass
+review by the main agent before merge. Use Opus for complex builders, Sonnet for
+simpler builders, auditors, and information gathering, and Haiku for trivial
+lookups. Each builder works in its own git worktree, never the live checkout, and
+must not stop, restart, or otherwise interfere with a running Kelly process.
 
 ## Excluded services
 

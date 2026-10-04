@@ -54,8 +54,8 @@ A visitor's message never reaches Kelly's normal agent. For each turn:
    document ids, and row locations are left out. No quote is saved, no discount is applied, and
    no Excel file is created. A boutique browse ask ("show me bridal lehengas") is answered from
    the design gallery by code, and the shown counts are left unchanged.
-2. **The model runs with no tools** (`src/providers/public-sandbox.ts`). Kelly is Codex-only, so
-   this is `codex exec` with:
+2. **The model runs with no tools** (`src/providers/public-sandbox.ts`). The sandbox
+   launches the active provider CLI with its tools switched off. For Codex that is `codex exec` with:
    - `--ephemeral --sandbox read-only --ignore-user-config --ignore-rules`
    - `--disable` for the shell, apps, plugins, browser/computer use, hooks, memories, and similar
      features
@@ -64,8 +64,8 @@ A visitor's message never reaches Kelly's normal agent. For each turn:
    - a minimal environment with no `KELLY_*` keys and no tokens, plus `KELLY_PUBLIC_TURN=1`
 
    Any event that shows a tool call, or any Codex item that is not a plain message, throws the
-   answer away. The Claude flag set (`--tools ""`, `--safe-mode`, an empty strict MCP config,
-   `--setting-sources ""`, `dontAsk`) exists only for the shared Henry profile.
+   answer away. For Claude the flag set is `--tools ""`, `--safe-mode`, an empty strict MCP config,
+   `--setting-sources ""`, `dontAsk`.
 3. **`KELLY_PUBLIC_TURN=1` is a hard rail.** While it is set, every approval, claim, send, and
    quote export refuses, `kelly <anything>` refuses to run, and the provider runner refuses to
    start a nested run.
@@ -135,9 +135,9 @@ listening with a simple energy detector and switches to Silero between utterance
   shows one.
 - Published catalogue prices and design photos are visible to anyone with the link, as they
   would be at the counter.
-- A future Codex release could add a tool that the disabled-feature list does not cover. The
+- A future CLI release (Claude or Codex) could add a tool that the disabled-feature list does not cover. The
   fail-closed event check still throws the answer away, and the rail still blocks every owner
-  action. After a Codex upgrade, run `npm test`: `tests/public-sandbox.test.ts` checks every flag
+  action. After a CLI upgrade, run `npm test`: `tests/public-sandbox.test.ts` checks every flag
   and feature name against the installed CLI.
 - Turning `KELLY_REMOTE_LOGIN` on puts a password prompt on the internet. Use long, unique
   passwords.

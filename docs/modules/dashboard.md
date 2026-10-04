@@ -11,7 +11,7 @@ The hash is the route, so `/#voice`, `/#logs` and `/#usage` reload and share.
 - **Overview.** The heartbeat draws one spike per real activity event received over the
   live event stream; its number is the count of events in the last minute. A quiet
   stream turns the trace amber after 8 seconds and flat red after 20, so a dead
-  process looks dead. Below it: the Codex cooldown state, today's runs and tokens,
+  process looks dead. Below it: the provider cooldown state, today's runs and tokens,
   today's voice interactions, and a "needs you" list built from pending approvals,
   unconfirmed transcripts, failed runs and memory pressure.
 - **Voice transcripts.** Everything Kelly heard, from the counter page and from
@@ -24,7 +24,7 @@ The hash is the route, so `/#voice`, `/#logs` and `/#usage` reload and share.
 - **Logs.** The activity journal, newest first, with Kelly's own filters (runs, voice,
   catalogue, quotations, approvals, Telegram, errors), a severity stripe per row, and
   the metadata on click. New events arrive live.
-- **Usage and quota.** Codex is a subscription, so this is tokens and windows, not
+- **Usage and quota.** The provider CLI is a subscription, so this is tokens and windows, not
   rupees: a seven-day stacked chart of the input, cached and output tokens each turn
   reported, turn latency (p50, p95, first text), whisper real-time factor, the
   cooldown ledger, and local RAM. A table view sits under the chart.
@@ -107,7 +107,7 @@ listen again — no further tap until the customer presses to end it.
   the page plays one of the trade's `fillers` ("One moment, let me check.") from `GET
   /api/voice/filler?v=N` (cached exactly like the greeting and warmed at startup), and one
   more at 12 s. The gallery fast path answers in milliseconds and never hears one.
-- **Reply speech queue** — a Codex turn can send more than one spoken line (an acknowledgement,
+- **Reply speech queue** — a model turn can send more than one spoken line (an acknowledgement,
   then the answer). The page queues them per turn: lines play in order, a line waits for a
   filler that is already playing, nothing cuts anything off, and the mic stays muted until
   the turn has finished and the queue is empty (the orb shows Thinking between lines). A

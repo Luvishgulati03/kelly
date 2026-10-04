@@ -79,8 +79,8 @@ The Kokoro worker's URL should be loopback and `KELLY_KOKORO_TOKEN` must be a
 high-entropy local secret shared with that worker. Never print the token in
 status output or logs. A missing or unreachable worker should produce a clear
 error, not silently route speech or text to a cloud service. Kelly's primary
-brain remains Codex and must not acquire a Claude or other provider fallback as
-part of voice support.
+brain is the Claude Code CLI (Codex is an optional failover, off by default) and
+voice support must not add any other provider or fallback path.
 
 Example settings are in [`KELLY.env.example`](../KELLY.env.example). Download
 and place model files deliberately, then set `KELLY_KOKORO_MODEL_PATH` and

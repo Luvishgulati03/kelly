@@ -109,13 +109,13 @@ person reviews them.
 
 ## Quick start
 
-Setting Kelly up for a real shop? Open Claude Code or Codex inside a fresh clone
+Setting Kelly up for a real shop? Open Claude Code inside a fresh clone
 and say "set this up for my shop". The agent follows
 [SETUP-PROMPT.md](SETUP-PROMPT.md) and [SETUP.md](SETUP.md): it asks about the
 shop, installs the voice stack, imports the price list, creates the logins, and
 gets the counter tablet talking.
 
-By hand, on macOS with Apple Silicon, Node 22 or newer, and a Codex login:
+By hand, on macOS with Apple Silicon, Node 22 or newer, and a Claude Code login (`claude`):
 
 ```bash
 git clone https://github.com/Luvishgulati03/kelly.git ~/kelly && cd ~/kelly
@@ -124,7 +124,7 @@ cp KELLY.env.example .env && chmod 600 .env     # set KELLY_TRADE and KELLY_SHOP
 # second Kelly on this Mac? also set KELLY_DATA_DIR and KELLY_MEMORY_DIR first (SETUP.md step 4)
 cp soul.example.md soul.md
 cp personality.example.md personality.md
-codex login
+claude                    # sign in once; then `claude auth status`
 brew install whisper.cpp ffmpeg python@3.12
 # download the three speech models and create the Python venv: SETUP.md section 5
 node bin/kelly.mjs users add owner --role admin
@@ -192,7 +192,7 @@ speech baseline under evaluation is quantized multilingual Whisper for
 Hindi/English transcription and Kokoro-82M for English speech output; Hinglish shop-audio
 quality has not yet been benchmarked. See [Voice](docs/voice.md) for model,
 privacy, hardware, and setup notes.
-The desktop's built-in Codex voice feature is not verified as an embeddable
+No desktop assistant's built-in voice feature is verified as an embeddable
 Kelly interface; Kelly's documented voice path is its local CLI and dashboard.
 
 ## License

@@ -1,6 +1,6 @@
 # Guided setup prompt
 
-The owner opens a coding agent (Claude Code, Codex, or similar) inside a fresh
+The owner opens a coding agent (Claude Code, or similar) inside a fresh
 clone of this repository and says something like "set this up for my shop".
 The agent then runs this file: first a short conversation with the owner, then
 the ordered steps, each with a check. [SETUP.md](SETUP.md) holds the full
@@ -28,8 +28,9 @@ verify each one. Do not send anything, publish anything, or commit private data.
    there directly. Never echo `.env`.
 4. Never commit or push. `.env`, `soul.md`, `personality.md`, `data/`,
    `memory/`, and `knowledge/` stay local and ignored.
-5. Kelly is Codex-only. Never configure Claude or any other provider for Kelly.
-6. Browser logins (`codex login`, Cloudflare, Tailscale) and tablet steps
+5. Kelly runs on Claude Code (`claude`). Codex is an optional failover, off by
+   default (`KELLY_FAILOVER=codex`); never enable it unless the owner asks.
+6. Browser logins (`claude`, Cloudflare, Tailscale) and tablet steps
    belong to the owner. Give the exact command or tap, then wait.
 7. Run every `kelly` command from the repository root. Use `node bin/kelly.mjs`
    if `kelly` is not on PATH.
@@ -141,7 +142,7 @@ looks like. Skip a step only when the owner declined it in Part 1.
 | 1 | Location | Section 2: confirm the clone is not in an iCloud, Dropbox, or OneDrive folder | `pwd` | A path such as `~/kelly`, not under `~/Desktop` or `~/Documents` with iCloud on |
 | 2 | Tools | Section 1: `brew install node git whisper.cpp ffmpeg python@3.12` (+ `poppler` for PDFs); Python 3.12 may instead be the python.org build | `node -v; which whisper-cli; command -v python3.12; "$(command -v python3.12)" --version` | Node 22+, `/opt/homebrew/bin/whisper-cli`, a python3.12 path (Homebrew or `/Library/Frameworks/Python.framework/...`), Python 3.12.x |
 | 3 | Install | Section 2: `npm install` (optional `npm link`) | `node bin/kelly.mjs start --help` | The `kelly start` usage text prints |
-| 4 | Codex | Section 3: OWNER runs `codex login` if needed | `codex login status` | `Logged in using ChatGPT` |
+| 4 | Claude Code | Section 3: OWNER runs `claude` if needed | `claude auth status`, then `kelly provider check` | Logged in; provider check passes |
 | 5 | Config and persona | Section 4: copy `.env`, `soul.md`, `personality.md`; set `KELLY_TRADE`, `KELLY_SHOP_NAME` (and unique `KELLY_DATA_DIR` / `KELLY_MEMORY_DIR` if another Kelly already runs on this Mac); fill both persona files from Part 1 | `kelly status` | `"name": "Kelly"`, `"provider": "codex"`, the chosen trade and shop name, dashboard on 7338 |
 | 6 | Voice stack | Section 5: download three models, create the venv, add voice settings and token to `.env` | `shasum -a 256 data/voice/models/*`, `kelly voice status`, then the `say` + `kelly voice transcribe` round trip | Checksums match the table; `"transcription": "configured"`; the test sentence comes back as text |
 | 7 | Price list | Section 6: `kelly catalogue template` if needed; OWNER fills it; `import`, `review`, `publish` | `kelly catalogue search "<an item the owner named>"`, then `kelly quote create --lines "<code> x2"` (add `--brand` for electrical) | The item is found; the quote has `"complete": true` and correct GST |
