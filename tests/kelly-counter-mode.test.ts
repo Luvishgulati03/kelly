@@ -231,16 +231,16 @@ function parseSse(stream: string): Array<{ event: string; data: unknown }> {
   return events;
 }
 
-type FakeOnEvent = (event: { parsed?: { text?: string } }) => void;
+type FakeOnEvent = (event: { stream?: string; parsed?: { text?: string } }) => void;
 
 test("chat/send emits an early spoken SSE event once the leading ```spoken fence closes, stripped from token/done text", async () => {
   await withVoiceDashboard(async (base, runtime) => {
     const auth = { authorization: "Bearer counter-voice-test-token" };
     (runtime.agent as unknown as { run: unknown }).run = async (_prompt: string, options?: { onEvent?: FakeOnEvent }) => {
       const onEvent = options?.onEvent;
-      onEvent?.({ parsed: { text: "```spoken\n" } });
-      onEvent?.({ parsed: { text: "Got two suits. Total 100 rupees.\n" } });
-      onEvent?.({ parsed: { text: "```\n\nTwo suits with lining, grand total 100 rupees.\n" } });
+      onEvent?.({ stream: "stdout", parsed: { text: "```spoken\n" } });
+      onEvent?.({ stream: "stdout", parsed: { text: "Got two suits. Total 100 rupees.\n" } });
+      onEvent?.({ stream: "stdout", parsed: { text: "```\n\nTwo suits with lining, grand total 100 rupees.\n" } });
       return {
         runId: "early-spoken", provider: "codex", exitCode: 0, durationMs: 1, events: [],
         response: "```spoken\nGot two suits. Total 100 rupees.\n```\n\nTwo suits with lining, grand total 100 rupees.",
@@ -283,18 +283,19 @@ test("chat/send forwards only Codex item.completed agent_message text, ignoring 
     const auth = { authorization: "Bearer counter-voice-test-token" };
     (runtime.agent as unknown as { run: unknown }).run = async (
       _prompt: string,
-      options?: { onEvent?: (event: { parsed?: Record<string, unknown> }) => void },
+      options?: { onEvent?: (event: { stream?: string; parsed?: Record<string, unknown> }) => void },
     ) => {
       const onEvent = options?.onEvent;
       // Reasoning: never a token.
-      onEvent?.({ parsed: { type: "item.completed", item: { type: "reasoning", text: "Thinking about the rate card." } } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.completed", item: { type: "reasoning", text: "Thinking about the rate card." } } });
       // First agent_message: commentary, no fence, forwarded as-is.
-      onEvent?.({ parsed: { type: "item.started", item: { type: "agent_message", text: "" } } });
-      onEvent?.({ parsed: { type: "item.completed", item: { type: "agent_message", text: "Checking the rate card." } } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.started", item: { type: "agent_message", text: "" } } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.completed", item: { type: "agent_message", text: "Checking the rate card." } } });
       // Command execution: never a token, even though it carries a `text` field.
-      onEvent?.({ parsed: { type: "item.completed", item: { type: "command_execution", command: "cat rates.json", text: "500 per unit" } } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.completed", item: { type: "command_execution", command: "cat rates.json", text: "500 per unit" } } });
       // Final agent_message: opens with the ```spoken fence after earlier commentary already streamed.
       onEvent?.({
+        stream: "stdout",
         parsed: {
           type: "item.completed",
           item: { type: "agent_message", text: "```spoken\nRate card checked.\n```\nThe rate is 500 rupees per unit." },
@@ -352,7 +353,7 @@ test("chat/send falls back to plain token streaming when a voice reply does not 
     const auth = { authorization: "Bearer counter-voice-test-token" };
     (runtime.agent as unknown as { run: unknown }).run = async (_prompt: string, options?: { onEvent?: FakeOnEvent }) => {
       const onEvent = options?.onEvent;
-      onEvent?.({ parsed: { text: "Sure, here is the answer.\n" } });
+      onEvent?.({ stream: "stdout", parsed: { text: "Sure, here is the answer.\n" } });
       return { runId: "no-fence", provider: "codex", exitCode: 0, durationMs: 1, events: [], response: "Sure, here is the answer." };
     };
 
@@ -520,7 +521,7 @@ test("Kokoro warm-up synthesises once at startup and records voice.tts.warm, not
  * by a lookup request or a real tool/command start, once per voice turn
  * ------------------------------------------------------------------ */
 
-type RawOnEvent = (event: { parsed?: Record<string, unknown> }) => void;
+type RawOnEvent = (event: { stream?: string; parsed?: Record<string, unknown> }) => void;
 
 test("chat/send emits `gathering` only for voice lookups or a tool start, once per turn, never with command text", async () => {
   await withVoiceDashboard(async (base, runtime) => {
@@ -543,13 +544,13 @@ test("chat/send emits `gathering` only for voice lookups or a tool start, once p
     };
 
     // Small talk: the model runs, but no gathering event (so the Talk page plays no filler).
-    script = (onEvent) => { onEvent?.({ parsed: { text: "```spoken\nThank you, goodbye.\n```\nGoodbye." } }); };
+    script = (onEvent) => { onEvent?.({ stream: "stdout", parsed: { text: "```spoken\nThank you, goodbye.\n```\nGoodbye." } }); };
     const bye = await send("thank you, bye", true);
     assert.equal(runs, 1, "the small-talk turn really reached the model");
     assert.ok(!bye.some((e) => e.event === "gathering"), "no gathering event for a goodbye");
 
     // A price request: gathering(request) arrives before the model's first token.
-    script = (onEvent) => { onEvent?.({ parsed: { text: "Two suits cost 1000 rupees.\n" } }); };
+    script = (onEvent) => { onEvent?.({ stream: "stdout", parsed: { text: "Two suits cost 1000 rupees.\n" } }); };
     const price = await send("how much for two suits", true);
     const priceKinds = price.map((e) => e.event);
     assert.equal(priceKinds.filter((k) => k === "gathering").length, 1, "exactly one gathering event");
@@ -560,11 +561,11 @@ test("chat/send emits `gathering` only for voice lookups or a tool start, once p
     // An unclassified prompt whose Codex run starts commands: gathering(tool) once, no command text anywhere.
     const secretCommand = "cat /srv/private/secret-rates.json --token=abc123";
     script = (onEvent) => {
-      onEvent?.({ parsed: { type: "item.completed", item: { type: "reasoning", text: "Thinking." } } });
-      onEvent?.({ parsed: { type: "item.started", item: { type: "command_execution", command: secretCommand, text: secretCommand } } });
-      onEvent?.({ parsed: { type: "item.completed", item: { type: "command_execution", command: secretCommand, aggregated_output: "500 per unit" } } });
-      onEvent?.({ parsed: { type: "item.started", item: { type: "mcp_tool_call", server: "excel", tool: "read", arguments: { path: secretCommand } } } });
-      onEvent?.({ parsed: { type: "item.completed", item: { type: "agent_message", text: "```spoken\nDone checking.\n```\nDone checking." } } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.completed", item: { type: "reasoning", text: "Thinking." } } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.started", item: { type: "command_execution", command: secretCommand, text: secretCommand } } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.completed", item: { type: "command_execution", command: secretCommand, aggregated_output: "500 per unit" } } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.started", item: { type: "mcp_tool_call", server: "excel", tool: "read", arguments: { path: secretCommand } } } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.completed", item: { type: "agent_message", text: "```spoken\nDone checking.\n```\nDone checking." } } });
     };
     const tool = await send("can you check something for me", true);
     const toolGathering = tool.filter((e) => e.event === "gathering");
@@ -577,8 +578,8 @@ test("chat/send emits `gathering` only for voice lookups or a tool start, once p
 
     // A Claude stream-json tool_use block counts as a tool start too.
     script = (onEvent) => {
-      onEvent?.({ parsed: { type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: secretCommand } }] } } });
-      onEvent?.({ parsed: { text: "```spoken\nDone.\n```\nDone." } });
+      onEvent?.({ stream: "stdout", parsed: { type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", input: { command: secretCommand } }] } } });
+      onEvent?.({ stream: "stdout", parsed: { text: "```spoken\nDone.\n```\nDone." } });
     };
     const claudeTool = await send("can you check one more thing", true);
     assert.deepEqual(claudeTool.filter((e) => e.event === "gathering").map((e) => e.data), [{ reason: "tool" }]);
@@ -586,8 +587,8 @@ test("chat/send emits `gathering` only for voice lookups or a tool start, once p
 
     // Non-voice turns never get a gathering event, even for a lookup that starts a command.
     script = (onEvent) => {
-      onEvent?.({ parsed: { type: "item.started", item: { type: "command_execution", command: secretCommand } } });
-      onEvent?.({ parsed: { text: "Two suits cost 1000 rupees.\n" } });
+      onEvent?.({ stream: "stdout", parsed: { type: "item.started", item: { type: "command_execution", command: secretCommand } } });
+      onEvent?.({ stream: "stdout", parsed: { text: "Two suits cost 1000 rupees.\n" } });
     };
     const typed = await send("how much for two suits", false);
     assert.ok(!typed.some((e) => e.event === "gathering"), "non-voice turns emit no gathering event");

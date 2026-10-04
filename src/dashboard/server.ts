@@ -16,6 +16,7 @@ import { sharedAgentRegistry } from "../orchestration/agent-registry.ts";
 import { domainPolicy, setDomainEnabled } from "../knowledge/gate.ts";
 import { executeExplicitApproval } from "../approval/explicit.ts";
 import { LocalVoiceService, VoiceError, voiceConfigFromEnv, type VoiceLanguage } from "../voice/index.ts";
+import { createProviderTextStream } from "../providers/stream-text.ts";
 import { createSpokenFenceFilter, extractQuoteIdFromReply, speakableSummary, splitSentences, stripForSpeech, stripSpokenBlock } from "../voice/speakable.ts";
 import { isCounterMode, isCounterTier, isTranscriptState, isTranscriptSurface, readVoiceSettings, updateVoiceSettings } from "../voice/transcripts.ts";
 // Roman Hinglish conversion is intentionally retained but disabled. Native Whisper output
@@ -79,6 +80,56 @@ function wavDurationSeconds(audio: Buffer): number | undefined {
     }
     return byteRate > 0 && dataLength > 0 ? Math.round((dataLength / byteRate) * 10) / 10 : undefined;
   } catch { return undefined; }
+}
+
+/**
+ * ONE onEvent handler for a streamed turn (counter, Talk, web chat; plain and attachment runs).
+ * `createProviderTextStream` turns each provider's events into the text to append: Claude
+ * text deltas stream as they arrive and the whole message that repeats them is skipped, Codex
+ * agent messages arrive whole, and consecutive messages are joined by a blank line. On a voice
+ * turn the ```spoken fence can open ANY message (commentary may precede the fenced answer), so
+ * a fresh fence filter starts with each message; its body fires one `spoken` event and never
+ * reaches a `token`. Tool starts raise `onToolStart` (the `gathering` signal).
+ */
+export function createTurnEventHandler(options: {
+  voiceMode: boolean;
+  write: (event: string, data: unknown) => void;
+  onToolStart: () => void;
+  isToolStart: (parsed: Record<string, unknown> | undefined) => boolean;
+}): (event: ProviderEvent) => void {
+  const reader = createProviderTextStream();
+  const newFilter = () => options.voiceMode
+    ? createSpokenFenceFilter((text) => options.write("spoken", { text }))
+    : undefined;
+  let filter = newFilter();
+  let separator = "";
+  return (event: ProviderEvent) => {
+    const parsed = event.parsed as Record<string, unknown> | undefined;
+    if (!parsed) return;
+    if (options.voiceMode && options.isToolStart(parsed)) options.onToolStart();
+    // A new message starts a new fence scope: Claude message_start, a whole Claude assistant
+    // message, or a Codex agent message.
+    const inner = parsed.event as Record<string, unknown> | undefined;
+    const startsMessage = parsed.type === "assistant" || parsed.type === "item.completed"
+      || (parsed.type === "stream_event" && inner?.type === "message_start");
+    if (startsMessage) filter = newFilter();
+    let raw = reader(event);
+    if (!raw) return;
+    // The reader's blank-line separator between messages is held back from the fence filter
+    // (a fenced message would swallow it) and re-attached to the first visible text.
+    if (raw.startsWith("\n\n")) { raw = raw.slice(2); separator = "\n\n"; }
+    let visible = filter ? filter.push(raw) : raw;
+    if (!visible.trim() && !(parsed.type === "stream_event" && visible && !separator)) return;
+    if (separator) { visible = separator + visible.replace(/^\s+/, ""); separator = ""; }
+    options.write("token", { text: parsed.type === "stream_event" || visible.endsWith("\n") ? visible : `${visible}\n` });
+  };
+}
+
+/** "Claude sonnet" / "Codex gpt-5.6-sol": the provider and model a research dispatch runs on. */
+export function researchNoticeLabel(config: { provider: ProviderName; claudeModel?: string; codexModel?: string }): string {
+  return config.provider === "claude"
+    ? `Claude ${config.claudeModel || "default model"}`
+    : `Codex ${config.codexModel || "default model"}`;
 }
 
 function sseWrite(response: http.ServerResponse, event: string, data: unknown): void {
@@ -1026,8 +1077,9 @@ export function startDashboard(runtime: HenryRuntime, options: DashboardOptions 
     icon: (size) => iconPng(size, runtime.trade.accent),
     health: (request, response) => writeHealth(request, response, runtime),
     tunnelUrl,
-    brainReady: () => providerAvailable(runtime.config.profileId === "kelly" ? "codex" : runtime.config.provider),
-    ...(runtime.config.profileId === "kelly" ? { provider: "codex" as const } : {}),
+    brainReady: () => providerAvailable(runtime.config.provider),
+    // A getter, so `kelly provider <name>` takes effect on the public surface without a restart.
+    get provider() { return runtime.config.provider; },
     log: publicLog,
     ...(publicMode ? { mode: publicMode } : {}),
     ...(options.publicSurface?.now ? { now: options.publicSurface.now } : {}),
@@ -1895,21 +1947,24 @@ export function startDashboard(runtime: HenryRuntime, options: DashboardOptions 
             // provider pinned to claude (same mechanism as src/screenshots/service.ts). The pin
             // is stated out loud rather than applied silently — if the active provider is codex
             // it cannot read images, and the user is told which model actually saw them.
-            const visionPin = attachmentPaths.length > 0 && runtime.config.profileId !== "kelly";
+            // Kelly runs attachments on her configured provider (Claude reads images natively);
+            // on Codex the user is told the images can't be seen. Other profiles keep the pin.
+            const isKellyProfile = runtime.config.profileId === "kelly";
+            const visionPin = attachmentPaths.length > 0 && !isKellyProfile;
             if (visionPin && runtime.config.provider !== "claude") {
               sseWrite(response, "notice", {
                 text: `${runtime.config.provider} can't read images — this turn was routed to Claude so the attachment could be seen.`,
               });
+            } else if (attachmentPaths.length > 0 && isKellyProfile && runtime.config.provider === "codex") {
+              sseWrite(response, "notice", {
+                text: "Codex can't read images — the attachment may not be seen. Switch Kelly to Claude to read images.",
+              });
             }
-            // A voice turn's reply leads with a ```spoken fence (voiceMode instruction above).
-            // This watcher buffers only long enough to tell whether the fence is actually
-            // there: once its closing ``` arrives, its body fires ONE `spoken` SSE event
-            // (speech can start before the rest of the reply has even finished streaming) and
-            // those characters never reach a `token` event; if the reply turns out not to open
-            // with the fence, everything buffered flushes straight through as `token` text.
-            // `done.spoken` (below, once the full response is in) is unaffected — it stays the
-            // quote-aware fallback for a client that only waits for completion.
-            const spokenFilter = voiceMode ? createSpokenFenceFilter((text) => sseWrite(response, "spoken", { text })) : undefined;
+            // A voice turn's reply leads with a ```spoken fence (voiceMode instruction above);
+            // `createTurnEventHandler` (top of file) buffers only long enough to tell whether
+            // the fence is there, fires ONE `spoken` event for its body and keeps those
+            // characters out of `token` events. `done.spoken` (below) stays the quote-aware
+            // fallback for a client that only waits for completion.
             // Kelly Talk plays its holding phrase ONLY after a `gathering` event: the request
             // itself asks for a price/quotation or items (src/voice/intent.ts), or, failing
             // that, the model actually starts a tool/command. Once per turn, voice turns only,
@@ -1940,11 +1995,12 @@ export function startDashboard(runtime: HenryRuntime, options: DashboardOptions 
               return false;
             };
             if (voiceMode && isLookupRequest(prompt, runtime.trade)) signalGathering("request");
-            const emitToken = (raw: string | undefined): void => {
-              if (!raw) return;
-              const visible = spokenFilter ? spokenFilter.push(raw) : raw;
-              if (visible.trim()) sseWrite(response, "token", { text: visible.endsWith("\n") ? visible : `${visible}\n` });
-            };
+            const turnEventHandler = createTurnEventHandler({
+              voiceMode,
+              write: (event, data) => sseWrite(response, event, data),
+              onToolStart: () => signalGathering("tool"),
+              isToolStart,
+            });
             // Opt-in faster tier for voice/counter turns (docs/talk-latency.md): "auto" (the
             // default) leaves routing exactly as it was — options.tier stays unset and
             // src/agent/henry.ts picks the tier itself. A non-voice turn never reads this
@@ -1958,34 +2014,7 @@ export function startDashboard(runtime: HenryRuntime, options: DashboardOptions 
                 surface: conversation.surface,
                 catalogueQuery,
                 ...(voiceMode && counterTier !== "auto" ? { tier: counterTier } : {}),
-                // Claude's stream-json carries a top-level `text` per token (handled by
-                // `emitToken` above, unchanged). Codex's `--json` JSONL never has that; its
-                // agent text is nested as `{"type":"item.completed","item":{"type":
-                // "agent_message","text":"..."}}` (also item.started/item.updated for the
-                // same item, which must never be forwarded or the text would double up).
-                // Reasoning, command_execution, and tool call args/outputs are never
-                // forwarded as tokens. A voice turn's ```spoken fence can land on ANY
-                // agent_message (commentary can precede the final answer), so fence
-                // detection runs fresh per agent_message rather than once for the whole
-                // turn; consecutive agent messages get a blank line between them so
-                // commentary and answer don't run together.
-                onEvent: (() => {
-                  let agentMessageCount = 0;
-                  return (event: ProviderEvent) => {
-                    const parsed = event.parsed as Record<string, unknown> | undefined;
-                    if (voiceMode && !gatheringSent && isToolStart(parsed)) signalGathering("tool");
-                    if (parsed && typeof parsed.text === "string") { emitToken(String(parsed.text)); return; }
-                    if (parsed?.type !== "item.completed") return;
-                    const item = parsed.item as Record<string, unknown> | undefined;
-                    if (item?.type !== "agent_message" || typeof item.text !== "string") return;
-                    const separator = agentMessageCount > 0 ? "\n\n" : "";
-                    agentMessageCount += 1;
-                    const messageFilter = voiceMode ? createSpokenFenceFilter((spoken) => sseWrite(response, "spoken", { text: spoken })) : undefined;
-                    const visible = messageFilter ? messageFilter.push(item.text) : item.text;
-                    const combined = `${separator}${visible}`;
-                    if (combined.trim()) sseWrite(response, "token", { text: combined.endsWith("\n") ? combined : `${combined}\n` });
-                  };
-                })(),
+                onEvent: turnEventHandler,
               };
             const turn = attachmentPaths.length === 0
               ? isLongResearchAsk(composed) || classifyIntentTier(composed) === "t0"
@@ -1994,33 +2023,15 @@ export function startDashboard(runtime: HenryRuntime, options: DashboardOptions 
               : { delegated: false as const, completion: runtime.agent.run(composed, {
               surface: conversation.surface,
               catalogueQuery,
-              provider: runtime.config.profileId === "kelly" ? "codex" as const : "claude" as const,
-              // Same Codex `item.completed` agent_message handling as the non-attachment
-              // onEvent above (see comment there); this path is the attachment/vision turn.
-              onEvent: (() => {
-                let agentMessageCount = 0;
-                return (event: ProviderEvent) => {
-                  const parsed = event.parsed as Record<string, unknown> | undefined;
-                  if (voiceMode && !gatheringSent && isToolStart(parsed)) signalGathering("tool");
-                  if (parsed && typeof parsed.text === "string") { emitToken(String(parsed.text)); return; }
-                  if (parsed?.type !== "item.completed") return;
-                  const item = parsed.item as Record<string, unknown> | undefined;
-                  if (item?.type !== "agent_message" || typeof item.text !== "string") return;
-                  const separator = agentMessageCount > 0 ? "\n\n" : "";
-                  agentMessageCount += 1;
-                  const messageFilter = voiceMode ? createSpokenFenceFilter((spoken) => sseWrite(response, "spoken", { text: spoken })) : undefined;
-                  const visible = messageFilter ? messageFilter.push(item.text) : item.text;
-                  const combined = `${separator}${visible}`;
-                  if (combined.trim()) sseWrite(response, "token", { text: combined.endsWith("\n") ? combined : `${combined}\n` });
-                };
-              })(),
+              ...(isKellyProfile ? {} : { provider: "claude" as const }),
+              onEvent: turnEventHandler,
             }) };
             if (turn.delegated) {
               // Write the acknowledgement to the socket before the first await.
               // dispatchAndReport starts on a microtask, so this ordering guarantees
               // even an instant fake/worker cannot stream a report token first.
               sseWrite(response, "token", { text: `${turn.acknowledgement}\n\n` });
-              sseWrite(response, "notice", { text: "Luna research · Codex gpt-5.6-sol · low reasoning" });
+              sseWrite(response, "notice", { text: `Luna research · ${researchNoticeLabel(runtime.config)} · low reasoning` });
             }
             const result = await turn.completion;
             if (result.limited) {
