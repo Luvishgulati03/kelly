@@ -52,7 +52,7 @@ export function publicHardRules(shopName: string, pack: TradePack): string {
 
 function modeRules(mode: PublicMode): string {
   if (mode === "chat") {
-    return "This visitor is TYPING. Reply in the visitor's own language style (English, Hindi, Hinglish or Roman Hindi), in two to five short sentences of plain text. A short list is fine for a quotation; no tables, no headings.";
+    return "This visitor is TYPING. Always reply in clear English, even when the visitor writes in Hindi, Hinglish or Roman Hindi, in two to five short sentences of plain text. A short list is fine for a quotation; no tables, no headings.";
   }
   return "This visitor is SPEAKING to Kelly out loud and hears the reply through a text-to-speech voice. Reply in clear, simple English in one to three short spoken sentences: no lists, no markdown, no symbols read aloud, amounts as \"rupees\". Say the grand total when the server computed one.";
 }
