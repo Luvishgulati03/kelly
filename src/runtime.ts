@@ -398,10 +398,10 @@ export class HenryRuntime {
             // Out of quota is not a failed research turn — it is unanswered work, so the
             // owner is told to ask again later instead of being told "Research failed".
             const report = result.limited
-              ? this.limitedResearchReply(result.error)
+              ? this.limitedResearchReply(result.error, result.provider)
               : result.exitCode === 0 && result.response.trim()
                 ? result.response.trim()
-                : `Research failed: ${result.error ?? `Codex exited ${String(result.exitCode)}`}`;
+                : `Research failed: ${result.error ?? `${result.provider} exited ${String(result.exitCode)}`}`;
             const sent = await reportToTelegram(report);
             // A failure recording the OUTCOME must never look like the report itself
             // failed — the DM has already gone out (or been attempted) by this point,
@@ -412,7 +412,7 @@ export class HenryRuntime {
           }).catch(async (error) => {
             const message = `Research failed: ${error instanceof Error ? error.message : String(error)}`;
             await reportToTelegram(message).catch(() => false);
-            await this.activity.record("run.failed", "Luna research dispatch threw", { telegram: true, dispatchReport: true, error: message }, { role: "research", provider: "codex" }).catch(() => undefined);
+            await this.activity.record("run.failed", "Luna research dispatch threw", { telegram: true, dispatchReport: true, error: message }, { role: "research", provider: this.config.provider }).catch(() => undefined);
           });
           return Promise.resolve(turn.acknowledgement);
         },
@@ -587,10 +587,11 @@ export class HenryRuntime {
    * Plain and actionable rather than "Research failed", and carries the reset time when the
    * runner's own message (`describeLimited`, providers/limits.ts) found one.
    */
-  private limitedResearchReply(error?: string): string {
+  private limitedResearchReply(error?: string, provider: ProviderName = this.config.provider): string {
     const reset = error?.match(/earliest reset ([^.]+)\./i)?.[1] ?? error?.match(/\buntil ([^.;]+)/i)?.[1];
     const resetNote = reset ? ` It resets ${reset.trim()}.` : "";
-    return `Codex is out of quota right now, so I couldn't finish that research.${resetNote} Send me the ask again once quota is back.`;
+    const brain = provider === "claude" ? "Claude" : "Codex";
+    return `${brain} is out of quota right now, so I couldn't finish that research.${resetNote} Send me the ask again once quota is back.`;
   }
 
   /**
@@ -739,7 +740,6 @@ export class HenryRuntime {
   }
 
   async setProvider(provider: ProviderName): Promise<ProviderName> {
-    if (this.config.profileId === "kelly" && provider !== "codex") throw new Error("Kelly is Codex-only; Claude fallback is disabled");
     if (provider !== "codex" && provider !== "claude") throw new Error(`Unknown provider: ${String(provider)}`);
     this.config.provider = provider;
     // Read-merge-write (audit 2026-08-09 M2): a bare {provider} write was wiping

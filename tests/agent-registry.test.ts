@@ -140,7 +140,7 @@ test("registry: changesSince reports new entries once and only once", () => {
   assert.equal(fourth.entries[0].status, "done");
 });
 
-test("dispatch-and-report acknowledges immediately and pins research to Sol's low tier", async () => {
+test("dispatch-and-report acknowledges immediately and runs research read-only at t1 on the configured provider", async () => {
   setSharedAgentRegistry(new AgentRegistry());
   const { luna, runnerStub } = await setup();
   let resolveRun!: (value: RunResult) => void;
@@ -155,7 +155,7 @@ test("dispatch-and-report acknowledges immediately and pins research to Sol's lo
   assert.equal(calls.length, 0, "the caller gets one render/send turn before dispatch starts");
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].options.provider, "codex");
+  assert.equal(calls[0].options.provider, undefined, "no provider pin: the configured provider (and its failover policy) applies");
   assert.equal(calls[0].options.tier, "t1");
   assert.equal(calls[0].options.role, "research");
   assert.equal(calls[0].options.readOnly, true);

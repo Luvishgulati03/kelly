@@ -1,6 +1,9 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import type { HenryConfig } from "../config.ts";
+import { chmodSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import type { ClaudeEffort, HenryConfig } from "../config.ts";
+import { getActiveProfile } from "../profile.ts";
 import type { ActivityLog } from "../activity.ts";
 import type { ActivityKind, DispatchTier, ProviderEvent, ProviderName, RunResult } from "../types.ts";
 import { safeEnvironment } from "../util/env.ts";
@@ -8,6 +11,7 @@ import { isPublicTurn } from "../guardrails.ts";
 import { publicClaudeArgs, publicCodexArgs, publicEnvironment, publicTurnViolation } from "./public-sandbox.ts";
 import path from "node:path";
 import { SessionManager, sessionArgs } from "./session.ts";
+import { createProviderTextStream, providerStreamText } from "./stream-text.ts";
 import { AdmissionController, sharedAdmissionController } from "../orchestration/admission.ts";
 import { notifyReminder, type ReminderNotifier } from "../reminders/service.ts";
 import { readSettings } from "../util/settings.ts";
@@ -33,8 +37,19 @@ export interface RunOptions {
   /** Precomputed session from acquireSession() — lets the caller build a slim prompt for resumed turns. */
   session?: { id: string; fresh: boolean; provider: ProviderName };
   provider?: ProviderName;
+  /**
+   * How firmly `provider` binds. Absent: a billing pin that roams only with
+   * providers.fallbackPinned. "soft": a preference that hands off to the other CLI whenever
+   * failover is allowed. "hard": never roams (approved outbound sends, probes).
+   */
+  pin?: "hard" | "soft";
   cwd?: string;
   role?: string;
+  /**
+   * Codex: the read-only sandbox. Claude: `--permission-mode dontAsk` with a read-only tool
+   * allowlist (Read/Grep/Glob/WebSearch/WebFetch, plus the read-only kelly_excel tools on the
+   * Kelly profile) and the write tools denied by name.
+   */
   readOnly?: boolean;
   /** MASTER_PLAN §11.1 tier; absent keeps the configured default models. */
   tier?: DispatchTier;
@@ -42,8 +57,14 @@ export interface RunOptions {
   promptBuildMs?: number;
   /** Wall-clock envelope per provider attempt (§7). */
   timeoutMs?: number;
-  /** Codex structured-output schema. Unsupported providers ignore this option. */
+  /** Structured-output schema file: Codex `--output-schema`, Claude `--json-schema` (compacted). */
   outputSchemaPath?: string;
+  /**
+   * Claude only: stream token-level text deltas (`--include-partial-messages`). Defaults to on
+   * whenever `onEvent` is set, so an interactive surface can render text as it arrives. Read it
+   * with createProviderTextStream() (src/providers/stream-text.ts), never `parsed.text`.
+   */
+  partialMessages?: boolean;
   /** Raw human request used by Kelly's catalogue retriever when the provider prompt has wrappers. */
   catalogueQuery?: string;
   /**
@@ -52,8 +73,8 @@ export interface RunOptions {
    * environment carrying KELLY_PUBLIC_TURN=1, in `cwd` (required: an empty scratch directory),
    * and any answer whose events show a tool call is discarded. `surface`, `session`,
    * `outputSchemaPath` and `catalogueQuery` are ignored; there is no failover. `systemPrompt`
-   * carries the public rules: Codex receives it prepended to the prompt; Claude (Henry profile
-   * only) via --system-prompt.
+   * carries the public rules: Codex receives it prepended to the prompt; Claude via
+   * --system-prompt.
    */
   publicTurn?: { systemPrompt: string };
   onEvent?: (event: ProviderEvent) => void;
@@ -103,8 +124,8 @@ export interface RunUsage { input: number; cached: number; output: number }
 
 /**
  * Codex closes a turn with `{"type":"turn.completed","usage":{input_tokens,cached_input_tokens,
- * output_tokens}}`; Claude's stream-json `result` event carries `usage` with
- * `input_tokens`, `cache_read_input_tokens` and `output_tokens`. Neither CLI bills in money on a
+ * output_tokens}}`; Claude's stream-json `result` event carries `usage` with `input_tokens`,
+ * `cache_creation_input_tokens`, `cache_read_input_tokens` and `output_tokens`. Neither CLI bills in money on a
  * subscription, so tokens are the honest unit the dashboard can show.
  */
 export function providerUsage(events: ProviderEvent[], provider: ProviderName): RunUsage | undefined {
@@ -118,7 +139,10 @@ export function providerUsage(events: ProviderEvent[], provider: ProviderName): 
       return { input: num(usage.input_tokens), cached: num(usage.cached_input_tokens), output: num(usage.output_tokens) };
     }
     if (provider === "claude" && parsed.type === "result") {
-      return { input: num(usage.input_tokens), cached: num(usage.cache_read_input_tokens), output: num(usage.output_tokens) };
+      // Claude splits the prompt into uncached, cache-written and cache-read tokens. `input` is
+      // their sum, so it means the same as Codex's input_tokens (which already includes cached).
+      const cached = num(usage.cache_read_input_tokens);
+      return { input: num(usage.input_tokens) + num(usage.cache_creation_input_tokens) + cached, cached, output: num(usage.output_tokens) };
     }
   }
   return undefined;
@@ -191,30 +215,138 @@ export function codexArgs(
 export const CLAUDE_T0_MODEL = "haiku";
 export const CLAUDE_T2_MODEL = "opus";
 
+/** Built-in tools a read-only Claude run may use: look, search, fetch — never mutate. */
+export const CLAUDE_READ_ONLY_TOOLS = ["Read", "Grep", "Glob", "WebSearch", "WebFetch"];
+/** Denied outright on read-only runs, on top of dontAsk's allowlist. */
+export const CLAUDE_WRITE_TOOLS = ["Bash", "Edit", "Write", "NotebookEdit"];
+
+/** The MCP server name Kelly's Claude runs register (same name as `.codex/config.toml`). */
+export const KELLY_EXCEL_MCP_SERVER = "kelly_excel";
+/** kelly_excel tools that only read a workbook — allowed on read-only Kelly runs. */
+export const KELLY_EXCEL_READ_TOOLS = [
+  "mcp__kelly_excel__excel_inspect_workbook",
+  "mcp__kelly_excel__excel_read_range",
+  "mcp__kelly_excel__excel_search_workbook",
+];
+/** The generated Claude `--mcp-config` file, inside the data directory (git-ignored, 0600). */
+export const CLAUDE_MCP_CONFIG_FILE = "claude-mcp.json";
+/** Absolute path to this checkout's Excel MCP entry point, wherever the process was started. */
+export const KELLY_EXCEL_MCP_ENTRY = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "bin", "kelly-excel-mcp.mjs");
+
+/**
+ * This process's node binary by a path that survives upgrades: a PATH entry (e.g.
+ * /opt/homebrew/bin/node) that resolves to the same binary wins over the versioned
+ * `.../Cellar/node/<version>/bin/node` that process.execPath reports.
+ */
+export function stableNodePath(execPath: string = process.execPath, searchPath: string = process.env.PATH ?? ""): string {
+  let target: string;
+  try { target = realpathSync(execPath); } catch { return execPath; }
+  for (const dir of searchPath.split(path.delimiter).filter(Boolean)) {
+    const candidate = path.join(dir, "node");
+    try { if (realpathSync(candidate) === target) return candidate; } catch { /* not here */ }
+  }
+  return execPath;
+}
+
+/**
+ * The Claude `--mcp-config` document for Kelly's brain runs: exactly the kelly_excel server, by
+ * absolute paths (node binary and entry point), so it starts no matter which cwd a run uses.
+ * Paired with `--strict-mcp-config`, a Kelly run sees this server and none of the owner's
+ * personal claude.ai connectors or user-level MCP servers.
+ */
+export function kellyClaudeMcpConfig(nodePath: string = stableNodePath(), entry: string = KELLY_EXCEL_MCP_ENTRY): string {
+  return `${JSON.stringify({ mcpServers: { [KELLY_EXCEL_MCP_SERVER]: { type: "stdio", command: nodePath, args: [entry] } } }, null, 2)}\n`;
+}
+
+/**
+ * Writes (or refreshes) `<dataDir>/claude-mcp.json` with owner-only permissions and returns its
+ * path. Rewritten only when the content changed; the mode is enforced every time.
+ */
+export function writeClaudeMcpConfig(dataDir: string, content: string = kellyClaudeMcpConfig()): string {
+  const file = path.join(dataDir, CLAUDE_MCP_CONFIG_FILE);
+  mkdirSync(dataDir, { recursive: true, mode: 0o700 });
+  let current: string | undefined;
+  try { current = readFileSync(file, "utf8"); } catch { /* first write */ }
+  if (current !== content) writeFileSync(file, content, { encoding: "utf8", mode: 0o600 });
+  chmodSync(file, 0o600);
+  return file;
+}
+
 /**
  * Claude argv for one dispatch (subscription CLI — never the API).
  * t0 → the t0 worker, t2 → the deep specialist, t1/absent → the configured model
- * or the CLI's own default.
+ * or the CLI's own default. Effort follows the same tiering (`--effort`, only when configured).
  *
  * The tier models are parameters rather than literals for the same reason the Codex
  * side takes them: which model serves a tier is a DEPLOYMENT decision, so moving the
- * brain back to the Claude seat stays a config change and never a code change. The
- * defaults reproduce the previous hardcoded haiku/opus behaviour exactly.
+ * brain between seats stays a config change and never a code change.
  *
- * The shape is the prompt followed by `--dangerously-skip-permissions`, which is
- * how the agent edits files on the owner's machine.
+ * A writable run is the prompt followed by `--dangerously-skip-permissions`, which is how the
+ * agent edits files on the owner's machine. A read-only run is Claude's equivalent of Codex's
+ * read-only sandbox: `dontAsk` denies every tool not on the read allowlist, and the write tools
+ * are denied by name as well.
+ *
+ * ARGUMENT ORDER MATTERS: --allowedTools, --disallowedTools and --mcp-config are variadic, so
+ * they sit AFTER the prompt (each list is one comma-joined argument) and are always followed by
+ * another flag; placed before the prompt they would swallow it as a tool name or config file.
  */
 export function claudeArgs(
   prompt: string,
-  options: { readOnly?: boolean; tier?: DispatchTier; model?: string; t0Model?: string; t2Model?: string; session?: { id: string; fresh: boolean } } = {},
+  options: {
+    readOnly?: boolean; tier?: DispatchTier; model?: string; t0Model?: string; t2Model?: string;
+    /** t1/no-tier effort; t0Effort/t2Effort for their tiers. Unset → no --effort flag. */
+    effort?: ClaudeEffort; t0Effort?: ClaudeEffort; t2Effort?: ClaudeEffort;
+    session?: { id: string; fresh: boolean };
+    /** Compact JSON Schema text — the Claude counterpart of Codex's --output-schema. */
+    jsonSchema?: string;
+    /** Stream JSON events (`--verbose --output-format stream-json`): result, usage, init. */
+    streamJson?: boolean;
+    /** Token-level deltas (`--include-partial-messages`); implies streamJson. */
+    partialMessages?: boolean;
+    allowedTools?: string[];
+    disallowedTools?: string[];
+    /** `--mcp-config <file>`; with strictMcp, the ONLY MCP servers the run may load. */
+    mcpConfigPath?: string;
+    strictMcp?: boolean;
+    /** `--setting-sources` (e.g. "project": repo settings + CLAUDE.md, no user hooks/settings). */
+    settingSources?: string;
+  } = {},
 ): string[] {
   const model = options.tier === "t0"
     ? (options.t0Model || CLAUDE_T0_MODEL)
     : options.tier === "t2"
       ? (options.t2Model || CLAUDE_T2_MODEL)
       : options.model;
+  const effort = options.tier === "t0" ? options.t0Effort : options.tier === "t2" ? options.t2Effort : options.effort;
   const session = options.session ? sessionArgs("claude", options.session).claudeArgs : [];
-  return ["-p", ...(model ? ["--model", model] : []), ...session, prompt, "--dangerously-skip-permissions"];
+  const head = [
+    "-p",
+    ...(model ? ["--model", model] : []),
+    ...(effort ? ["--effort", effort] : []),
+    ...(options.settingSources !== undefined ? ["--setting-sources", options.settingSources] : []),
+    ...session,
+    prompt,
+  ];
+  const streamed = options.jsonSchema || options.streamJson || options.partialMessages
+    ? [
+      "--verbose", "--output-format", "stream-json",
+      ...(options.partialMessages ? ["--include-partial-messages"] : []),
+      ...(options.jsonSchema ? ["--json-schema", options.jsonSchema] : []),
+    ]
+    : [];
+  const mcp = options.mcpConfigPath
+    ? ["--mcp-config", options.mcpConfigPath, ...(options.strictMcp ? ["--strict-mcp-config"] : [])]
+    : options.strictMcp ? ["--strict-mcp-config"] : [];
+  const denied = options.disallowedTools ?? [];
+  if (options.readOnly) {
+    return [
+      ...head, ...streamed, ...mcp,
+      "--permission-mode", "dontAsk",
+      "--allowedTools", [...CLAUDE_READ_ONLY_TOOLS, ...(options.allowedTools ?? [])].join(","),
+      "--disallowedTools", [...CLAUDE_WRITE_TOOLS, ...denied].join(","),
+    ];
+  }
+  return [...head, ...streamed, ...mcp, "--dangerously-skip-permissions", ...(denied.length ? ["--disallowedTools", denied.join(",")] : [])];
 }
 
 export function buildProviderArgs(
@@ -225,7 +357,11 @@ export function buildProviderArgs(
     codexModel?: string; codexT0Model?: string; codexT2Model?: string;
     codexResumeTailorModel?: string; codexApplicationReviewModel?: string; codexApplicationManagerModel?: string;
     claudeModel?: string; claudeT0Model?: string; claudeT2Model?: string; session?: { id: string; fresh: boolean };
+    claudeEffort?: ClaudeEffort; claudeT0Effort?: ClaudeEffort; claudeT2Effort?: ClaudeEffort;
     outputSchemaPath?: string;
+    claudeJsonSchema?: string; claudeStreamJson?: boolean; claudePartialMessages?: boolean;
+    claudeAllowedTools?: string[]; claudeDisallowedTools?: string[];
+    claudeMcpConfigPath?: string; claudeStrictMcp?: boolean; claudeSettingSources?: string;
   },
 ): string[] {
   const route = resolveProviderRoute(provider, options);
@@ -233,13 +369,80 @@ export function buildProviderArgs(
     ? codexArgs(prompt, { readOnly: options.readOnly, tier: route.tier, model: route.model, t0Model: options.codexT0Model, session: options.session, outputSchemaPath: options.outputSchemaPath })
     : claudeArgs(prompt, {
       readOnly: options.readOnly, tier: route.tier, model: route.model,
-      t0Model: options.claudeT0Model, t2Model: options.claudeT2Model, session: options.session,
+      t0Model: options.claudeT0Model, t2Model: options.claudeT2Model,
+      effort: options.claudeEffort, t0Effort: options.claudeT0Effort, t2Effort: options.claudeT2Effort,
+      session: options.session,
+      jsonSchema: options.claudeJsonSchema, streamJson: options.claudeStreamJson, partialMessages: options.claudePartialMessages,
+      allowedTools: options.claudeAllowedTools, disallowedTools: options.claudeDisallowedTools,
+      mcpConfigPath: options.claudeMcpConfigPath, strictMcp: options.claudeStrictMcp, settingSources: options.claudeSettingSources,
     });
+}
+
+/**
+ * A checked-in schema file as one compact argv string for Claude's --json-schema. The top-level
+ * `$schema` dialect marker is dropped: Claude's validator rejects the draft 2020-12 URI Codex's
+ * schemas carry, and the marker adds no constraint.
+ */
+export function compactSchema(schemaPath: string): string {
+  const { $schema: _dialect, ...schema } = JSON.parse(readFileSync(schemaPath, "utf8")) as Record<string, unknown>;
+  return JSON.stringify(schema);
+}
+
+/**
+ * Claude's stream-json run ends in one `result` event carrying the structured output (schema
+ * runs) or the final text, plus whether the CLI itself reported an error (a usage-limit or
+ * logged-out notice arrives this way, with `is_error: true`).
+ */
+export function finalClaudeResult(events: ProviderEvent[]): { response: string; isError: boolean } | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const parsed = events[index]?.parsed;
+    if (parsed?.type !== "result") continue;
+    const structured = parsed.structured_output;
+    const response = structured !== undefined && structured !== null
+      ? JSON.stringify(structured)
+      : typeof parsed.result === "string" ? parsed.result.trim() : "";
+    return { response, isError: parsed.is_error === true };
+  }
+  return undefined;
+}
+
+/**
+ * True when Claude's own stream marked the failure as authentication: a logged-out CLI emits a
+ * synthetic assistant message with `"error":"authentication_failed"` (observed on 2.1.258 with
+ * an empty config dir: "Not logged in · Please run /login", is_error, exit 1).
+ */
+export function claudeAuthFailed(events: ProviderEvent[]): boolean {
+  return events.some((event) => event.parsed?.type === "assistant" && event.parsed.error === "authentication_failed");
+}
+
+/** What a Claude run's `system/init` event says it loaded: model, MCP servers, MCP tools. */
+export interface ClaudeInitReport {
+  model?: string;
+  mcpServers: Array<{ name: string; status: string }>;
+  mcpTools: string[];
+  toolCount: number;
+}
+
+export function claudeInitReport(events: ProviderEvent[]): ClaudeInitReport | undefined {
+  const init = events.find((event) => event.parsed?.type === "system" && event.parsed.subtype === "init")?.parsed;
+  if (!init) return undefined;
+  const tools = Array.isArray(init.tools) ? init.tools.filter((tool): tool is string => typeof tool === "string") : [];
+  const servers = Array.isArray(init.mcp_servers) ? init.mcp_servers : [];
+  return {
+    ...(typeof init.model === "string" ? { model: init.model } : {}),
+    mcpServers: servers
+      .filter((server): server is Record<string, unknown> => Boolean(server) && typeof server === "object")
+      .map((server) => ({ name: String(server.name ?? ""), status: String(server.status ?? "") })),
+    mcpTools: tools.filter((tool) => tool.startsWith("mcp__")),
+    toolCount: tools.length,
+  };
 }
 
 export interface ProviderRoute {
   tier?: DispatchTier;
   model?: string;
+  /** Claude `--effort` for this tier, when configured. */
+  effort?: ClaudeEffort;
   roleModelOverride: boolean;
 }
 
@@ -250,6 +453,7 @@ export function resolveProviderRoute(
     codexModel?: string; codexT0Model?: string; codexT2Model?: string;
     codexResumeTailorModel?: string; codexApplicationReviewModel?: string; codexApplicationManagerModel?: string;
     claudeModel?: string; claudeT0Model?: string; claudeT2Model?: string;
+    claudeEffort?: ClaudeEffort; claudeT0Effort?: ClaudeEffort; claudeT2Effort?: ClaudeEffort;
   },
 ): ProviderRoute {
   if (provider === "codex" && isCodexJobRole(options.role)) {
@@ -262,7 +466,8 @@ export function resolveProviderRoute(
       : options.tier === "t2"
         ? options.claudeT2Model || CLAUDE_T2_MODEL
         : options.claudeModel;
-    return { tier: options.tier, model, roleModelOverride: false };
+    const effort = options.tier === "t0" ? options.claudeT0Effort : options.tier === "t2" ? options.claudeT2Effort : options.claudeEffort;
+    return { tier: options.tier, model, ...(effort ? { effort } : {}), roleModelOverride: false };
   }
   const model = options.tier === "t0"
     ? options.codexT0Model || CODEX_T0_MODEL
@@ -299,6 +504,9 @@ export async function execute(
   // produced the corresponding event before completion/timeout.
   let firstEventMs: number | null = null;
   let firstTextMs: number | null = null;
+  // Claude stream-json nests text (deltas, assistant content) and also carries text inside
+  // tool results; the visible-text reader is what "first text" means for it.
+  const claudeText = provider === "claude" ? createProviderTextStream() : undefined;
   const child = spawn(command, args, {
     cwd,
     // A public turn gets the minimal public environment (no tokens, no KELLY_* keys,
@@ -314,9 +522,13 @@ export async function execute(
     if (stream === "stdout") {
       if (firstEventMs === null) firstEventMs = Date.now() - started;
       if (firstTextMs === null && parsed) {
-        const extracted: string[] = [];
-        collectText(parsed, extracted);
-        if (extracted.some((piece) => piece.trim())) firstTextMs = Date.now() - started;
+        if (claudeText) {
+          if (claudeText(event)?.trim()) firstTextMs = Date.now() - started;
+        } else {
+          const extracted: string[] = [];
+          collectText(parsed, extracted);
+          if (extracted.some((piece) => piece.trim())) firstTextMs = Date.now() - started;
+        }
       }
     }
     options.onEvent?.(event);
@@ -384,7 +596,13 @@ export async function execute(
       for (const event of events) if (event.parsed) collectText(event.parsed, extracted);
       const raw = stdoutText.join("").trim();
       const combined = [...new Set(extracted.map((text) => text.trim()).filter(Boolean))].join("\n\n");
+      // Claude: the final `result` event is the answer; a run cut short (no result) falls back
+      // to the visible text it streamed, never to tool results or garbled delta joins.
+      const claudeResult = provider === "claude" ? finalClaudeResult(events) : undefined;
+      const claudeStreamed = provider === "claude" && !claudeResult?.response ? providerStreamText(events) : "";
       const response = (provider === "codex" && options.outputSchemaPath ? finalCodexAgentMessage(events) : undefined)
+        ?? (claudeResult?.response || undefined)
+        ?? (claudeStreamed || undefined)
         ?? (combined || raw);
       if (timedOut) {
         resolve({
@@ -393,7 +611,9 @@ export async function execute(
         });
         return;
       }
-      const error = exitCode === 0 ? undefined : stderrText.join("").trim() || `Provider exited with code ${exitCode}`;
+      const error = exitCode === 0 && !claudeResult?.isError
+        ? undefined
+        : stderrText.join("").trim() || (claudeResult?.isError ? claudeResult.response || "Claude reported an error" : `Provider exited with code ${exitCode}`);
       resolve({ runId, provider, response, exitCode, durationMs: Date.now() - started, ...(error ? { error } : {}), events, firstEventMs, firstTextMs });
     });
   });
@@ -413,6 +633,10 @@ const AUTH_FAILURE_SIGNATURES = [
   "authentication required",
   "401 unauthorized",
   "token expired",
+  // Claude Code: an expired subscription token, a bad key, a failed auth handshake.
+  "oauth token has expired",
+  "invalid api key",
+  "failed to authenticate",
 ];
 
 /**
@@ -446,6 +670,37 @@ export function shouldNotifyAuthFailure(provider: ProviderName, now: number = Da
   if (last !== undefined && now - last < AUTH_NOTIFY_DEBOUNCE_MS) return false;
   lastAuthNotifyAt.set(provider, now);
   return true;
+}
+
+const lastLimitNotifyAt = new Map<ProviderName, number>();
+
+/** Same debounce for "out of quota — the other CLI took over", tracked separately from logouts. */
+export function shouldNotifyLimit(provider: ProviderName, now: number = Date.now()): boolean {
+  const last = lastLimitNotifyAt.get(provider);
+  if (last !== undefined && now - last < AUTH_NOTIFY_DEBOUNCE_MS) return false;
+  lastLimitNotifyAt.set(provider, now);
+  return true;
+}
+
+/** The re-login command for a provider's CLI. */
+export function reloginCommand(provider: ProviderName): string {
+  return provider === "claude" ? "claude auth login" : "codex login";
+}
+
+/**
+ * A finished run that failed because its CLI is logged out: a clean exit whose (short) answer
+ * is a logged-out notice, a nonzero exit whose error says so, or Claude's own
+ * `authentication_failed` marker. Pure; exported for tests.
+ */
+export function isAuthFailureRun(result: Pick<RunResult, "provider" | "exitCode" | "response" | "error" | "events">): boolean {
+  if (result.error === ENVELOPE_TIMEOUT_ERROR) return false;
+  if (result.provider === "claude" && claudeAuthFailed(result.events)) return true;
+  if (result.exitCode === 0) return isAuthFailureResponse(result.response);
+  if (result.exitCode === null) return false;
+  // A FAILED run may also be recognised by a bare "/login" hint; a clean answer never is,
+  // because a short, healthy reply can legitimately mention a /login page.
+  const failedLogin = (text: string): boolean => isAuthFailureResponse(text) || (text.trim().length < 200 && /(?:^|\s)\/login\b/i.test(text));
+  return failedLogin(result.response) || failedLogin(result.error ?? "");
 }
 
 /**
@@ -511,6 +766,24 @@ export interface ProviderRunnerDeps {
   limits?: ProviderLimitLedger;
 }
 
+/** What `kelly provider check` prints. */
+export interface ClaudeCheckReport {
+  ok: boolean;
+  provider: "claude";
+  model?: string;
+  /** The generated --mcp-config file (Kelly profile). */
+  mcpConfig?: string;
+  mcpServers: Array<{ name: string; status: string }>;
+  kellyExcelTools: string[];
+  /** Any other MCP tool the run loaded; empty on Kelly, where --strict-mcp-config applies. */
+  otherMcpTools: string[];
+  response: string;
+  error?: string;
+  durationMs: number;
+  firstTextMs: number | null;
+  usage?: RunUsage;
+}
+
 export class ProviderRunner {
   private sessionManager?: SessionManager;
   private limitLedger?: ProviderLimitLedger;
@@ -534,6 +807,36 @@ export class ProviderRunner {
     return this.config.settingsPath || path.join(this.config.dataDir, "settings.json");
   }
 
+  private mcpConfigPath?: string;
+
+  /**
+   * Kelly's generated Claude `--mcp-config` (kelly_excel only), written on first use. Public so
+   * `kelly provider check` and status surfaces can name the file the brain runs actually load.
+   */
+  claudeMcpConfig(): string {
+    this.mcpConfigPath ||= writeClaudeMcpConfig(this.config.dataDir);
+    return this.mcpConfigPath;
+  }
+
+  /**
+   * The Claude flags that make a Kelly brain run lean and self-contained (measured live on
+   * 2.1.258: strict MCP cut first-text from ~5.7s to ~3.1s): exactly the kelly_excel MCP server (`--strict-mcp-config`, so none
+   * of the owner's personal connectors load) and `--setting-sources project` (the repo's own
+   * settings and CLAUDE.md, without user-level hooks or settings). The Henry profile keeps the
+   * owner's full Claude setup.
+   */
+  private claudeRunExtras(readOnly: boolean): {
+    claudeMcpConfigPath?: string; claudeStrictMcp?: boolean; claudeSettingSources?: string; readTools?: string[];
+  } {
+    if (this.config.profileId !== "kelly") return {};
+    return {
+      claudeMcpConfigPath: this.claudeMcpConfig(),
+      claudeStrictMcp: true,
+      claudeSettingSources: "project",
+      ...(readOnly ? { readTools: KELLY_EXCEL_READ_TOOLS } : {}),
+    };
+  }
+
   /** Peek/create the session a surfaced run() will use — lets callers slim resumed prompts. */
   acquireSession(surface: string, provider?: ProviderName): { id: string; fresh: boolean; provider: ProviderName } {
     const p = provider || this.config.provider;
@@ -550,7 +853,7 @@ export class ProviderRunner {
     private readonly activity: ActivityLog,
     // Defaults to the process-wide controller so every runner (Luna, the agent,
     // the scheduler) shares one budget without changing its own constructor.
-    admission: AdmissionController = sharedAdmissionController(),
+    admission: AdmissionController = sharedAdmissionController(config.maxConcurrentRuns),
     deps: ProviderRunnerDeps = {},
   ) {
     this.admission = admission;
@@ -605,6 +908,37 @@ export class ProviderRunner {
     );
   }
 
+  /**
+   * `kelly provider check`: one cheap headless Claude run (t0 model, read-only, hard-pinned, no
+   * session) with the same MCP/settings flags a brain run gets, reporting what the CLI's init
+   * event says it loaded. `ok` needs a clean answer and, on the Kelly profile, a connected
+   * kelly_excel server that exposes at least one tool.
+   */
+  async checkClaude(timeoutMs = 90_000): Promise<ClaudeCheckReport> {
+    const result = await this.run("Reply with exactly the word: ok", {
+      provider: "claude", pin: "hard", tier: "t0", readOnly: true, role: "provider-check", timeoutMs,
+    });
+    const init = claudeInitReport(result.events);
+    const kelly = this.config.profileId === "kelly";
+    const kellyExcelTools = (init?.mcpTools ?? []).filter((tool) => tool.startsWith(`mcp__${KELLY_EXCEL_MCP_SERVER}__`));
+    const excel = init?.mcpServers.find((server) => server.name === KELLY_EXCEL_MCP_SERVER);
+    const answered = result.exitCode === 0 && !result.error && result.response.trim().length > 0;
+    return {
+      ok: answered && (!kelly || (excel?.status === "connected" && kellyExcelTools.length > 0)),
+      provider: "claude",
+      ...(init?.model ? { model: init.model } : {}),
+      ...(kelly ? { mcpConfig: this.claudeMcpConfig() } : {}),
+      mcpServers: init?.mcpServers ?? [],
+      kellyExcelTools,
+      otherMcpTools: (init?.mcpTools ?? []).filter((tool) => !kellyExcelTools.includes(tool)),
+      response: result.response.slice(0, 200),
+      ...(result.error ? { error: result.error.slice(0, 500) } : {}),
+      durationMs: result.durationMs,
+      firstTextMs: result.firstTextMs ?? null,
+      ...(providerUsage(result.events, "claude") ? { usage: providerUsage(result.events, "claude") } : {}),
+    };
+  }
+
   async run(prompt: string, inputOptions: RunOptions = {}): Promise<RunResult> {
     // PUBLIC RAIL: a process that already serves a public turn never starts another run, and a
     // public run never carries a session, schema, or catalogue retrieval of its own.
@@ -618,25 +952,20 @@ export class ProviderRunner {
     const at = this.nowFn();
     const ledger = this.limits();
     const policy = readFallbackPolicy(this.settingsPath());
-    // A caller-set provider is a PIN (a billing/policy decision), not a preference — see
-    // readFallbackPolicy. `config.provider` is only the default and may always roam.
-    const isPinned = options.provider !== undefined;
+    // A caller-set provider is a PIN (a billing/policy decision) unless the caller marks it soft
+    // (RunOptions.pin) — see readFallbackPolicy. `config.provider` is only the default. Read-only
+    // runs roam too: Claude runs them under dontAsk with a read-only tool allowlist (claudeArgs),
+    // the counterpart of Codex's read-only sandbox.
+    const isPinned = options.provider !== undefined && options.pin !== "soft";
     const preferred = options.provider || this.config.provider;
     const alternate: ProviderName = preferred === "codex" ? "claude" : "codex";
-    // Claude's installed CLI does not expose a verified read-only mode in the
-    // contract we use here. Never turn a read-only review into a write-capable
-    // FALLBACK; an EXPLICIT caller choice of claude (e.g. vision classification)
-    // is honored as a single-provider run with no fallback either way.
+    // config.failover: unset → the settings policy alone (Henry profile); "off" → never; a
+    // provider name → only that provider may take over (Kelly: KELLY_FAILOVER=codex).
+    const failoverAllowed = this.config.failover === undefined || this.config.failover === alternate;
+    const roams = !options.publicTurn && failoverAllowed && policy.fallback
+      && (!isPinned || (options.pin !== "hard" && policy.fallbackPinned));
     // A public turn never fails over: one provider, one locked-down attempt.
-    const sequence: ProviderName[] = this.config.profileId === "kelly"
-      ? ["codex"]
-      : options.publicTurn
-      ? [preferred]
-      : options.readOnly
-      ? [options.provider === "claude" ? "claude" as const : "codex" as const]
-      : isPinned
-        ? (policy.fallback && policy.fallbackPinned ? [preferred, alternate] : [preferred])
-        : (policy.fallback ? [preferred, alternate] : [preferred]);
+    const sequence: ProviderName[] = roams ? [preferred, alternate] : [preferred];
 
     // PRE-FLIGHT (§5): a CLI already known to be out of quota is dropped — spending a spawn and
     // an envelope on a guaranteed refusal helps nobody. SOFT cooldowns (logged out, binary
@@ -704,17 +1033,33 @@ export class ProviderRunner {
         claudeModel: this.config.claudeModel,
         claudeT0Model: this.config.claudeT0Model,
         claudeT2Model: this.config.claudeT2Model,
+        claudeEffort: this.config.claudeEffort,
+        claudeT0Effort: this.config.claudeT0Effort,
+        claudeT2Effort: this.config.claudeT2Effort,
       };
       const route = resolveProviderRoute(provider, routing);
+      const readOnly = options.readOnly === true;
+      const claudeExtras = provider === "claude" && !options.publicTurn ? this.claudeRunExtras(readOnly) : {};
       const args = options.publicTurn
         ? (provider === "claude"
           ? publicClaudeArgs(prompt, options.publicTurn.systemPrompt, { model: route.model })
           : publicCodexArgs(`${options.publicTurn.systemPrompt}\n\n${prompt}`, { model: route.model, effort: "low" }))
         : buildProviderArgs(provider, prompt, {
           ...routing,
-          readOnly: options.readOnly === true,
+          readOnly,
           session,
           outputSchemaPath: options.outputSchemaPath,
+          ...(provider === "claude" ? {
+            // Every Claude brain run streams JSON: the result event is the answer, it carries
+            // usage and is_error, and the init event proves which MCP servers loaded.
+            claudeStreamJson: true,
+            claudePartialMessages: options.partialMessages ?? options.onEvent !== undefined,
+            claudeJsonSchema: options.outputSchemaPath ? compactSchema(options.outputSchemaPath) : undefined,
+            claudeAllowedTools: claudeExtras.readTools,
+            claudeMcpConfigPath: claudeExtras.claudeMcpConfigPath,
+            claudeStrictMcp: claudeExtras.claudeStrictMcp,
+            claudeSettingSources: claudeExtras.claudeSettingSources,
+          } : {}),
         });
       const cwd = options.cwd || this.config.rootDir;
       const decision = await this.admission.waitForSlot({ provider, timeoutMs: envelopeMs, label: options.role });
@@ -744,6 +1089,7 @@ export class ProviderRunner {
         `Starting ${provider} run`,
         {
           cwd, tier: route.tier, requestedTier: options.tier ?? null, model: route.model ?? null,
+          ...(provider === "claude" && route.effort ? { effort: route.effort } : {}),
           role: options.role ?? null, roleModelOverride: route.roleModelOverride,
           promptBuildMs: options.promptBuildMs ?? null, queuedMs: decision.queuedMs, ...(queued ? { queued: true } : {}),
         },
@@ -766,11 +1112,11 @@ export class ProviderRunner {
           return result;
         }
       }
-      if (result.exitCode === 0 && isAuthFailureResponse(result.response)) {
-        // A clean exit with a "you're logged out" body is a FAILURE, not success — the caller
-        // must not mistake it for real output, and the next provider in sequence (if any) gets
-        // a turn exactly like a nonzero exit would trigger.
-        const authError = `${provider} session logged out — run \`codex login\` / \`claude\` to re-auth`;
+      if (isAuthFailureRun(result)) {
+        // A "you're logged out" run is a FAILURE, not success — whether the CLI exited cleanly
+        // with the notice as its body or failed with it — so the caller never mistakes it for
+        // real output, and the next provider in sequence (if any) gets a turn.
+        const authError = `${provider} session logged out — run \`${reloginCommand(provider)}\` to re-auth`;
         result = { ...result, error: authError };
         last = result;
         // §6: logged out counts as UNAVAILABLE, not a crash loop. A SHORT cooldown stops every
@@ -787,8 +1133,8 @@ export class ProviderRunner {
         if (shouldNotifyAuthFailure(provider)) {
           const fallbackNote = next ? `Falling back to ${next}.` : "No fallback available.";
           void this.notifyFn(
-            `⚠️ ${provider} session logged out — run \`codex login\` (or \`claude\`) to re-auth. ${fallbackNote}`,
-            "Henry needs re-login",
+            `⚠️ ${provider} session logged out — run \`${reloginCommand(provider)}\` to re-auth. ${fallbackNote}`,
+            `${getActiveProfile().name} needs re-login`,
           ).catch(() => undefined);
         }
         if (!next) break;
@@ -800,7 +1146,8 @@ export class ProviderRunner {
       // 3pm" as the ANSWER and exiting 0. Only the (terse) body counts as evidence on a clean
       // exit — a stderr retry-warning on an otherwise successful run must never park a healthy
       // provider. A failed attempt gets the full evidence set (error + stderr + short stdout).
-      const answered = result.exitCode === 0 && result.response.trim().length > 0;
+      // A Claude `result` with is_error exits 0 but carries an error: never an answer.
+      const answered = result.exitCode === 0 && !result.error && result.response.trim().length > 0;
       const detection = answered ? detectRunLimit({ response: result.response }, at) : this.classifyFailure(result, at);
       if (answered && detection.limited) result = { ...result, error: detection.reason ?? "provider limit reached" };
       last = result;
@@ -864,6 +1211,12 @@ export class ProviderRunner {
         );
         if (next) {
           await this.recordFailover(provider, next, entry.reason, entry.until, options);
+          if (shouldNotifyLimit(provider)) {
+            void this.notifyFn(
+              `⚠️ ${provider} is out of quota until ${entry.until}. ${next} is taking over.`,
+              `${getActiveProfile().name} switched provider`,
+            ).catch(() => undefined);
+          }
           handoff = { from: provider, to: next, reason: entry.reason, resetAt: entry.until };
           continue;
         }
@@ -875,6 +1228,18 @@ export class ProviderRunner {
           error: this.limitedMessage(ledger.state(at), sequence, { pinned: isPinned, policy, lastError: result.error }),
           limited: true,
         };
+        break;
+      }
+      // A writable run that already produced output may have edited files or called tools.
+      // Re-running the same prompt on the other CLI could apply that work twice, so hand back
+      // the partial result instead. Quota, logout and refused spawns are handled above.
+      if (next && !options.readOnly && result.events.some((event) => event.stream === "stdout")) {
+        await this.activity.record(
+          "run.failed",
+          `${provider} failed mid-run; not re-running a writable task on ${next}`,
+          { error: result.error, partial: true },
+          { runId: result.runId, provider, role: options.role },
+        );
         break;
       }
       await this.activity.record("run.failed", `${provider} failed; considering fallback`, { error: result.error }, { runId: result.runId, provider, role: options.role });

@@ -134,7 +134,7 @@ test("web chat: deep research acknowledges before Luna streams the report", asyn
     const stream = await response.text();
     assert.ok(stream.indexOf("Started — I'll report back.") < stream.indexOf("Sourced report."));
     assert.match(stream, /Luna research · Codex gpt-5\.6-sol · low reasoning/);
-    assert.equal(calls[0].provider, "codex");
+    assert.equal(calls[0].provider, undefined, "research follows the configured provider; no Codex pin");
     assert.equal(calls[0].tier, "t1");
     assert.equal(calls[0].readOnly, true);
     const history = await (await fetch(`${base}/api/chat/history`)).json() as { messages: Array<{ role: string; text: string }> };

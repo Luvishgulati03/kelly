@@ -44,16 +44,51 @@ test("admission grants up to two concurrent slots and blocks the third", async (
   assert.equal(admission.runningCount, 0);
 });
 
-test("only one heavy (claude) subprocess runs at a time", async () => {
+test("the pool is provider-neutral: two claude runs share the default two slots", async () => {
+  // Claude is Kelly's primary brain, so it is no longer a separate "heavy" class.
+  const admission = new AdmissionController({ pressureTtlMs: 0, samplePressure: async () => "ok" });
+  assert.equal(admission.concurrencyLimit, 2);
+  const first = await admit(admission, "claude");
+  const second = await admit(admission, "claude");
+  assert.equal(first.admitted, true);
+  assert.equal(second.admitted, true, "a second claude run is admitted alongside the first");
+  assert.equal(admission.snapshot().heavyRunning, 0, "no request is heavy unless the caller says so");
+
+  let thirdDone = false;
+  const third = admit(admission, "codex").then((decision) => { thirdDone = decision.admitted; return decision; });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(thirdDone, false, "the third run of any provider waits");
+  if (first.admitted) first.slot.release();
+  const decision = await third;
+  assert.equal(decision.admitted, true);
+  if (second.admitted) second.slot.release();
+  if (decision.admitted) decision.slot.release();
+});
+
+test("setMaxConcurrent resizes the pool and admits queued waiters", async () => {
+  const admission = new AdmissionController({ maxConcurrent: 1, pressureTtlMs: 0, samplePressure: async () => "ok" });
+  const first = await admit(admission, "claude");
+  let secondAdmitted = false;
+  const second = admit(admission, "claude").then((decision) => { secondAdmitted = decision.admitted; return decision; });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.equal(secondAdmitted, false);
+  admission.setMaxConcurrent(2);
+  const decision = await second;
+  assert.equal(decision.admitted, true, "the larger pool admits the waiter without a release");
+  if (first.admitted) first.slot.release();
+  if (decision.admitted) decision.slot.release();
+});
+
+test("an explicitly heavy request is still capped by maxHeavy", async () => {
   const admission = controller(() => "ok");
-  const heavy = await admit(admission, "claude");
+  const heavy = await admission.waitForSlot({ provider: "claude", heavy: true, timeoutMs: 1_000 });
   assert.equal(heavy.admitted, true);
 
   const light = await admit(admission, "codex");
   assert.equal(light.admitted, true, "a light worker may pair with the heavy one");
 
   let secondHeavyDone = false;
-  const secondHeavy = admit(admission, "claude").then((decision) => { secondHeavyDone = true; return decision; });
+  const secondHeavy = admission.waitForSlot({ provider: "claude", heavy: true, timeoutMs: 1_000 }).then((decision) => { secondHeavyDone = true; return decision; });
   if (light.admitted) light.slot.release();
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.equal(secondHeavyDone, false, "second heavy worker waits even with a free general slot");
@@ -167,6 +202,10 @@ test("memory_pressure output parses into ok/warn/critical bands", () => {
 test("the shared controller is a process-wide singleton every runner can reach", () => {
   const original = sharedAdmissionController();
   assert.equal(sharedAdmissionController(), original);
+  // A configured ceiling (config.maxConcurrentRuns) resizes the same instance.
+  assert.equal(sharedAdmissionController(3), original);
+  assert.equal(original.concurrencyLimit, 3);
+  original.setMaxConcurrent(2);
   const injected = new AdmissionController({ samplePressure: async () => "ok" });
   setSharedAdmissionController(injected);
   assert.equal(sharedAdmissionController(), injected);
@@ -176,7 +215,7 @@ test("the shared controller is a process-wide singleton every runner can reach",
 
 test("snapshot reports live pool state for the dashboard", async () => {
   const admission = controller(() => "ok");
-  const slot = await admit(admission, "claude");
+  const slot = await admission.waitForSlot({ provider: "claude", heavy: true, timeoutMs: 1_000 });
   const snapshot = admission.snapshot();
   assert.equal(snapshot.running, 1);
   assert.equal(snapshot.heavyRunning, 1);

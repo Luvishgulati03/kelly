@@ -123,7 +123,8 @@ test("the KELLY_PUBLIC_TURN rail refuses approvals, claims, sends, and nested ru
   });
   // The runner: a process serving a public turn cannot start an ordinary run.
   setActiveProfile("kelly");
-  const config = { ...loadConfig(dir), dataDir: dir, settingsPath: path.join(dir, "settings.json") };
+  // Pinned to the Codex seat: this test exercises the Codex public argv (Kelly's default is Claude).
+  const config = { ...loadConfig(dir), dataDir: dir, settingsPath: path.join(dir, "settings.json"), provider: "codex" as const };
   const activity = new ActivityLog(path.join(dir, "activity.jsonl"));
   await activity.init();
   const calls: Array<{ args: string[]; cwd: string; options: RunOptions }> = [];
@@ -135,7 +136,7 @@ test("the KELLY_PUBLIC_TURN rail refuses approvals, claims, sends, and nested ru
   const nested = await withPublicTurn(() => runner.run("hello"));
   assert.equal(nested.error, PUBLIC_TURN_NESTED_REFUSAL);
   assert.equal(calls.length, 0);
-  // A public run: codex (Kelly is Codex-only), public argv, the given scratch cwd, no session.
+  // A public run: codex (pinned above), public argv, the given scratch cwd, no session.
   await assert.rejects(runner.run("hello", { publicTurn: { systemPrompt: "RULES" } }), /scratch cwd/);
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-scratch-"));
   const ok = await runner.run("hello", { publicTurn: { systemPrompt: "RULES" }, cwd: scratch, surface: "should-be-ignored" });

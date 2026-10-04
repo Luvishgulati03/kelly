@@ -28,3 +28,24 @@ test("Kelly subprocesses share store identity without receiving private connecto
     Object.assign(process.env, saved);
   }
 });
+
+test("Claude runs receive their own login location and subscription token, Codex runs do not", () => {
+  setActiveProfile("kelly");
+  const saved = { ...process.env };
+  try {
+    process.env.CLAUDE_CONFIG_DIR = "/tmp/claude-config";
+    process.env.CLAUDE_CODE_OAUTH_TOKEN = "oauth-placeholder";
+    const claude = safeEnvironment("claude");
+    assert.equal(claude.CLAUDE_CONFIG_DIR, "/tmp/claude-config");
+    assert.equal(claude.CLAUDE_CODE_OAUTH_TOKEN, "oauth-placeholder");
+    const codex = safeEnvironment("codex");
+    assert.equal(codex.CLAUDE_CONFIG_DIR, undefined);
+    assert.equal(codex.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+    delete process.env.CLAUDE_CONFIG_DIR;
+    delete process.env.CLAUDE_CODE_OAUTH_TOKEN;
+    assert.ok(!("CLAUDE_CONFIG_DIR" in safeEnvironment("claude")), "absent stays absent");
+  } finally {
+    for (const key of Object.keys(process.env)) if (!(key in saved)) delete process.env[key];
+    Object.assign(process.env, saved);
+  }
+});

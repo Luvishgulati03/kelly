@@ -5,11 +5,14 @@ import type { ProviderName } from "../types.ts";
 /**
  * Admission control for provider subprocesses (MASTER_PLAN §7).
  *
- * The M1 Air budget is ~5GB for the whole agent stack, so we never let more
- * than two provider CLIs run at once and never more than one "heavy" CLI
- * (Claude). Before granting a slot we sample macOS memory pressure; a critical
- * reading refuses the spawn outright and a warning reading collapses the pool
- * to a single worker.
+ * The shop Mac's budget is a few GB for the whole agent stack, so at most
+ * `maxConcurrent` provider CLIs run at once (default 2, configurable with
+ * `<PREFIX>MAX_CONCURRENT_RUNS` through config.maxConcurrentRuns). The cap is
+ * provider-neutral: Claude is the primary brain, so it is no longer treated as
+ * a separate "heavy" class. A caller may still mark a request `heavy` and cap
+ * those with `maxHeavy`. Before granting a slot we sample macOS memory
+ * pressure; a critical reading refuses the spawn outright and a warning reading
+ * collapses the pool to a single worker.
  *
  * The policy is pure and testable: the pressure sampler is injected, so unit
  * tests never exec anything.
@@ -21,7 +24,7 @@ export type MemoryPressureSampler = () => Promise<MemoryPressureLevel>;
 export interface AdmissionControllerOptions {
   /** Hard ceiling on concurrent provider subprocesses. */
   maxConcurrent?: number;
-  /** Ceiling on concurrent heavy (Claude CLI) subprocesses. */
+  /** Ceiling on concurrent requests explicitly marked heavy. Defaults to maxConcurrent (no extra cap). */
   maxHeavy?: number;
   /** Injected for tests; defaults to the macOS `memory_pressure -Q` sampler. */
   samplePressure?: MemoryPressureSampler;
@@ -31,7 +34,7 @@ export interface AdmissionControllerOptions {
 
 export interface SlotRequest {
   provider?: ProviderName;
-  /** Defaults to `provider === "claude"` — the heavier CLI. */
+  /** Opt-in heavy marker, capped by maxHeavy. Defaults to false for every provider. */
   heavy?: boolean;
   /** Give up waiting after this long (default 300s, matching the envelope). */
   timeoutMs?: number;
@@ -59,7 +62,6 @@ interface Waiter {
 }
 
 export const DEFAULT_MAX_CONCURRENT = 2;
-export const DEFAULT_MAX_HEAVY = 1;
 export const DEFAULT_SLOT_TIMEOUT_MS = 300_000;
 const DEFAULT_PRESSURE_TTL_MS = 2_000;
 
@@ -89,8 +91,8 @@ export function sampleMemoryPressure(): Promise<MemoryPressureLevel> {
 }
 
 export class AdmissionController {
-  private readonly maxConcurrent: number;
-  private readonly maxHeavy: number;
+  private maxConcurrent: number;
+  private maxHeavy: number;
   private readonly samplePressure: MemoryPressureSampler;
   private readonly pressureTtlMs: number;
   private readonly running: RunningSlot[] = [];
@@ -103,12 +105,26 @@ export class AdmissionController {
 
   constructor(options: AdmissionControllerOptions = {}) {
     this.maxConcurrent = Math.max(1, options.maxConcurrent ?? DEFAULT_MAX_CONCURRENT);
-    this.maxHeavy = Math.max(1, options.maxHeavy ?? DEFAULT_MAX_HEAVY);
+    this.maxHeavy = Math.max(1, options.maxHeavy ?? this.maxConcurrent);
     this.samplePressure = options.samplePressure ?? sampleMemoryPressure;
     this.pressureTtlMs = options.pressureTtlMs ?? DEFAULT_PRESSURE_TTL_MS;
   }
 
   get runningCount(): number { return this.running.length; }
+  get concurrencyLimit(): number { return this.maxConcurrent; }
+
+  /**
+   * Re-sizes the pool (the shared controller is created before the first config is known in
+   * some paths). A heavy cap that tracked the old ceiling tracks the new one. Never evicts a
+   * running slot; a larger pool admits queued waiters straight away.
+   */
+  setMaxConcurrent(value: number): void {
+    const next = Math.max(1, Math.floor(value));
+    if (next === this.maxConcurrent) return;
+    if (this.maxHeavy === this.maxConcurrent) this.maxHeavy = next;
+    this.maxConcurrent = next;
+    void this.pump();
+  }
   get queuedCount(): number { return this.queue.length; }
 
   snapshot(): { running: number; heavyRunning: number; queued: number; pressure: MemoryPressureLevel } {
@@ -126,7 +142,7 @@ export class AdmissionController {
    * exceeds `timeoutMs`. Callers must `release()` an admitted slot.
    */
   waitForSlot(request: SlotRequest = {}): Promise<AdmissionDecision> {
-    const heavy = request.heavy ?? request.provider === "claude";
+    const heavy = request.heavy === true;
     const timeoutMs = request.timeoutMs ?? DEFAULT_SLOT_TIMEOUT_MS;
     return new Promise<AdmissionDecision>((resolve) => {
       let settled = false;
@@ -232,8 +248,9 @@ export class AdmissionController {
 // admits through the same controller without threading it through constructors.
 let shared: AdmissionController | undefined;
 
-export function sharedAdmissionController(): AdmissionController {
-  if (!shared) shared = new AdmissionController();
+export function sharedAdmissionController(maxConcurrent?: number): AdmissionController {
+  if (!shared) shared = new AdmissionController(maxConcurrent ? { maxConcurrent } : {});
+  else if (maxConcurrent) shared.setMaxConcurrent(maxConcurrent);
   return shared;
 }
 

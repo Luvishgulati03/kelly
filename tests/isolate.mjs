@@ -60,22 +60,38 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+// Every scratch directory THIS process creates is removed when it exits. The orchestrating
+// `node --test` process creates them once and its per-file children inherit the variables (so
+// they create nothing); the orchestrator exits last, after every child is done with them.
+// Directories named by an already-set variable are never touched.
+const created = [];
+function scratchDir(prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  created.push(dir);
+  return dir;
+}
+process.once("exit", () => {
+  for (const dir of created) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
+});
+
 // Henry test isolation
 if (!process.env.HENRY_DATA_DIR && !process.env.LAVU_DATA_DIR) {
-  process.env.HENRY_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "henry-test-data-"));
+  process.env.HENRY_DATA_DIR = scratchDir("henry-test-data-");
 }
 
 if (!process.env.HENRY_MEMORY_DIR) {
-  process.env.HENRY_MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "henry-test-memory-"));
+  process.env.HENRY_MEMORY_DIR = scratchDir("henry-test-memory-");
 }
 
 // Kelly test isolation (separate from Henry)
 if (!process.env.KELLY_DATA_DIR) {
-  process.env.KELLY_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-isolated-data-"));
+  process.env.KELLY_DATA_DIR = scratchDir("kelly-isolated-data-");
 }
 
 if (!process.env.KELLY_MEMORY_DIR) {
-  process.env.KELLY_MEMORY_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-isolated-memory-"));
+  process.env.KELLY_MEMORY_DIR = scratchDir("kelly-isolated-memory-");
 }
 
 // Remote-access / owner-identity isolation (see header). Unconditional on purpose.
@@ -85,7 +101,15 @@ process.env.HENRY_TUNNEL = "off";
 process.env.KELLY_CLOUDFLARE_TUNNEL = "";
 process.env.KELLY_PUBLIC_HOST = "";
 process.env.KELLY_PUBLIC_ORIGIN = "";
-const noBinaryDir = fs.mkdtempSync(path.join(os.tmpdir(), "kelly-isolated-no-binaries-"));
+// Created once (by the orchestrator); a child reuses the inherited path rather than making its own.
+// Reused only when it is exactly such a never-existing path, so a real binary can never slip in.
+const inherited = process.env.KELLY_CLOUDFLARED_PATH ?? "";
+const inheritedRoot = path.dirname(path.dirname(inherited));
+const noBinaryDir = inherited.endsWith(path.join("missing", "cloudflared"))
+  && path.basename(inheritedRoot).startsWith("kelly-isolated-no-binaries-")
+  && !fs.existsSync(inherited)
+  ? inheritedRoot
+  : scratchDir("kelly-isolated-no-binaries-");
 process.env.KELLY_CLOUDFLARED_PATH = path.join(noBinaryDir, "missing", "cloudflared");
 process.env.KELLY_TAILSCALE_PATH = path.join(noBinaryDir, "missing", "tailscale");
 process.env.HENRY_DASH_SECRET = crypto.randomBytes(32).toString("hex");

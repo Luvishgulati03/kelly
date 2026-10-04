@@ -16,6 +16,7 @@ import {
   isAuthFailureResponse,
   shouldNotifyAuthFailure,
 } from "../src/providers/runner.ts";
+import { tempDir } from "./tmp-dirs.ts";
 import type { HenryConfig } from "../src/config.ts";
 import type { ActivityEvent } from "../src/types.ts";
 
@@ -136,7 +137,7 @@ test("execute() records firstTextMs from the first stdout line whose parsed JSON
 });
 
 async function testRunner(admission: AdmissionController): Promise<{ runner: ProviderRunner; events: () => Promise<ActivityEvent[]> }> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "henry-runner-"));
+  const root = tempDir("henry-runner-");
   const activity = new ActivityLog(path.join(root, "activity.jsonl"));
   await activity.init();
   const config = { rootDir: root, dataDir: path.join(root, "data"), provider: "codex" } as HenryConfig;

@@ -1,12 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { ActivityLog } from "../src/activity.ts";
 import { loadConfig } from "../src/config.ts";
 import { AdmissionController } from "../src/orchestration/admission.ts";
 import { ProviderRunner, buildProviderArgs, resolveProviderRoute, type ProviderRunnerDeps } from "../src/providers/runner.ts";
+import { tempDir } from "./tmp-dirs.ts";
 import type { ProviderEvent, ProviderName } from "../src/types.ts";
 
 function modelArg(args: string[]): string | undefined {
@@ -19,7 +19,7 @@ async function mockedRunner(provider: ProviderName = "codex"): Promise<{
   calls: Array<{ command: string; args: string[]; provider: ProviderName }>;
   activity: ActivityLog;
 }> {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "henry-job-routing-"));
+  const root = tempDir("henry-job-routing-");
   const dataDir = path.join(root, "data");
   await fs.mkdir(dataDir, { recursive: true });
   const config = {
@@ -89,7 +89,7 @@ test("Claude is unaffected by Codex-only job role routing", async () => {
 
   assert.equal(calls.length, 1);
   assert.equal(calls[0].command, "claude");
-  assert.deepEqual(calls[0].args, ["-p", "--model", "opus", "review", "--dangerously-skip-permissions"]);
+  assert.deepEqual(calls[0].args, ["-p", "--model", "opus", "review", "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"]);
   const started = (await activity.list(10)).find((event) => event.kind === "run.started");
   assert.equal(started?.metadata?.tier, "t2");
   assert.equal(started?.metadata?.model, "opus");
