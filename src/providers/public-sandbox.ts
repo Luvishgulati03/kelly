@@ -14,7 +14,23 @@ import { PUBLIC_TURN_ENV } from "../guardrails.ts";
  * the repository (src/public/turn.ts), so neither discovers AGENTS.md, CLAUDE.md or
  * .codex/config.toml by walking up from its cwd.
  *
- * Codex (Kelly's provider; flags checked against codex-cli 0.153 `codex exec --help` and
+ * Claude (Kelly's primary provider; flags checked against claude 2.1 `claude --help`):
+ *   --tools ""                     no built-in tool at all
+ *   --safe-mode                    no customizations (hooks, plugins, skills, CLAUDE.md discovery)
+ *   --strict-mcp-config with an empty --mcp-config   no MCP server, not even kelly_excel
+ *   --setting-sources ""           no user/project/local settings file
+ *   --permission-mode dontAsk      anything not pre-approved is denied, never prompted
+ *   --disallowedTools <file/shell/web tools>   belt and braces on top of --tools ""
+ *   --disable-slash-commands       no skills
+ *   --no-session-persistence       no session file
+ *   --system-prompt                replaces the default agent prompt (which carries the working
+ *                                  directory and platform) with Kelly's public rules
+ *   --effort low, --model <public model>   a fast, short answer (src/public/config.ts)
+ *   --verbose --output-format stream-json --include-partial-messages   the init event proves, per
+ *                                  run, that no tool or MCP server loaded; text deltas let the
+ *                                  public face stream guarded sentences (src/public/stream.ts)
+ *
+ * Codex (the optional failover; flags checked against codex-cli 0.153 `codex exec --help` and
  * `codex features list`):
  *   --disable shell_tool / unified_exec / shell_snapshot   no shell, so no way to read a file
  *   --disable apps, plugins, remote_plugin, browser_use(+external, +full_cdp_access),
@@ -25,13 +41,6 @@ import { PUBLIC_TURN_ENV } from "../guardrails.ts";
  *   --ignore-rules                 no execpolicy rules
  *   --sandbox read-only, approval_policy=never, web_search=disabled, project_doc_max_bytes=0
  *   --ephemeral                    no session file
- *
- * Claude (only for the shared Henry profile; the Kelly profile is Codex-only and never reaches
- * this branch — tests/kelly-codex-only.test.ts):
- *   --tools "" · --safe-mode · --strict-mcp-config with an empty --mcp-config ·
- *   --setting-sources "" · --permission-mode dontAsk · --disallowedTools <file/shell/web tools> ·
- *   --disable-slash-commands · --no-session-persistence · --system-prompt (replaces the default
- *   agent prompt, which carries the working directory and platform).
  *
  * Both runs get a MINIMAL environment (publicEnvironment): no KELLY_* / HENRY_* keys, no tokens,
  * just what the CLI needs to find its own subscription login, plus KELLY_PUBLIC_TURN=1 so every
@@ -60,7 +69,7 @@ export const CODEX_PUBLIC_DISABLED_FEATURES = [
 
 export interface PublicArgsOptions {
   model?: string;
-  /** Codex reasoning effort; public turns stay low. */
+  /** Reasoning effort (Claude --effort, Codex model_reasoning_effort); public turns default to low. */
   effort?: "low" | "medium" | "high";
 }
 
@@ -69,6 +78,7 @@ export function publicClaudeArgs(userPrompt: string, systemPrompt: string, optio
   return [
     "-p", userPrompt,
     ...(options.model ? ["--model", options.model] : []),
+    "--effort", options.effort ?? "low",
     "--system-prompt", systemPrompt,
     "--safe-mode",
     "--tools", "",
@@ -78,8 +88,10 @@ export function publicClaudeArgs(userPrompt: string, systemPrompt: string, optio
     "--permission-mode", "dontAsk",
     "--disallowedTools", CLAUDE_PUBLIC_DENIED_TOOLS.join(","),
     "--no-session-persistence",
-    // stream-json so the init event proves, per run, that no tool or MCP server was loaded.
-    "--verbose", "--output-format", "stream-json",
+    // stream-json so the init event proves, per run, that no tool or MCP server was loaded, and
+    // partial messages so the public face can stream text deltas (stream_event/text_delta) as
+    // they are generated; publicTurnViolation() also inspects those partial content blocks.
+    "--verbose", "--output-format", "stream-json", "--include-partial-messages",
   ];
 }
 

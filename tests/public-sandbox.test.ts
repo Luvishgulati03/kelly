@@ -48,8 +48,13 @@ test("codex argv: no shell, no apps/plugins/MCP/browser, no user config or rules
 });
 
 test("claude argv: no tools, safe mode, empty strict MCP config, no settings, dontAsk, no session", () => {
-  const args = publicClaudeArgs("visitor", "SYSTEM");
+  const args = publicClaudeArgs("visitor", "SYSTEM", { model: "sonnet" });
   assert.deepEqual(args.slice(0, 2), ["-p", "visitor"]);
+  assert.deepEqual(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2), ["--model", "sonnet"]);
+  assert.deepEqual(args.slice(args.indexOf("--effort"), args.indexOf("--effort") + 2), ["--effort", "low"], "public turns default to low effort");
+  assert.deepEqual(args.slice(args.indexOf("--output-format"), args.indexOf("--output-format") + 2), ["--output-format", "stream-json"]);
+  for (const flag of ["--verbose", "--include-partial-messages"]) assert.ok(args.includes(flag), flag);
+  assert.ok(!args.some((value) => /bypass|dangerously|--allowedTools|--add-dir|--resume|--continue/.test(value)), "nothing widens the sandbox");
   assert.deepEqual(args.slice(args.indexOf("--tools"), args.indexOf("--tools") + 2), ["--tools", ""]);
   assert.deepEqual(args.slice(args.indexOf("--setting-sources"), args.indexOf("--setting-sources") + 2), ["--setting-sources", ""]);
   assert.deepEqual(args.slice(args.indexOf("--mcp-config"), args.indexOf("--mcp-config") + 2), ["--mcp-config", '{"mcpServers":{}}']);
@@ -72,7 +77,7 @@ test("every codex flag and disabled feature exists in the installed codex CLI", 
 
 test("every claude flag exists in the installed claude CLI", { skip: !installed("claude") && "claude is not installed" }, () => {
   const help = spawnSync("claude", ["--help"], { encoding: "utf8", timeout: 20_000 }).stdout;
-  for (const flag of ["--tools", "--safe-mode", "--strict-mcp-config", "--mcp-config", "--setting-sources", "--disable-slash-commands", "--permission-mode", "--disallowedTools", "--no-session-persistence", "--system-prompt", "--output-format"]) {
+  for (const flag of ["--tools", "--safe-mode", "--strict-mcp-config", "--mcp-config", "--setting-sources", "--disable-slash-commands", "--permission-mode", "--disallowedTools", "--no-session-persistence", "--system-prompt", "--output-format", "--verbose", "--effort", "--include-partial-messages", "--model"]) {
     assert.ok(help.includes(flag), flag);
   }
 });
@@ -146,6 +151,25 @@ test("the KELLY_PUBLIC_TURN rail refuses approvals, claims, sends, and nested ru
   assert.ok(calls[0].args.includes("--ignore-user-config"));
   assert.equal(calls[0].args.at(-1), "RULES\n\nhello");
   assert.ok(!calls[0].args.includes("resume"));
+  // A Claude public run: the public sandbox argv, the per-provider public model, low effort.
+  const claudeCalls: string[][] = [];
+  const claudeRunner = new ProviderRunner({ ...config, provider: "claude" as const, claudeModel: "opus" }, activity, undefined, {
+    execute: async (_c, args, _cwd, provider) => {
+      claudeCalls.push(args);
+      return { runId: "c", provider, response: "ok", exitCode: 0, durationMs: 1, events: [{ timestamp: "", stream: "stdout", text: "", parsed: { type: "system", subtype: "init", tools: [], mcp_servers: [] } }, { timestamp: "", stream: "stdout", text: "", parsed: { type: "result", result: "ok" } }] };
+    },
+  });
+  await claudeRunner.run("hello", { publicTurn: { systemPrompt: "RULES", models: { claude: "sonnet" } }, provider: "claude", cwd: scratch });
+  await claudeRunner.run("hello", { publicTurn: { systemPrompt: "RULES" }, provider: "claude", cwd: scratch });
+  assert.equal(claudeCalls.length, 2);
+  assert.deepEqual(claudeCalls[0].slice(0, 2), ["-p", "hello"]);
+  assert.equal(claudeCalls[0][claudeCalls[0].indexOf("--model") + 1], "sonnet", "the public model wins over the tier model");
+  assert.equal(claudeCalls[1][claudeCalls[1].indexOf("--model") + 1], "opus", "no public model: the tier model");
+  for (const args of claudeCalls) {
+    assert.equal(args[args.indexOf("--effort") + 1], "low");
+    for (const flag of ["--safe-mode", "--strict-mcp-config", "--include-partial-messages", "--no-session-persistence"]) assert.ok(args.includes(flag), flag);
+    assert.equal(args[args.indexOf("--system-prompt") + 1], "RULES");
+  }
   // A run whose events show a tool call is discarded.
   const violating = new ProviderRunner(config, activity, undefined, {
     execute: async (_c, _a, _cwd, provider) => ({ runId: "v", provider, response: "secret", exitCode: 0, durationMs: 1, events: [{ timestamp: "", stream: "stdout", text: "", parsed: { type: "item.started", item: { type: "command_execution" } } }] }),
