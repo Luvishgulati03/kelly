@@ -3,7 +3,7 @@ import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { HenryConfig } from "../config.ts";
-import type { ActivityKind, ProviderName } from "../types.ts";
+import type { ActivityKind, ProviderEvent, ProviderName } from "../types.ts";
 import type { TradePack } from "../trade/index.ts";
 import type { CommerceStore } from "../commerce/store.ts";
 import type { DesignRecord } from "../designs/store.ts";
@@ -11,8 +11,11 @@ import type { DesignService } from "../designs/rag.ts";
 import { galleryFastPath } from "../designs/fastpath.ts";
 import { voicePrompt } from "../designs/vocabulary.ts";
 import { stripForSpeech } from "../voice/speakable.ts";
-import { publicModeConfig, remoteLoginEnabled, type PublicModeConfig } from "./config.ts";
+import { publicModeConfig, publicTurnModels, remoteLoginEnabled, type PublicModeConfig } from "./config.ts";
 import { publicCatalogueContext } from "./catalogue.ts";
+import { publicDesignContext } from "./designs.ts";
+import { PublicReplyStream, publicStreamEvent } from "./stream.ts";
+import { publicTurnViolation } from "../providers/public-sandbox.ts";
 import { buildPublicPrompt, type PublicMode } from "./prompt.ts";
 import { guardPublicReply, publicRefusalLine } from "./guard.ts";
 import { runPublicModelTurn, type PublicRunner } from "./turn.ts";
@@ -503,6 +506,10 @@ export function createPublicSurface(deps: PublicSurfaceDeps): PublicSurface {
       }
       const previousVisitorMessage = [...visitor.history].reverse().find((entry) => entry.role === "visitor")?.text;
       const catalogue = publicCatalogueContext(deps.commerceStore(), pack, message, previousVisitorMessage);
+      // Any other wording that names a garment ("Do you have silk sarees?") gets the matching
+      // gallery rows as data, and the visitor sees the same photos. A quantity quotation
+      // ("2 blouses with lining") is a rate-card question and gets none.
+      const designLookup = gallery && !catalogue.quote ? await publicDesignContext(gallery, pack, message).catch(() => ({ block: "", designs: [] as DesignRecord[] })) : { block: "", designs: [] as DesignRecord[] };
       if (voiceMode && catalogue.lookup) write("gathering", { reason: "request" });
       const queuedAt = now();
       release = await gate.acquire(mode.queueWaitMs, () => {
@@ -516,10 +523,42 @@ export function createPublicSurface(deps: PublicSurfaceDeps): PublicSurface {
         return;
       }
       write("status", { state: "answering" });
-      const prompt = buildPublicPrompt({ shopName, pack, mode: chatMode, catalogue: catalogue.block, history: visitor.history, message });
-      const turn = await runPublicModelTurn(deps.runner, { tier: mode.tier, turnTimeoutMs: mode.turnTimeoutMs, ...(deps.provider ? { provider: deps.provider } : {}) }, prompt);
+      if (designLookup.designs.length) write("designs", { items: designLookup.designs.slice(0, 8).map(designItem) });
+      const data = [catalogue.block, designLookup.block].filter(Boolean).join("\n");
+      const prompt = buildPublicPrompt({ shopName, pack, mode: chatMode, catalogue: data, history: visitor.history, message });
+
+      // STREAMED, GUARDED BY SENTENCE (src/public/stream.ts): each sentence reaches the visitor
+      // only after it and everything before it pass the output guard; a tool event mid-run
+      // withdraws what was sent. The finished run's fully guarded reply is the authority.
+      const replyId = crypto.randomBytes(9).toString("base64url");
+      let part = 0;
+      let firstSentenceMs: number | undefined;
+      const sendPiece = (raw: string): void => {
+        const piece = (voiceMode ? stripForSpeech(raw) || raw : raw).trim();
+        if (!piece) return;
+        firstSentenceMs ??= now() - turnStarted;
+        write("token", { text: part === 0 ? piece : ` ${piece}`, replyId, part });
+        part += 1;
+      };
+      const stream = new PublicReplyStream(blockedValues, (output) => {
+        if (output.type === "reset") { part = 0; write("reset", { replyId }); }
+        else sendPiece(output.text);
+      });
+      const onEvent = (event: ProviderEvent): void => {
+        if (!event.parsed) return;
+        // Both shapes are checked: Claude's checks only match Claude events and Codex's only
+        // Codex items, so the provider that answers needs no guessing here.
+        const violation = publicTurnViolation("claude", [event]) ?? publicTurnViolation("codex", [event]);
+        if (violation) { stream.halt(violation); return; }
+        const piece = publicStreamEvent(event);
+        if (piece?.kind === "start") stream.start();
+        else if (piece?.kind === "text") stream.push(piece.text);
+      };
+      const models = publicTurnModels(mode, deps.provider);
+      const turn = await runPublicModelTurn(deps.runner, { tier: mode.tier, turnTimeoutMs: mode.turnTimeoutMs, ...(deps.provider ? { provider: deps.provider } : {}), ...(models ? { models } : {}) }, prompt, { onEvent });
       if (turn.error || !turn.reply) {
         const violation = Boolean(turn.error?.startsWith("public sandbox violation"));
+        stream.halt(violation ? "sandbox" : "failed");
         logTurn({ mode: chatMode, outcome: violation ? "violation" : "failed", ms: now() - turnStarted, queueMs, modelMs: turn.durationMs, provider: turn.provider, reason: violation ? "sandbox" : turn.limited ? "limited" : "error", visitor: hashed, cfRay: ray });
         record("workflow.failed", violation ? "Public turn discarded by the sandbox check" : "Public turn failed", { provider: turn.provider, durationMs: turn.durationMs, limited: turn.limited === true, violation });
         write("error", { message: PUBLIC_LINES.failed });
@@ -527,11 +566,22 @@ export function createPublicSurface(deps: PublicSurfaceDeps): PublicSurface {
       }
       // Guard every sentence and the whole: one failing sentence replaces the entire reply.
       const whole = guardPublicReply(turn.reply, blockedValues);
-      const failing = whole.ok ? publicSentences(turn.reply).map((sentence) => guardPublicReply(sentence, blockedValues)).find((result) => !result.ok) : whole;
-      const text = failing ? publicRefusalLine() : whole.text;
-      deliver(voiceMode ? stripForSpeech(text) || text : text);
+      // A sentence the stream guard stopped also blocks the whole reply, even if the final text differs.
+      const failing = (whole.ok ? publicSentences(turn.reply).map((sentence) => guardPublicReply(sentence, blockedValues)).find((result) => !result.ok) : whole)
+        ?? (stream.tripped ? { ok: false, text: publicRefusalLine(), reason: stream.tripReason } : undefined);
+      const raw = failing ? publicRefusalLine() : whole.text;
+      const finish = stream.finish({ ok: !failing, text: raw });
+      if (finish.action === "replace") {
+        if (part > 0) { part = 0; write("reset", { replyId }); }
+        for (const piece of publicSentences(finish.text)) sendPiece(piece);
+      } else {
+        for (const piece of finish.pieces) sendPiece(piece);
+      }
+      const text = voiceMode ? stripForSpeech(raw) || raw : raw;
+      visitors.recordExchange(visitor, message, text, replyId);
+      write("done", { response: text, replyId });
       lastReplyMs = now() - turnStarted;
-      logTurn({ mode: chatMode, outcome: failing ? "blocked" : "answered", ms: lastReplyMs, queueMs, modelMs: turn.durationMs, provider: turn.provider, chars: text.length, ...(failing?.reason ? { reason: failing.reason } : {}), visitor: hashed, cfRay: ray });
+      logTurn({ mode: chatMode, outcome: failing ? "blocked" : "answered", ms: lastReplyMs, queueMs, modelMs: turn.durationMs, ...(firstSentenceMs !== undefined ? { firstSentenceMs } : {}), provider: turn.provider, chars: text.length, ...(failing?.reason ? { reason: failing.reason } : {}), visitor: hashed, cfRay: ray });
       if (failing) record("workflow.failed", "Public reply blocked by the output guard", { reason: failing.reason });
     } catch (error) {
       logTurn({ mode: chatMode, outcome: "failed", ms: now() - turnStarted, queueMs, reason: "exception", visitor: hashed, cfRay: ray });

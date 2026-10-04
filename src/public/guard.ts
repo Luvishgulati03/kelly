@@ -34,7 +34,7 @@ const RULES: Array<{ name: string; pattern: RegExp }> = [
   // A long unbroken run of letters AND digits reads as a key or token, not prose.
   { name: "opaque token", pattern: /(?<![A-Za-z0-9/_.-])(?=[A-Za-z0-9_-]{32,}(?![A-Za-z0-9_-]))(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}/ },
   // Kelly's own prompt scaffolding (a sign the model is reciting its instructions).
-  { name: "prompt scaffolding", pattern: /<\/?(?:shop_catalogue|server_quote|visitor_message|conversation_so_far)>|HARD RULES \(these override|PUBLIC EXPLORE PERSONA/ },
+  { name: "prompt scaffolding", pattern: /<\/?(?:shop_catalogue|shop_designs|server_quote|visitor_message|conversation_so_far)>|HARD RULES \(these override|PUBLIC EXPLORE PERSONA/ },
 ];
 
 export function publicRefusalLine(): string {

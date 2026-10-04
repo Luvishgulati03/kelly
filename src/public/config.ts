@@ -1,4 +1,4 @@
-import type { DispatchTier } from "../types.ts";
+import type { DispatchTier, ProviderName } from "../types.ts";
 
 /**
  * Public mode settings: the limits for Kelly's public Explore page (the Explore landing page and
@@ -27,6 +27,15 @@ export interface PublicModeConfig {
   maxAudioBytes: number;
   maxAudioSeconds: number;
   tier: DispatchTier;
+  /**
+   * KELLY_PUBLIC_MODEL: the model a public turn runs on the public provider. Unset means
+   * DEFAULT_PUBLIC_CLAUDE_MODEL on Claude (a CLI default change cannot silently move the public
+   * face onto a slower model) and the tier's model on Codex; "default" means the CLI's own default.
+   * An explicit KELLY_PUBLIC_TIER=t0/t2 means "that tier's model" unless a model is named too.
+   */
+  model?: string;
+  /** The model was named in KELLY_PUBLIC_MODEL (it then applies to whichever provider answers). */
+  modelExplicit?: boolean;
   /** Shop name shown to visitors; defaults to the configured shop name. */
   shopName?: string;
   /** Keep the content-free public request log at <dataDir>/logs/public.log. */
@@ -42,6 +51,30 @@ function int(value: string | undefined, fallback: number, min: number, max: numb
 function flag(value: string | undefined, fallback: boolean): boolean {
   if (value === undefined || value.trim() === "") return fallback;
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
+}
+
+/** The fast model public Claude turns use unless KELLY_PUBLIC_MODEL or KELLY_PUBLIC_TIER says otherwise. */
+export const DEFAULT_PUBLIC_CLAUDE_MODEL = "sonnet";
+
+/** CLI model aliases and ids: letters, digits, dot, dash, underscore, colon, slash, brackets. */
+const MODEL_NAME = /^[A-Za-z0-9][A-Za-z0-9._:/[\]-]{0,63}$/;
+
+/**
+ * The per-provider model map for a public turn (RunOptions.publicTurn.models). `provider` is the
+ * provider the public surface pins, when it pins one; without a pin a named model applies to Claude
+ * only (a Claude alias handed to Codex would fail the turn).
+ */
+export function publicTurnModels(mode: Pick<PublicModeConfig, "model" | "modelExplicit" | "tier">, provider?: ProviderName): Partial<Record<ProviderName, string>> | undefined {
+  if (mode.model && mode.modelExplicit) return { [provider ?? "claude"]: mode.model };
+  if (mode.model && (provider ?? "claude") === "claude") return { claude: mode.model };
+  return undefined;
+}
+
+function publicModel(value: string | undefined, tier: string | undefined): { model?: string; modelExplicit?: boolean } {
+  const trimmed = value?.trim();
+  if (trimmed) return trimmed.toLowerCase() === "default" || !MODEL_NAME.test(trimmed) ? {} : { model: trimmed, modelExplicit: true };
+  if (tier === "t0" || tier === "t2") return {};
+  return { model: DEFAULT_PUBLIC_CLAUDE_MODEL };
 }
 
 /** `<PREFIX>PUBLIC_<name>`, falling back to the other profile's spelling. */
@@ -78,6 +111,7 @@ export function publicModeConfig(profileId: "henry" | "kelly" = "kelly", env: No
     maxAudioBytes: int(read("PUBLIC_MAX_AUDIO_BYTES"), 2_000_000, 64_000, 8 * 1024 * 1024),
     maxAudioSeconds: int(read("PUBLIC_MAX_AUDIO_SECONDS"), 30, 3, 120),
     tier,
+    ...publicModel(read("PUBLIC_MODEL"), tierValue),
     shopName: read("PUBLIC_SHOP_NAME")?.trim() || undefined,
     requestLog: flag(read("PUBLIC_REQUEST_LOG"), true),
   };

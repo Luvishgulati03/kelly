@@ -76,7 +76,11 @@ export interface RunOptions {
    * carries the public rules: Codex receives it prepended to the prompt; Claude via
    * --system-prompt.
    */
-  publicTurn?: { systemPrompt: string };
+  publicTurn?: {
+    systemPrompt: string;
+    /** A model per provider for this public turn (KELLY_PUBLIC_MODEL); absent keeps the tier's model. */
+    models?: Partial<Record<ProviderName, string>>;
+  };
   onEvent?: (event: ProviderEvent) => void;
 }
 
@@ -1040,10 +1044,11 @@ export class ProviderRunner {
       const route = resolveProviderRoute(provider, routing);
       const readOnly = options.readOnly === true;
       const claudeExtras = provider === "claude" && !options.publicTurn ? this.claudeRunExtras(readOnly) : {};
+      const publicModel = options.publicTurn ? options.publicTurn.models?.[provider] ?? route.model : undefined;
       const args = options.publicTurn
         ? (provider === "claude"
-          ? publicClaudeArgs(prompt, options.publicTurn.systemPrompt, { model: route.model })
-          : publicCodexArgs(`${options.publicTurn.systemPrompt}\n\n${prompt}`, { model: route.model, effort: "low" }))
+          ? publicClaudeArgs(prompt, options.publicTurn.systemPrompt, { model: publicModel, effort: "low" })
+          : publicCodexArgs(`${options.publicTurn.systemPrompt}\n\n${prompt}`, { model: publicModel, effort: "low" }))
         : buildProviderArgs(provider, prompt, {
           ...routing,
           readOnly,
@@ -1073,7 +1078,7 @@ export class ProviderRunner {
           "run.started",
           `Refused ${provider} spawn (${decision.reason})`,
           {
-            cwd, tier: route.tier, requestedTier: options.tier ?? null, model: route.model ?? null,
+            cwd, tier: route.tier, requestedTier: options.tier ?? null, model: (options.publicTurn ? publicModel : route.model) ?? null,
             role: options.role ?? null, roleModelOverride: route.roleModelOverride,
             queuedMs: decision.queuedMs, queued: true, refused: decision.reason, pressure: decision.pressure,
           },
@@ -1088,7 +1093,7 @@ export class ProviderRunner {
         "run.started",
         `Starting ${provider} run`,
         {
-          cwd, tier: route.tier, requestedTier: options.tier ?? null, model: route.model ?? null,
+          cwd, tier: route.tier, requestedTier: options.tier ?? null, model: (options.publicTurn ? publicModel : route.model) ?? null,
           ...(provider === "claude" && route.effort ? { effort: route.effort } : {}),
           role: options.role ?? null, roleModelOverride: route.roleModelOverride,
           promptBuildMs: options.promptBuildMs ?? null, queuedMs: decision.queuedMs, ...(queued ? { queued: true } : {}),
@@ -1180,7 +1185,7 @@ export class ProviderRunner {
           firstEventMs: result.firstEventMs ?? null,
           firstTextMs: result.firstTextMs ?? null,
           tier: options.tier,
-          model: route.model ?? null,
+          model: (options.publicTurn ? publicModel : route.model) ?? null,
           ...(usage ? { usage } : {}),
           promptBuildMs: options.promptBuildMs ?? null,
           promptChars: prompt.length,

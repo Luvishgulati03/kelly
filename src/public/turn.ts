@@ -6,7 +6,7 @@ import type { RunOptions } from "../providers/runner.ts";
 import { publicReplyText } from "../providers/public-sandbox.ts";
 
 /**
- * One public model turn through Kelly's own ProviderRunner (the owner's Codex CLI), in the public
+ * One public model turn through Kelly's own ProviderRunner (the owner's Claude Code CLI, or Codex), in the public
  * sandbox (src/providers/public-sandbox.ts). The caller supplies the already-built system and user
  * halves (src/public/prompt.ts); this file owns the spawn options and pulls out the final visible
  * reply. It never touches memory, approvals, conversations, transcripts, sessions or quotes.
@@ -33,18 +33,20 @@ export interface PublicTurnResult {
   reply: string;
   provider: ProviderName;
   durationMs: number;
+  /** Milliseconds from spawn to the first visible model text (the runner's measure), when known. */
+  firstTextMs?: number | null;
   error?: string;
   limited?: boolean;
 }
 
 export async function runPublicModelTurn(
   runner: PublicRunner,
-  settings: { tier: DispatchTier; turnTimeoutMs: number; provider?: ProviderName },
+  settings: { tier: DispatchTier; turnTimeoutMs: number; provider?: ProviderName; models?: Partial<Record<ProviderName, string>> },
   prompt: { system: string; user: string },
   options: { cwd?: string; onEvent?: (event: ProviderEvent) => void } = {},
 ): Promise<PublicTurnResult> {
   const result = await runner.run(prompt.user, {
-    publicTurn: { systemPrompt: prompt.system },
+    publicTurn: { systemPrompt: prompt.system, ...(settings.models ? { models: settings.models } : {}) },
     ...(settings.provider ? { provider: settings.provider } : {}),
     cwd: options.cwd ?? publicScratchDir(),
     tier: settings.tier,
@@ -61,6 +63,7 @@ export async function runPublicModelTurn(
     reply: reply.trim(),
     provider: result.provider,
     durationMs: result.durationMs,
+    firstTextMs: result.firstTextMs ?? null,
     ...(result.error ? { error: result.error } : {}),
     ...(result.limited ? { limited: true } : {}),
   };

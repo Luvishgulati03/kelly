@@ -9,7 +9,7 @@ import { resetLoginThrottleForTests } from "../src/dashboard/auth.ts";
 import { publicModeConfig, type PublicModeConfig } from "../src/public/config.ts";
 import type { PublicVoice } from "../src/public/surface.ts";
 import type { RunOptions } from "../src/providers/runner.ts";
-import type { ProviderEvent, RunResult } from "../src/types.ts";
+import type { ProviderEvent, ProviderName, RunResult } from "../src/types.ts";
 
 /**
  * A loopback Kelly dashboard (kelly profile) on a temp data dir with the public surface wired to
@@ -38,7 +38,7 @@ export interface PublicHarness {
   runtime: HenryRuntime;
   runs: Array<{ prompt: string; options: RunOptions }>;
   /** The scripted reply (or a function of the prompt). `events` overrides the event stream. */
-  reply: { current: string | ((prompt: string) => string | Promise<string>); events?: ProviderEvent[]; error?: string };
+  reply: { current: string | ((prompt: string) => string | Promise<string>); events?: ProviderEvent[]; error?: string; provider?: ProviderName };
   tts: string[];
   stt: number[];
   sweep(): number;
@@ -83,10 +83,13 @@ export async function publicHarness(options: { trade?: "electrical" | "boutique"
     run: async (prompt: string, runOptions: RunOptions): Promise<RunResult> => {
       runs.push({ prompt, options: runOptions });
       const text = typeof reply.current === "function" ? await reply.current(prompt) : reply.current;
+      const events = reply.events ?? [{ timestamp: "", stream: "stdout", text: "", parsed: { type: "item.completed", item: { type: "agent_message", text } } }];
+      // Events reach onEvent as they would from a live CLI, so the surface streams them.
+      for (const event of events) runOptions.onEvent?.(event);
       return {
-        runId: `run-${runs.length}`, provider: "codex", response: text, exitCode: 0, durationMs: 1,
+        runId: `run-${runs.length}`, provider: reply.provider ?? "codex", response: text, exitCode: 0, durationMs: 1,
         ...(reply.error ? { error: reply.error } : {}),
-        events: reply.events ?? [{ timestamp: "", stream: "stdout", text: "", parsed: { type: "item.completed", item: { type: "agent_message", text } } }],
+        events,
       };
     },
   };

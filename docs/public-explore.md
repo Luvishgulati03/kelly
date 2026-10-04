@@ -53,25 +53,44 @@ A visitor's message never reaches Kelly's normal agent. For each turn:
    with Kelly's own `calculateLine`. The prompt gets the results as data. Supplier file paths,
    document ids, and row locations are left out. No quote is saved, no discount is applied, and
    no Excel file is created. A boutique browse ask ("show me bridal lehengas") is answered from
-   the design gallery by code, and the shown counts are left unchanged.
-2. **The model runs with no tools** (`src/providers/public-sandbox.ts`). The sandbox
-   launches the active provider CLI with its tools switched off. For Codex that is `codex exec` with:
+   the design gallery by code, and the shown counts are left unchanged. Any other message that
+   names a gallery category or tag ("Do you have silk sarees?", "koi bridal lehenga hai?") gets
+   the matching gallery rows as a `<shop_designs>` block (`src/public/designs.ts`), and the
+   visitor is shown the same photos. A quantity quotation ("2 blouses with lining") does not.
+2. **The model runs with no tools** (`src/providers/public-sandbox.ts`). The sandbox launches
+   the configured provider CLI with its tools switched off, in an empty 0700 scratch directory
+   outside the repository, with a minimal environment (no `KELLY_*` keys, no tokens, plus
+   `KELLY_PUBLIC_TURN=1`). For Claude, Kelly's primary, that is `claude -p` with:
+   - `--tools ""`, `--safe-mode`, `--strict-mcp-config` with an empty `--mcp-config`
+   - `--setting-sources ""`, `--permission-mode dontAsk`, `--disallowedTools` for the file,
+     shell and web tools, `--disable-slash-commands`, `--no-session-persistence`
+   - `--system-prompt` carrying the public rules (it replaces the default agent prompt)
+   - `--model` (`KELLY_PUBLIC_MODEL`, default `sonnet`) and `--effort low`
+   - `--verbose --output-format stream-json --include-partial-messages`: the init event must
+     report `tools: []` and `mcp_servers: []`, and text arrives as deltas for streaming
+
+   When Codex is the configured provider it is `codex exec` with (a public turn never fails
+   over to the other CLI):
    - `--ephemeral --sandbox read-only --ignore-user-config --ignore-rules`
    - `--disable` for the shell, apps, plugins, browser/computer use, hooks, memories, and similar
      features
-   - `approval_policy=never`, `web_search=disabled`, `project_doc_max_bytes=0`
-   - an empty 0700 scratch directory outside the repository as the working directory
-   - a minimal environment with no `KELLY_*` keys and no tokens, plus `KELLY_PUBLIC_TURN=1`
+   - `approval_policy=never`, `web_search=disabled`, `project_doc_max_bytes=0`, low reasoning
+     effort
 
-   Any event that shows a tool call, or any Codex item that is not a plain message, throws the
-   answer away. For Claude the flag set is `--tools ""`, `--safe-mode`, an empty strict MCP config,
-   `--setting-sources ""`, `dontAsk`.
+   Any event that shows a tool call, a Claude init that lists a tool or MCP server, or a Codex
+   item that is not a plain message throws the answer away, even mid-stream.
 3. **`KELLY_PUBLIC_TURN=1` is a hard rail.** While it is set, every approval, claim, send, and
    quote export refuses, `kelly <anything>` refuses to run, and the provider runner refuses to
    start a nested run.
-4. **An output guard runs sentence by sentence** (`src/public/guard.ts`). A reply that looks like
-   a local path, a private Kelly file, a credential, or Kelly's prompt text is replaced with a
-   polite refusal.
+4. **Replies stream, guarded sentence by sentence** (`src/public/stream.ts`,
+   `src/public/guard.ts`). Claude's text deltas are buffered until a whole sentence is ready.
+   A sentence is sent only when it, and everything already sent plus it, pass the output guard,
+   so a path or secret split across two sentences is caught before its second half leaves. A
+   reply that looks like a local path, a private Kelly file, a credential, or Kelly's prompt text
+   stops the stream; the server then sends a `reset` event and the polite refusal instead. A
+   tool event mid-run sends `reset` and then the error line. A usage-limit or logged-out notice
+   is never streamed as an answer. The finished reply is guarded once more as a whole, and the
+   `done` event carries the final text (the authority for the transcript and for speech).
 5. **Visitor text is untrusted.** It is quoted inside the prompt, and angle brackets are
    neutralised so it can never open or close a prompt section.
 
@@ -117,6 +136,21 @@ These are `KELLY_PUBLIC_*` settings in `KELLY.env.example`:
 - per-visitor and per-client rate limits (Cloudflare's client address is used only as a
   rate-limit key, and only for requests that came through the tunnel)
 - two model turns at a time, then a short queue, then a polite busy line
+- `KELLY_PUBLIC_MODEL`: the model public turns run on the public provider (default `sonnet` on
+  Claude, the tier's model on Codex; `default` means the CLI's own default). Setting
+  `KELLY_PUBLIC_TIER=t0` or `t2` without a model uses that tier's model.
+
+The content-free public log records, per answered turn, the total time, the model time, and
+`firstSentenceMs` (when the first guarded sentence reached the visitor).
+
+## The chat stream (`POST /api/public/chat`)
+
+Server-sent events, in order: `status` (`thinking`, `queued`, `answering`), optional
+`gathering` (voice pages: play a filler), optional `designs` (gallery photos), then `token`
+events (`{ text, replyId, part }`, one guarded sentence each), and finally `done`
+(`{ response, replyId }`) or `error`. A `reset` event (`{ replyId }`) means "discard the
+tokens shown so far for this reply"; the tokens that follow restart at part 0. Pages that do
+not handle `reset` still show the right text if they replace the bubble with `done.response`.
 
 ## Voice assets
 
@@ -139,5 +173,9 @@ listening with a simple energy detector and switches to Silero between utterance
   fail-closed event check still throws the answer away, and the rail still blocks every owner
   action. After a CLI upgrade, run `npm test`: `tests/public-sandbox.test.ts` checks every flag
   and feature name against the installed CLI.
+- A streamed reply is visible sentence by sentence. A sentence that passed the guard can be on
+  screen before a later sentence trips it; the later one is never sent, and the page is told to
+  withdraw the earlier ones (`reset`). A page that ignores `reset` keeps showing those
+  already-guarded sentences until it renders `done.response`.
 - Turning `KELLY_REMOTE_LOGIN` on puts a password prompt on the internet. Use long, unique
   passwords.
