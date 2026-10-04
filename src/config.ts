@@ -4,6 +4,32 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getActiveProfile } from "./profile.ts";
 import { parseTradeId, tradePack, type TradeId } from "./trade/index.ts";
+import type { ProviderName } from "./types.ts";
+
+/** Values Claude Code's `--effort` flag accepts (checked against `claude --help`, 2.1.258). */
+export const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"] as const;
+export type ClaudeEffort = typeof CLAUDE_EFFORTS[number];
+
+/** A configured effort, or `fallback` when the value is unset or not one the CLI accepts. */
+export function parseClaudeEffort(value: string | undefined, fallback?: ClaudeEffort): ClaudeEffort | undefined {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && (CLAUDE_EFFORTS as readonly string[]).includes(normalized) ? normalized as ClaudeEffort : fallback;
+}
+
+/** `<PREFIX>FAILOVER`: "codex"/"claude" names the provider allowed to take over; anything else is off. */
+export function parseFailover(value: string | undefined): ProviderName | "off" {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "codex" || normalized === "claude" ? normalized : "off";
+}
+
+/** Default ceiling on concurrent provider CLI runs. */
+export const DEFAULT_MAX_CONCURRENT_RUNS = 2;
+
+/** `<PREFIX>MAX_CONCURRENT_RUNS` as a positive integer, else the default. */
+export function parseMaxConcurrentRuns(value: string | undefined): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 1 ? parsed : DEFAULT_MAX_CONCURRENT_RUNS;
+}
 
 // Profile-aware env loading: Henry and Kelly share one repo .env (disambiguated by
 // HENRY_*/KELLY_* prefixes — see `env()` below) but keep separate state directories.
@@ -68,6 +94,22 @@ export interface HenryConfig {
   claudeT0Model?: string;
   /** Deep specialist model for t2 work on Claude. */
   claudeT2Model?: string;
+  /**
+   * Claude `--effort` per tier (low|medium|high|xhigh|max). Unset passes no flag, so the CLI's
+   * own default applies. Kelly defaults to low/low/high; the Henry profile leaves them unset.
+   */
+  claudeEffort?: ClaudeEffort;
+  claudeT0Effort?: ClaudeEffort;
+  claudeT2Effort?: ClaudeEffort;
+  /**
+   * Cross-provider failover. Unset (Henry profile): the settings.json `providers.fallback`
+   * policy alone decides. "off": never run the other CLI. A provider name: only that provider
+   * may take over, and the settings policy still applies on top. Kelly defaults to "off";
+   * `KELLY_FAILOVER=codex` turns Codex failover on.
+   */
+  failover?: ProviderName | "off";
+  /** Process-wide ceiling on concurrent provider CLI runs (`<PREFIX>MAX_CONCURRENT_RUNS`, default 2). */
+  maxConcurrentRuns: number;
   requireOutboundApproval: boolean;
   /** The owner's own email address (HENRY_OWNER_EMAIL; legacy DAD_EMAIL still honoured). */
   ownerEmail?: string;
@@ -238,7 +280,11 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
     port: Number(env("PORT") || 7337),
     dashboardToken: env("DASHBOARD_TOKEN") || undefined,
     allowRemoteDashboard: bool(env("ALLOW_REMOTE_DASHBOARD"), false),
-    provider: profile.id === "kelly" ? "codex" : env("PROVIDER") === "claude" ? "claude" : "codex",
+    // Kelly's brain is Claude unless the owner chose Codex (`KELLY_PROVIDER=codex`, or the
+    // persisted settings.json `provider` written by `kelly provider codex`). Henry keeps Codex.
+    provider: profile.id === "kelly"
+      ? (env("PROVIDER") === "codex" ? "codex" : "claude")
+      : (env("PROVIDER") === "claude" ? "claude" : "codex"),
     // Keep the model policy inside Henry instead of inheriting an operator's global
     // Codex setting. The owner's orchestration contract: Sol coordinates ordinary
     // work, a cheaper 5.5 worker handles t0 tasks, and Luna gets the hard t2 work.
@@ -252,11 +298,16 @@ export function loadConfig(rootDir = defaultRoot): HenryConfig {
     codexApplicationReviewModel: env("CODEX_APPLICATION_REVIEW_MODEL") || "gpt-5.5",
     codexApplicationManagerModel: env("CODEX_APPLICATION_MANAGER_MODEL") || "gpt-5.6-sol",
     // The same tiering on the Claude seat, so switching provider is a config change and
-    // never a code change. Defaults reproduce the long-standing hardcoded behaviour
-    // (t0 → haiku, t2 → opus); t1 stays blank so the CLI's own default wins.
-    claudeModel: profile.id === "kelly" ? undefined : env("CLAUDE_MODEL") || undefined,
-    claudeT0Model: profile.id === "kelly" ? undefined : env("CLAUDE_T0_MODEL") || "haiku",
-    claudeT2Model: profile.id === "kelly" ? undefined : env("CLAUDE_T2_MODEL") || "opus",
+    // never a code change: t0 → haiku, t2 → opus. Kelly pins t1 to sonnet; Henry leaves t1
+    // blank so the CLI's own default wins.
+    claudeModel: env("CLAUDE_MODEL") || (profile.id === "kelly" ? "sonnet" : undefined),
+    claudeT0Model: env("CLAUDE_T0_MODEL") || "haiku",
+    claudeT2Model: env("CLAUDE_T2_MODEL") || "opus",
+    claudeEffort: parseClaudeEffort(env("CLAUDE_EFFORT"), profile.id === "kelly" ? "low" : undefined),
+    claudeT0Effort: parseClaudeEffort(env("CLAUDE_T0_EFFORT"), profile.id === "kelly" ? "low" : undefined),
+    claudeT2Effort: parseClaudeEffort(env("CLAUDE_T2_EFFORT"), profile.id === "kelly" ? "high" : undefined),
+    failover: profile.id === "kelly" ? parseFailover(env("FAILOVER")) : undefined,
+    maxConcurrentRuns: parseMaxConcurrentRuns(env("MAX_CONCURRENT_RUNS")),
     requireOutboundApproval: bool(env("REQUIRE_OUTBOUND_APPROVAL"), true),
     ownerEmail: env("OWNER_EMAIL") || process.env.DAD_EMAIL || undefined,
     ownerName: env("OWNER_NAME") || DEFAULT_OWNER_NAME,

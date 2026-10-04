@@ -6,6 +6,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { HenryRuntime } from "./runtime.ts";
+import { createProviderTextStream } from "./providers/stream-text.ts";
 import { startDashboard } from "./dashboard/server.ts";
 import { createUser, deleteUser, listUsers, setPassword } from "./dashboard/auth.ts";
 import {
@@ -37,7 +38,7 @@ import {
 
 // `node bin/kelly.mjs` sets the process's active profile before importing this module. But
 // Kelly's own agent prompt tells the model to run commands as `npx tsx src/cli.ts <cmd>`
-// directly (no launcher) — and Codex's shell tool inherits the running server's environment,
+// directly (no launcher) — and the provider's shell tool inherits the running server's environment,
 // including AGENT_PROFILE=kelly, when it does. Without this, that direct invocation silently
 // keeps the default "henry" profile, config.ts reads HENRY_* env vars instead of KELLY_*, and
 // the CLI resolves a different (usually empty) data directory than the server it was spawned
@@ -324,7 +325,7 @@ async function repl(
           console.log(dim("Luna research report"));
           printAgentText(result.exitCode === 0 && result.response.trim()
             ? result.response
-            : `Research failed: ${result.error ?? `Codex exited ${String(result.exitCode)}`}`);
+            : `Research failed: ${result.error ?? `${result.provider} exited ${String(result.exitCode)}`}`);
           safePrompt(true);
         }).catch((error) => {
           console.error(note("err", `Research failed: ${error instanceof Error ? error.message : String(error)}`));
@@ -362,11 +363,11 @@ async function repl(
     }, 1000);
     process.stdout.write(spinnerStart());
     try {
+      // One visible-text reader per turn: Claude deltas/messages and Codex agent messages alike.
+      const visibleText = createProviderTextStream();
       const result = await runtime.agent.run(value, { surface: "repl",
         onEvent: (event) => {
-          const text = event.parsed && typeof (event.parsed as Record<string, unknown>).text === "string"
-            ? String((event.parsed as Record<string, unknown>).text)
-            : undefined;
+          const text = visibleText(event);
           if (!text?.trim()) return;
           if (streamedChars === 0) {
             // If the user owns the line, keep their draft intact above and stream below.
@@ -695,8 +696,15 @@ async function main(): Promise<void> {
       print((await runtime.task(task, option("--cwd"))).response);
     } else if (command === "provider") {
       const target = args[1];
-      if (!target) print({ provider: runtime.config.provider });
-      else print({ provider: await runtime.setProvider(target as "codex" | "claude") });
+      if (!target) print({ provider: runtime.config.provider, failover: runtime.config.failover ?? "settings", maxConcurrentRuns: runtime.config.maxConcurrentRuns });
+      else if (target === "check") {
+        // A cheap headless Claude probe with the exact flags a brain run uses; reports what the
+        // CLI's init event says it loaded (model, MCP servers, kelly_excel tools).
+        const report = await runtime.agent.providerRunner.checkClaude();
+        print(report);
+        if (!report.ok) process.exitCode = 1;
+      } else if (target !== "codex" && target !== "claude") throw new Error(`Usage: ${binName()} provider [claude|codex|check]`);
+      else print({ provider: await runtime.setProvider(target) });
     } else if (command === "jobs") {
       if (!runtime.jobs) throw new Error("jobs command is not available in this profile");
       const sub = args[1] || "list";

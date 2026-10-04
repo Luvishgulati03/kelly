@@ -17,7 +17,7 @@ import type { DispatchTier, ProviderName } from "../src/types.ts";
  * Henry is agentic by design: its brain runs CLI commands and edits files on the owner's machine,
  * and that is the product. The argv each provider CLI is spawned with is therefore load-bearing
  * — `--dangerously-skip-permissions` on claude, `danger-full-access` on codex unless the caller
- * asked for `readOnly`.
+ * asked for `readOnly` (claude: `--permission-mode dontAsk` with a read-only tool allowlist).
  *
  * This file pins that shape BYTE-FOR-BYTE, across every tier, session and model combination
  * either builder can produce, and end-to-end through `run()` against a stand-in executable on
@@ -148,13 +148,21 @@ test("structured Codex runs select the final agent message instead of commentary
   assert.equal(finalCodexAgentMessage([event("Searching Gmail..."), event('{"matches":[]}')]), '{"matches":[]}');
 });
 
-test("every claude argv carries --dangerously-skip-permissions and no tool disallow", () => {
+test("every writable claude argv carries --dangerously-skip-permissions; every read-only one is dontAsk", () => {
   for (const { provider, args, label } of everyArgv()) {
     if (provider !== "claude") continue;
-    assert.ok(args.includes("--dangerously-skip-permissions"), `${label}: claude keeps its permission flag`);
     assert.ok(!args.includes("--tools"), `${label}: claude is not tool-disabled`);
-    assert.ok(!args.includes("--strict-mcp-config"), `${label}: claude keeps its MCP servers`);
-    assert.ok(args.indexOf("hello") < args.indexOf("--dangerously-skip-permissions"), `${label}: the prompt precedes the trailing flag`);
+    assert.ok(!args.includes("--strict-mcp-config"), `${label}: the builder adds no MCP restriction unless asked`);
+    if (label.includes("readOnly=true")) {
+      assert.ok(!args.includes("--dangerously-skip-permissions"), `${label}: a read-only run never bypasses permissions`);
+      assert.equal(args[args.indexOf("--permission-mode") + 1], "dontAsk", `${label}: read-only runs deny unlisted tools`);
+      assert.equal(args[args.indexOf("--allowedTools") + 1], "Read,Grep,Glob,WebSearch,WebFetch", `${label}: read allowlist`);
+      assert.equal(args[args.indexOf("--disallowedTools") + 1], "Bash,Edit,Write,NotebookEdit", `${label}: write tools denied`);
+      assert.ok(args.indexOf("hello") < args.indexOf("--allowedTools"), `${label}: variadic tool lists follow the prompt`);
+    } else {
+      assert.ok(args.includes("--dangerously-skip-permissions"), `${label}: claude keeps its permission flag`);
+      assert.ok(args.indexOf("hello") < args.indexOf("--dangerously-skip-permissions"), `${label}: the prompt precedes the trailing flag`);
+    }
   }
 });
 
@@ -225,11 +233,14 @@ function fakeProviders(
   };
 }
 
-test("a real spawned claude run is BYTE-IDENTICAL to Henry's long-standing argv", async (t) => {
+test("a real spawned claude run (Henry profile) is the long-standing argv plus stream-json", async (t) => {
   const { runner, argvOf } = fakeProviders(t);
   const result = await runner.run("hi", { provider: "claude", role: "repl", timeoutMs: 20_000 });
   assert.equal(result.exitCode, 0);
-  assert.deepEqual(argvOf(result), ["-p", "hi", "--dangerously-skip-permissions"]);
+  // stream-json: the result event is the answer and carries usage/is_error. The Henry profile
+  // gets no MCP restriction, no setting-sources and no effort (none configured).
+  assert.deepEqual(argvOf(result), ["-p", "hi", "--verbose", "--output-format", "stream-json", "--dangerously-skip-permissions"]);
+  assert.equal(result.response, "OK claude", "a stream without a result event falls back to its visible text");
 });
 
 test("a real spawned codex run keeps danger-full-access when not readOnly", async (t) => {
@@ -243,18 +254,30 @@ test("a real spawned codex run keeps danger-full-access when not readOnly", asyn
   ]);
 });
 
-test("the fallback provider of a run keeps the same argv shape", async (t) => {
+test("the fallback provider of a read-only run keeps the same argv shape", async (t) => {
   // A primary failing must not hand the second provider a different argv. config.provider=codex,
-  // unpinned so fallback is allowed; codex exits 3 and claude takes the turn.
+  // unpinned so fallback is allowed; codex exits 3 and claude takes the read-only turn.
   const { runner, argvOf } = fakeProviders(t, { exit: { codex: 3 }, provider: "codex" });
-  const result = await runner.run("hi", { role: "standup-scan", timeoutMs: 20_000 });
+  const result = await runner.run("hi", { role: "standup-scan", readOnly: true, timeoutMs: 20_000 });
   assert.equal(result.provider, "claude", "codex exited 3, so claude should have taken the turn");
-  assert.deepEqual(argvOf(result), ["-p", "hi", "--dangerously-skip-permissions"]);
+  assert.deepEqual(argvOf(result), [
+    "-p", "hi", "--verbose", "--output-format", "stream-json",
+    "--permission-mode", "dontAsk", "--allowedTools", "Read,Grep,Glob,WebSearch,WebFetch", "--disallowedTools", "Bash,Edit,Write,NotebookEdit",
+  ]);
 });
 
-test("a readOnly run is pinned to the configured provider and never falls back", async (t) => {
-  // readOnly's promise: pin to ONE provider, no cross-provider fallback — vision's explicit
-  // claude choice must not land on a provider that cannot see the image.
+test("a writable run that already produced output is never re-run on the other CLI", async (t) => {
+  // codex printed an event (it may have edited files) and then failed: re-running the same
+  // prompt on claude could apply that work twice, so the partial codex result comes back.
+  const { runner } = fakeProviders(t, { exit: { codex: 3 }, provider: "codex" });
+  const result = await runner.run("hi", { role: "repl", timeoutMs: 20_000 });
+  assert.equal(result.provider, "codex");
+  assert.equal(result.exitCode, 3);
+});
+
+test("a pinned run is never moved to the other provider", async (t) => {
+  // A caller-set provider is a billing/policy pin: vision's explicit claude choice must not
+  // land on a provider that cannot see the image.
   const { runner } = fakeProviders(t, { exit: { claude: 4 } });
   const result = await runner.run("hi", { provider: "claude", readOnly: true, role: "vision", timeoutMs: 20_000 });
   assert.equal(result.provider, "claude");

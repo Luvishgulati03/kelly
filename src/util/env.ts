@@ -20,7 +20,9 @@ const BASE_KEYS = ["PATH", "HOME", "USER", "TMPDIR", "LANG", "LC_ALL", "TERM", "
 export function safeEnvironment(provider?: ProviderName, extra: Record<string, string | undefined> = {}): NodeJS.ProcessEnv {
   const keys = [...BASE_KEYS];
   if (provider === "codex") keys.push("OPENAI_API_KEY", "CODEX_API_KEY");
-  if (provider === "claude") keys.push("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN");
+  // CLAUDE_CONFIG_DIR relocates the CLI's login/config; CLAUDE_CODE_OAUTH_TOKEN is the
+  // long-lived subscription token from `claude setup-token`. Both pass only when set.
+  if (provider === "claude") keys.push("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CONFIG_DIR", "CLAUDE_CODE_OAUTH_TOKEN");
   const env: NodeJS.ProcessEnv = {};
   for (const key of keys) if (process.env[key] !== undefined) env[key] = process.env[key];
   if (process.env.AGENT_PROFILE !== undefined) env.AGENT_PROFILE = process.env.AGENT_PROFILE;

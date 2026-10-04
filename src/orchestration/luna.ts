@@ -88,8 +88,9 @@ export class LunaOrchestrator {
     private readonly memory: HenryMemory,
   ) {
     // One admission controller for the whole process: Luna's dispatches, the
-    // agent's own runs, and scheduled workflows all draw on the same 2-slot budget.
-    this.runner = new ProviderRunner(config, activity, sharedAdmissionController());
+    // agent's own runs, and scheduled workflows all draw on the same slot budget
+    // (config.maxConcurrentRuns, default 2).
+    this.runner = new ProviderRunner(config, activity, sharedAdmissionController(config.maxConcurrentRuns));
   }
 
   async dispatch(role: string, task: string, options: DispatchOptions = {}): Promise<Awaited<ReturnType<ProviderRunner["run"]>>> {
@@ -146,14 +147,15 @@ export class LunaOrchestrator {
 
   /**
    * Starts long research on the next microtask so the caller can render/send
-   * the acknowledgement before any provider event arrives. Pinning Codex+t1
-   * resolves to the configured gpt-5.6-sol model with low reasoning effort.
+   * the acknowledgement before any provider event arrives. Runs read-only on the
+   * configured provider at t1 (Claude: the t1 model with read-only tools; Codex:
+   * the t1 coordinator in its read-only sandbox). No provider is pinned, so the
+   * run follows the deployment's failover policy like any other turn.
    */
   dispatchAndReport(task: string, options: Omit<DispatchOptions, "tier" | "provider" | "allowEdits"> = {}): DispatchReportHandle {
     const completion = Promise.resolve().then(() => this.dispatch("research", task, {
       ...options,
       allowEdits: false,
-      provider: "codex",
       tier: "t1",
     }));
     return { acknowledgement: DISPATCH_ACKNOWLEDGEMENT, completion };

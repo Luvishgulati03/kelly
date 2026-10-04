@@ -265,8 +265,9 @@ test("providerUsage reads Codex turn.completed and Claude result usage, and noth
     { input: 24763, cached: 24448, output: 122 },
   );
   assert.deepEqual(
-    providerUsage([ev({ type: "result", usage: { input_tokens: 900, cache_read_input_tokens: 600, output_tokens: 40 } })], "claude"),
-    { input: 900, cached: 600, output: 40 },
+    // Claude's input_tokens EXCLUDES cache writes and reads; `input` is the whole prompt, like Codex's.
+    providerUsage([ev({ type: "result", usage: { input_tokens: 900, cache_creation_input_tokens: 100, cache_read_input_tokens: 600, output_tokens: 40 } })], "claude"),
+    { input: 1600, cached: 600, output: 40 },
   );
   assert.equal(providerUsage([ev({ type: "turn.completed", usage: { input_tokens: 1 } })], "claude"), undefined, "a Codex event never counts for Claude");
   assert.equal(providerUsage([ev({ text: "hello" })], "codex"), undefined);
