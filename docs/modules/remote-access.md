@@ -161,7 +161,7 @@ starts on its own when the Mac boots.
 
 **Security note.** Public means anyone who has the link can reach the login page — there is no
 tailnet or Cloudflare Access layer in front of it, only Kelly's own login. A counter account can
-open `/chat` and `/voice` (which run Codex on this Mac) but cannot reach mission control,
+open `/chat` and `/voice` (which run Kelly's model on this Mac) but cannot reach mission control,
 approvals, settings, or any admin-only route. Failed logins are throttled the same as any other
 login (5 wrong passwords locks that account for 15 minutes).
 

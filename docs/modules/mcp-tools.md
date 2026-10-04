@@ -1,6 +1,6 @@
 # Zero-code capabilities: MCP tools via the provider CLIs
 
-**You are Claude Code, Codex, or another coding agent, reading this inside
+**You are Claude Code (or another coding agent), reading this inside
 Henry's repo.** There is no Henry source file to configure here — this
 capability comes for free from the provider CLIs Henry already shells out to
 (`src/providers/runner.ts`). Your job, if asked to "give Henry access to X,"
@@ -35,6 +35,10 @@ Nothing in `src/providers/runner.ts` needs to change — `buildProviderArgs()`
 just passes the prompt through; the MCP tool surface is entirely a property
 of the CLI's own config (`~/.claude.json` / `.mcp.json` for Claude,
 `~/.codex/config.toml` for Codex).
+
+Kelly note: Claude is Kelly's primary provider and Codex an optional failover
+(`KELLY_FAILOVER=codex`). Kelly's `kelly_excel` tools reach Claude through a
+Kelly-generated `--mcp-config`; check it with `kelly provider check`.
 
 ## 2. Three concrete examples
 

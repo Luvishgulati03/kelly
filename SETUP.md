@@ -5,7 +5,7 @@ tablet on the Talk page, voice in and out, quotations from the shop's own
 catalogue or rate card, a design gallery for a boutique, and optionally a public
 link and Telegram on the owner's phone.
 
-- **You are an AI coding agent** (Claude Code, Codex, or similar) and the owner
+- **You are an AI coding agent** (Claude Code, or similar) and the owner
   said "set this up for my shop": first run the conversation in
   [SETUP-PROMPT.md](SETUP-PROMPT.md), then work through this file in order. Run
   each command yourself, compare it with the **Expect** line, and stop at a
@@ -46,8 +46,9 @@ You need:
   and Kelly is developed on Node 22 and newer.
 - **git** on PATH (one dependency installs from GitHub).
 - **Homebrew** (https://brew.sh).
-- **A ChatGPT plan that includes Codex.** Kelly's brain is the Codex CLI signed
-  in to the owner's account. There is no other provider.
+- **A Claude subscription that includes Claude Code.** Kelly's brain is the
+  Claude Code CLI (`claude`) signed in to the owner's account. The Codex CLI is
+  an optional failover, off by default (`KELLY_FAILOVER=codex`).
 - About **1 GB of free disk** for speech models (about 310 MB), the Python voice
   environment, and `node_modules`.
 
@@ -111,18 +112,22 @@ npm link
 Without it, use `node bin/kelly.mjs <command>` from the repository root. Every
 `kelly ...` command in this file works either way.
 
-## 3. Codex (Kelly's brain)
+## 3. Claude Code (Kelly's brain)
 
 ```bash
-codex --version || npm install -g @openai/codex
-codex login status
+claude --version || npm install -g @anthropic-ai/claude-code
+claude auth status
 ```
 
-**Expect:** `Logged in using ChatGPT`. If not, **OWNER** runs `codex login` in
-their own terminal (it opens a browser), then re-run `codex login status`.
+**Expect:** a logged-in status for the owner's account. If not, **OWNER** runs
+`claude` in their own terminal (it opens a browser), then re-run
+`claude auth status`. After Kelly is configured (section 4), run
+`kelly provider check`; it verifies the CLI and the Kelly-generated
+`--mcp-config` that exposes the `kelly_excel` tools.
 
-Kelly forces the Codex provider; there is nothing to select. Never configure
-Claude or any other provider for Kelly.
+Claude is Kelly's provider; there is nothing to select. Codex is an optional
+failover only: install it and run `codex login` yourself, then set
+`KELLY_FAILOVER=codex` in `.env`. Leave it off otherwise.
 
 ## 4. Private configuration and persona
 
@@ -177,7 +182,7 @@ turn and are ignored by Git.
 kelly status
 ```
 
-**Expect:** JSON with `"name": "Kelly"`, `"provider": "codex"`,
+**Expect:** JSON with `"name": "Kelly"`, `"provider": "claude"`,
 `"dashboard": "http://127.0.0.1:7338"`, a `trade` block showing the chosen
 trade and shop name, and a data directory that matches `KELLY_DATA_DIR` (or
 `~/.kelly/data` when unset). This makes no provider call.
@@ -671,13 +676,13 @@ sign in (`tailscale up`).
 Create one first: `kelly users add owner --role admin` (add `--demo <trade>` for
 a demo).
 
-**Replies say Codex is logged out.**
-Run `codex login` in the owner's terminal, then `codex login status`.
+**Replies say Claude is logged out.**
+Run `claude` in the owner's terminal, then `claude auth status` and
+`kelly provider check`.
 
-**Codex rejects a model name.**
-Kelly's default Codex model names may not be available on every account. Set
-`KELLY_CODEX_MODEL`, `KELLY_CODEX_T0_MODEL`, and `KELLY_CODEX_T2_MODEL` in `.env`
-to models the owner's Codex account accepts, then restart Kelly.
+**Claude rejects a model name.**
+Set `KELLY_CLAUDE_MODEL` (t1), `KELLY_CLAUDE_T0_MODEL`, and `KELLY_CLAUDE_T2_MODEL`
+in `.env` to model names the owner's Claude account accepts, then restart Kelly.
 
 **Boutique quote says `unresolved` for an item that exists.**
 The rate card was imported under a different shop name. Set `KELLY_SHOP_NAME`,
@@ -695,9 +700,9 @@ The repository is in an iCloud-synced folder. Move it (step 2), delete
 
 ## 16. Verify it works
 
-- [ ] `kelly status` shows `"name": "Kelly"`, `"provider": "codex"`, the right
+- [ ] `kelly status` shows `"name": "Kelly"`, `"provider": "claude"`, the right
       trade and shop name, and port 7338.
-- [ ] `codex login status` says logged in.
+- [ ] `claude auth status` says logged in and `kelly provider check` passes.
 - [ ] `soul.md` and `personality.md` contain no placeholders or example names.
 - [ ] `kelly catalogue review` lists a published document and
       `kelly catalogue search "<an item>"` finds it.
