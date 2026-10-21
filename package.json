@@ -26,7 +26,7 @@
     "better-sqlite3": "12.11.1",
     "croner": "^9.0.0",
     "dotenv": "^16.4.7",
-    "engram-memory": "github:anmolmoses/engram-memory#8ce6ecdbd2aa5ba157a931105d9713ec9a2a2aaa",
+    "engram-memory": "https://codeload.github.com/Luvishgulati03/improved-engram/tar.gz/9075397cea68dd6296516336e865df346c8dd0e6",
     "exceljs": "^4.4.0",
     "mongodb": "^7.5.0",
     "onnxruntime-web": "^1.30.0",
